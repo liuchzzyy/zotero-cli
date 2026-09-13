@@ -13,6 +13,7 @@ from tests.support import FIXTURES_DIR
 from zotero_cli.cli import main
 from zotero_cli.config import AiNoteConfig
 from zotero_cli.core.ai_client import AiClient
+from zotero_cli.core.mineru import MinerUParseResult
 from zotero_cli.core.note_analysis import (
     ANALYZED_TAG,
     KEYWORDS_TAG,
@@ -72,6 +73,27 @@ def _short_note_json() -> str:
     return '{"short_note": "体系A | 机制B | 性能C | 疑问：未解问题"}'
 
 
+def _patch_mineru(att: Attachment, markdown: str, tmp_path):
+    root = tmp_path / "mineru"
+    root.mkdir(exist_ok=True)
+    markdown_path = root / "document.md"
+    content_path = root / "content_list.json"
+    manifest_path = root / "manifest.json"
+    markdown_path.write_text(markdown)
+    content_path.write_text("[]")
+    manifest_path.write_text("{}")
+    parsed = MinerUParseResult(
+        source_path=att.path,
+        fingerprint="a" * 64,
+        model_version="vlm",
+        root=root,
+        markdown_path=markdown_path,
+        content_list_path=content_path,
+        manifest_path=manifest_path,
+    )
+    return patch("zotero_cli.core.note_analysis.MinerUParseCache.ensure_many", return_value={att.path: parsed})
+
+
 class TestExtractJsonObject:
     def test_fenced_json(self):
         fence = chr(96) * 3
@@ -109,10 +131,7 @@ class TestAnalyzeItem:
             _short_note_json(),
         ]
 
-        with patch(
-            "zotero_cli.core.note_analysis.convert_pdfs_to_text",
-            return_value={att.path: "Introduction. This is the main text."},
-        ):
+        with _patch_mineru(att, "Introduction. This is the main text.", tmp_path):
             result = analyze_item(reader, writer, ai_client, "ABC123")
 
         assert result["status"] == "ok"
@@ -139,10 +158,7 @@ class TestAnalyzeItem:
         ai_client.config = _make_ai_config()
         ai_client.chat.side_effect = [_sections_json(12), _short_note_json()]
 
-        with patch(
-            "zotero_cli.core.note_analysis.convert_pdfs_to_text",
-            return_value={att.path: "Chapter 1. Introduction."},
-        ):
+        with _patch_mineru(att, "Chapter 1. Introduction.", tmp_path):
             result = analyze_item(reader, writer, ai_client, "ABC123")
 
         assert result["paper_type"] == "book"
@@ -160,10 +176,7 @@ class TestAnalyzeItem:
         ai_client.config = _make_ai_config()
         ai_client.chat.return_value = '{"paper_type":"uncertain","confidence":0.4,"evidence":["e"],"reason":"r"}'
 
-        with patch(
-            "zotero_cli.core.note_analysis.convert_pdfs_to_text",
-            return_value={att.path: "Some text."},
-        ):
+        with _patch_mineru(att, "Some text.", tmp_path):
             result = analyze_item(reader, writer, ai_client, "ABC123")
 
         assert result["status"] == "uncertain"
@@ -197,10 +210,7 @@ class TestAnalyzeItem:
             _short_note_json(),
         ]
 
-        with patch(
-            "zotero_cli.core.note_analysis.convert_pdfs_to_text",
-            return_value={att.path: "text"},
-        ):
+        with _patch_mineru(att, "text", tmp_path):
             result = analyze_item(reader, writer, ai_client, "ABC123", force=True)
 
         assert result["status"] == "ok"
@@ -218,10 +228,7 @@ class TestAnalyzeItem:
             '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
         ]
 
-        with patch(
-            "zotero_cli.core.note_analysis.convert_pdfs_to_text",
-            return_value={att.path: "Introduction text."},
-        ):
+        with _patch_mineru(att, "Introduction text.", tmp_path):
             result = analyze_item(reader, writer, ai_client, "ABC123", dry_run=True)
 
         assert result["status"] == "dry_run"
@@ -246,10 +253,7 @@ class TestAnalyzeItem:
             _short_note_json(),
         ]
 
-        with patch(
-            "zotero_cli.core.note_analysis.convert_pdfs_to_text",
-            return_value={att.path: "Introduction text."},
-        ):
+        with _patch_mineru(att, "Introduction text.", tmp_path):
             result = analyze_item(reader, writer, ai_client, "ABC123")
 
         assert result["status"] == "ok"
@@ -274,10 +278,7 @@ class TestAnalyzeItem:
             _short_note_json(),
         ]
 
-        with patch(
-            "zotero_cli.core.note_analysis.convert_pdfs_to_text",
-            return_value={att.path: "Introduction text."},
-        ):
+        with _patch_mineru(att, "Introduction text.", tmp_path):
             result = analyze_item(reader, writer, ai_client, "ABC123")
 
         assert result["status"] == "ok"
@@ -300,10 +301,7 @@ class TestAnalyzeItem:
             _short_note_json(),
         ]
 
-        with patch(
-            "zotero_cli.core.note_analysis.convert_pdfs_to_text",
-            return_value={att.path: "Chapter 1. Introduction."},
-        ):
+        with _patch_mineru(att, "Chapter 1. Introduction.", tmp_path):
             result = analyze_item(reader, writer, ai_client, "ABC123")
 
         assert result["status"] == "ok"
@@ -322,17 +320,13 @@ class TestAnalyzeItem:
         ai_client.config = _make_ai_config()
         ai_client.chat.side_effect = ["无 JSON 一", "无 JSON 二"]
 
-        with patch(
-            "zotero_cli.core.note_analysis.convert_pdfs_to_text",
-            return_value={att.path: "Chapter 1. Introduction."},
-        ):
+        with _patch_mineru(att, "Chapter 1. Introduction.", tmp_path):
             with pytest.raises(NoteAnalysisError) as exc:
                 analyze_item(reader, writer, ai_client, "ABC123")
 
         assert exc.value.code == "runtime_error"
         assert "两次都无法解析" in str(exc.value)
         writer.add_note.assert_not_called()
-
 
     def test_analyze_no_short_note_flag(self, tmp_path):
         item = _make_item()
@@ -349,10 +343,7 @@ class TestAnalyzeItem:
             _sections_json(12),
         ]
 
-        with patch(
-            "zotero_cli.core.note_analysis.convert_pdfs_to_text",
-            return_value={att.path: "Introduction text."},
-        ):
+        with _patch_mineru(att, "Introduction text.", tmp_path):
             result = analyze_item(reader, writer, ai_client, "ABC123", no_short_note=True)
 
         assert result["status"] == "ok"
@@ -360,9 +351,7 @@ class TestAnalyzeItem:
         assert ai_client.chat.call_count == 2  # classify + analyze only
         writer.update_short_note.assert_not_called()
         writer.add_tags.assert_any_call("ABC123", [ANALYZED_TAG])
-        assert not any(
-            call.args[1] in ([KEYWORDS_TAG], [NO_KEYWORDS_TAG]) for call in writer.add_tags.call_args_list
-        )
+        assert not any(call.args[1] in ([KEYWORDS_TAG], [NO_KEYWORDS_TAG]) for call in writer.add_tags.call_args_list)
 
     def test_analyze_keyword_failure_tags_no_keywords(self, tmp_path):
         item = _make_item()
@@ -380,10 +369,7 @@ class TestAnalyzeItem:
             "没有 JSON 的关键词输出",
         ]
 
-        with patch(
-            "zotero_cli.core.note_analysis.convert_pdfs_to_text",
-            return_value={att.path: "Introduction text."},
-        ):
+        with _patch_mineru(att, "Introduction text.", tmp_path):
             result = analyze_item(reader, writer, ai_client, "ABC123")
 
         assert result["status"] == "ok"  # note 仍然成功
@@ -404,7 +390,9 @@ class TestAnalyzeItem:
                 parent_key="ABC123",
                 content="AI条目分析 - Test Paper\n" + ("旧版工作流生成的更长的旧笔记内容。\n" * 40),
             ),
-            Note(key="N1", parent_key="ABC123", content="AI条目分析 - Test Paper\n\n## 🧭 阅读协议\n- 文本可读性：完整"),
+            Note(
+                key="N1", parent_key="ABC123", content="AI条目分析 - Test Paper\n\n## 🧭 阅读协议\n- 文本可读性：完整"
+            ),
             Note(key="N2", parent_key="ABC123", content="普通笔记"),
         ]
         writer = MagicMock()
@@ -555,10 +543,11 @@ class TestAiAnalyzeCLI:
             "chars": 100,
             "prompt_preview": "preview",
         }
-        with patch("zotero_cli.commands.ai_analyze.analyze_item", return_value=result), patch(
-            "zotero_cli.commands.ai_analyze.ZoteroReader"
-        ), patch("zotero_cli.commands.ai_analyze.ZoteroWriter"), patch(
-            "zotero_cli.commands.ai_analyze.AiClient"
+        with (
+            patch("zotero_cli.commands.ai_analyze.analyze_item", return_value=result),
+            patch("zotero_cli.commands.ai_analyze.ZoteroReader"),
+            patch("zotero_cli.commands.ai_analyze.ZoteroWriter"),
+            patch("zotero_cli.commands.ai_analyze.AiClient"),
         ):
             res = self._run(["ai_analyze", "ABC123", "--dry-run"])
 
@@ -568,12 +557,15 @@ class TestAiAnalyzeCLI:
         assert data["paper_type"] == "research_article"
 
     def test_not_found_error_exit_code(self):
-        with patch(
-            "zotero_cli.commands.ai_analyze.analyze_item",
-            side_effect=NoteAnalysisError("条目 'X' 不存在", code="not_found"),
-        ), patch("zotero_cli.commands.ai_analyze.ZoteroReader"), patch(
-            "zotero_cli.commands.ai_analyze.ZoteroWriter"
-        ), patch("zotero_cli.commands.ai_analyze.AiClient"):
+        with (
+            patch(
+                "zotero_cli.commands.ai_analyze.analyze_item",
+                side_effect=NoteAnalysisError("条目 'X' 不存在", code="not_found"),
+            ),
+            patch("zotero_cli.commands.ai_analyze.ZoteroReader"),
+            patch("zotero_cli.commands.ai_analyze.ZoteroWriter"),
+            patch("zotero_cli.commands.ai_analyze.AiClient"),
+        ):
             res = self._run(["ai_analyze", "X"])
 
         assert res.exit_code == 4

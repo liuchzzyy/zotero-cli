@@ -38,9 +38,9 @@ def workspace_index_path(name: str) -> Path:
     return workspace_dir(name) / "rag.idx.sqlite"
 
 
-def workspace_cache_path() -> Path:
-    # Shared PDF extraction cache is runtime state, not workspace definition.
-    return state_dir(project_root()) / "pdf_cache.sqlite"
+def mineru_cache_dir() -> Path:
+    # Shared cloud parse packages are runtime state, not workspace definitions.
+    return state_dir(project_root()) / "mineru"
 
 
 def validate_name(name: str) -> bool:

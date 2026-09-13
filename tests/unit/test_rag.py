@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from zotero_cli.config import EmbeddingConfig
 from zotero_cli.core.rag import (
     build_metadata_chunk,
+    chunk_mineru_content,
     chunk_text,
     embed_texts,
     filter_ranked_results_by_pdf_kind,
@@ -72,6 +73,15 @@ class TestRagIndex:
         finally:
             idx.close()
 
+    def test_delete_meta(self, tmp_path):
+        idx = RagIndex(tmp_path / "test.idx.sqlite")
+        try:
+            idx.set_meta("pipeline:item", "mineru-json-v1")
+            idx.delete_meta("pipeline:item")
+            assert idx.get_meta("pipeline:item") is None
+        finally:
+            idx.close()
+
     def test_clear_index(self, tmp_path):
         idx = RagIndex(tmp_path / "test.idx.sqlite")
         try:
@@ -131,6 +141,19 @@ class TestTokenizer:
 
 
 class TestChunking:
+    def test_mineru_json_preserves_section_page_and_block_type(self):
+        content = [
+            {"type": "header", "text": "Journal banner", "page_idx": 0},
+            {"type": "text", "text": "Methods", "text_level": 2, "page_idx": 1},
+            {"type": "text", "text": "Electrochemical evidence", "page_idx": 1},
+        ]
+        chunks = chunk_mineru_content(content, "Paper")
+        assert len(chunks) == 2
+        assert chunks[0].section == "Methods"
+        assert chunks[0].page == 2
+        assert chunks[1].block_type == "text"
+        assert "Journal banner" not in "\n".join(chunk.content for chunk in chunks)
+
     def test_short_text_single_chunk(self):
         chunks = chunk_text("Short text.", "Paper Title", max_tokens=500)
         assert len(chunks) == 1

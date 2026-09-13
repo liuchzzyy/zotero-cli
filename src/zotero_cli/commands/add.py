@@ -241,15 +241,32 @@ def _add_from_pdf(
     library_type: str = "user",
     resolve: bool = True,
 ) -> None:
-    """Add item from PDF: extract DOI, create item, upload attachment."""
-    from zotero_cli.core.pdf_extractor import get_extractor
+    """Add item from PDF: parse with MinerU, extract DOI, create item, upload attachment."""
+    from zotero_cli.config import load_pdf_config
+    from zotero_cli.core.mineru import MinerUError, MinerUParseCache, extract_doi_from_markdown
 
     doi = doi_override
     if not doi:
-        # Honor the configured PDF extractor.  Hard-coding MinerU here made
-        # `zot add --pdf` unexpectedly require a MinerU token even when the
-        # user selected the local PyMuPDF extractor.
-        doi = get_extractor().extract_doi(pdf_path)
+        cache = MinerUParseCache()
+        if cache.get(pdf_path) is None and not load_pdf_config().mineru_token:
+            emit_error(
+                "configuration_error",
+                "MinerU API token is not configured",
+                output_json=json_out,
+                hint="Set [pdf].mineru_token in .zot/config.toml or pass --doi",
+                context="add",
+            )
+        try:
+            parsed = cache.ensure(pdf_path)
+        except MinerUError as exc:
+            emit_error(
+                "network_error",
+                str(exc),
+                output_json=json_out,
+                retryable=True,
+                context="add",
+            )
+        doi = extract_doi_from_markdown(parsed.markdown)
     if not doi:
         emit_error(
             "validation_error",

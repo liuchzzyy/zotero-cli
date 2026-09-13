@@ -15,7 +15,7 @@ from zotero_cli.config import (
     load_config,
     save_config,
 )
-from zotero_cli.formatter import envelope_ok, format_cache_list
+from zotero_cli.formatter import envelope_ok
 
 
 @click.group("config", invoke_without_command=True)
@@ -155,77 +155,58 @@ def profile_list(config_path: str | None) -> None:
 @config_group.group("cache", invoke_without_command=True)
 @click.pass_context
 def cache_group(ctx: click.Context) -> None:
-    """Manage PDF text cache."""
+    """Manage canonical MinerU parse packages."""
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
 
 
 @cache_group.command("clear")
 def cache_clear() -> None:
-    """Clear the PDF text cache."""
-    import sqlite3
-
-    from zotero_cli.core.pdf_cache import PdfCache
+    """Clear cached MinerU parse packages."""
+    from zotero_cli.core.mineru import MinerUParseCache
 
     try:
-        cache = PdfCache()
-    except (sqlite3.OperationalError, OSError) as e:
-        click.echo(f"Error: Could not open cache database: {e}", err=True)
-        raise SystemExit(1)
-    try:
-        stats = cache.stats()
-        cache.clear()
-        click.echo(f"Cache cleared. Removed {stats['entries']} entries.")
-    except sqlite3.OperationalError as e:
-        click.echo(f"Error: Could not modify cache database: {e}", err=True)
-        raise SystemExit(1)
-    finally:
-        cache.close()
+        removed = MinerUParseCache().clear()
+    except OSError as exc:
+        raise click.ClickException(f"Could not clear MinerU cache: {exc}") from exc
+    click.echo(f"Cache cleared. Removed {removed} MinerU parse package(s).")
 
 
 @cache_group.command("stats")
 def cache_stats() -> None:
-    """Show PDF cache statistics."""
-    import sqlite3
-
-    from zotero_cli.core.pdf_cache import PdfCache
+    """Show MinerU parse cache statistics."""
+    from zotero_cli.core.mineru import MinerUParseCache
 
     try:
-        cache = PdfCache()
-    except (sqlite3.OperationalError, OSError) as e:
-        click.echo(f"Error: Could not open cache database: {e}", err=True)
-        raise SystemExit(1)
-    try:
-        stats = cache.stats()
-        click.echo(f"Cached PDFs: {stats['entries']}")
-        click.echo(f"Total chars: {stats['total_chars']:,}")
-    finally:
-        cache.close()
+        stats = MinerUParseCache().stats()
+    except OSError as exc:
+        raise click.ClickException(f"Could not inspect MinerU cache: {exc}") from exc
+    click.echo(f"Cached PDFs: {stats['entries']}")
+    click.echo(f"Total bytes: {stats['total_bytes']:,}")
 
 
 @cache_group.command("list")
 @click.pass_context
 def cache_list(ctx: click.Context) -> None:
-    """List all cached PDF entries."""
-    import sqlite3
-
-    from zotero_cli.core.pdf_cache import PdfCache
+    """List cached MinerU parse packages."""
+    from zotero_cli.core.mineru import MinerUParseCache
 
     json_out = ctx.obj.get("json", False) if ctx.obj else False
-
-    cache = None
     try:
-        cache = PdfCache()
-        rows = cache._conn.execute(
-            "SELECT pdf_path, extractor, LENGTH(content), content, extracted_at FROM pdf_cache ORDER BY pdf_path"
-        ).fetchall()
-        click.echo(format_cache_list(rows, output_json=json_out))
-    except (sqlite3.OperationalError, OSError) as e:
-        click.echo(f"Error: Could not access cache database: {e}", err=True)
-        raise SystemExit(1)
-    finally:
-        if cache is not None:
-            cache.close()
+        entries = MinerUParseCache().entries()
+    except OSError as exc:
+        raise click.ClickException(f"Could not inspect MinerU cache: {exc}") from exc
+    if json_out:
+        click.echo(json.dumps(envelope_ok(entries, meta={"count": len(entries)}), ensure_ascii=False, indent=2))
+        return
+    if not entries:
+        click.echo("Cache is empty.")
+        return
+    for entry in entries:
+        click.echo(
+            f"{entry.get('source_name', '?')}  {entry.get('source_sha256', '')[:12]}  "
+            f"{entry.get('mineru_model_version', '?')}  {entry.get('parsed_at', '?')}"
+        )
 
 
 @profile_group.command("set")

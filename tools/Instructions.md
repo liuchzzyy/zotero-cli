@@ -28,7 +28,7 @@ Persistent data that must not be removed by routine log cleanup:
 
 - `.workspace/<name>/`: workspace and SQLite RAG index.
 - `.workspace/_qdrant/`: local Qdrant vectors.
-- `.zot/state/pdf_cache.sqlite`: shared PDF extraction cache.
+- `.zot/state/mineru/`: shared canonical MinerU packages (`document.md`, `content_list.json`, manifest, and raw assets).
 
 Inspect the full interface:
 
@@ -36,14 +36,12 @@ Inspect the full interface:
 tools/run-rag-workspace.zsh --help
 ```
 
-For the `501-mno2-zn` workspace:
+For the current `00_收件箱` workspace:
 
 ```bash
-collections='KRI7W5QZ,8FAPWVJM,8J9NPUPR,PD6IDJ2R,PUR627E3,R7VCZW46,S67ZHINI,WR5PK9MT,XIWCAHQT,ZF6UGG6U'
-
 tools/run-rag-workspace.zsh \
-  --workspace 501-mno2-zn \
-  --collections "$collections" \
+  --workspace 00_收件箱 \
+  --collections 00_收件箱 \
   --dry-run \
   --keep-log
 ```
@@ -52,8 +50,8 @@ Run the actual incremental update after reviewing the dry-run inventory:
 
 ```bash
 tools/run-rag-workspace.zsh \
-  --workspace 501-mno2-zn \
-  --collections "$collections" \
+  --workspace 00_收件箱 \
+  --collections 00_收件箱 \
   --keep-log
 ```
 
@@ -61,7 +59,7 @@ Only backfill missing embeddings:
 
 ```bash
 tools/run-rag-workspace.zsh \
-  --workspace 501-mno2-zn \
+  --workspace 00_收件箱 \
   --embed-only \
   --keep-log
 ```
@@ -70,8 +68,8 @@ Build only the FTS5 index and defer embeddings:
 
 ```bash
 tools/run-rag-workspace.zsh \
-  --workspace 501-mno2-zn \
-  --collections "$collections" \
+  --workspace 00_收件箱 \
+  --collections 00_收件箱 \
   --no-embed \
   --keep-log
 ```
@@ -82,8 +80,8 @@ Use `--force-rebuild` only when the existing index must be discarded and rebuilt
 
 ```bash
 tools/run-rag-evidence-search.zsh \
-  --workspace 501-mno2-zn \
-  --question 'MnO2 zinc battery failure degradation mechanism' \
+  --workspace 00_收件箱 \
+  --question 'anionic redox mechanism' \
   --mode auto \
   --top-k 8 \
   --rerank-top-n 50 \

@@ -135,6 +135,10 @@ class RagIndex:
         row = self._conn.execute("SELECT value FROM index_meta WHERE key = ?", (key,)).fetchone()
         return str(row["value"]) if row else None
 
+    def delete_meta(self, key: str) -> None:
+        self._conn.execute("DELETE FROM index_meta WHERE key = ?", (key,))
+        self._conn.commit()
+
     def clear(self) -> None:
         self._conn.executescript("DELETE FROM chunks_fts; DELETE FROM chunks; DELETE FROM index_meta;")
         self._conn.commit()

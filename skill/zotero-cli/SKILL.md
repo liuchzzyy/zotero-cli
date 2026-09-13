@@ -37,6 +37,7 @@ Do not print API keys or service tokens. The actual config and `.zot/state/` are
 | Export citation data | `zot export ITEMKEY --format bibtex` |
 | Format a citation | `zot cite ITEMKEY --style apa` |
 | Read PDF text | `zot --json pdf ITEMKEY` |
+| Read MinerU structured JSON | `zot --json pdf ITEMKEY --structured` |
 | Inspect PDF structure | `zot --json pdf ITEMKEY --outline` |
 | Read one PDF section | `zot --json pdf ITEMKEY --section N` |
 | Find duplicates | `zot --json duplicates --by doi` |
@@ -71,12 +72,12 @@ zot workspace search "query" --workspace topic
 Index and query only when the user needs full-text retrieval:
 
 ```bash
-zot workspace index topic --extractor pymupdf --no-embed
+zot workspace index topic --no-embed
 zot workspace embed topic
 zot --json workspace query "question" --workspace topic
 ```
 
-Indexing may extract large PDFs or call configured external services. Reuse an existing complete index when possible. Check `zot workspace show NAME` and the index state before forcing a rebuild.
+PDF parsing is cloud-only. MinerU Markdown feeds `ai_analyze`; MinerU `content_list.json` feeds RAG; both reuse the same SHA-256-addressed package under `.zot/state/mineru/`. There is no local parser or fallback. Reuse an existing complete index when possible. Check `zot workspace show NAME` and the index state before forcing a rebuild.
 
 For logged MacBook workflows, use `tools/run-rag-workspace.zsh` and `tools/run-rag-evidence-search.zsh`. Read `tools/Instructions.md` before running a full collection inventory, forced rebuild, or long embedding backfill.
 

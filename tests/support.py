@@ -17,6 +17,7 @@ ISOLATED_ENV: dict[str, str] = {
     "ZOT_FORMAT": "table",
     "ZOT_LIBRARY_ID": "",
     "ZOT_API_KEY": "",
+    "ZOT_MINERU_TOKEN": "",
     "ZOT_EMBEDDING_URL": "",
     "ZOT_EMBEDDING_KEY": "",
     "ZOT_EMBEDDING_MODEL": "",

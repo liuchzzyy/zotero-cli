@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 from contextlib import ExitStack
+from hashlib import sha256
 from unittest.mock import patch
 
 from tests.support import invoke_cli as _invoke
 
 from zotero_cli.config import VectorStoreConfig
+from zotero_cli.core.mineru import MinerUError, MinerUParseResult
 from zotero_cli.core.rag_index import RagIndex
 
 
@@ -16,13 +18,45 @@ def _patch_workspace(tmp_path):
     """Patch workspace dirs + vector store so tests are fully isolated."""
     stack = ExitStack()
     stack.enter_context(patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path))
-    stack.enter_context(patch("zotero_cli.commands.workspace.workspaces_dir", return_value=tmp_path))
     stack.enter_context(
         patch(
             "zotero_cli.commands.workspace.load_vector_store_config",
             return_value=VectorStoreConfig(path=str(tmp_path / "_qdrant")),
         )
     )
+    cache_cls = stack.enter_context(patch("zotero_cli.commands.workspace.MinerUParseCache"))
+
+    def fake_ensure_many(paths, _progress=None):
+        results = {}
+        for pdf_path in paths:
+            fingerprint = sha256(pdf_path.read_bytes()).hexdigest()
+            root = tmp_path / "mineru" / fingerprint / "vlm"
+            root.mkdir(parents=True, exist_ok=True)
+            markdown = root / "document.md"
+            content = root / "content_list.json"
+            manifest = root / "manifest.json"
+            markdown.write_text("# Introduction\nAttention mechanism evidence")
+            content.write_text(
+                json.dumps(
+                    [
+                        {"type": "text", "text": "Introduction", "text_level": 1, "page_idx": 0},
+                        {"type": "text", "text": "Attention mechanism evidence", "page_idx": 0},
+                    ]
+                )
+            )
+            manifest.write_text("{}")
+            results[pdf_path] = MinerUParseResult(
+                source_path=pdf_path,
+                fingerprint=fingerprint,
+                model_version="vlm",
+                root=root,
+                markdown_path=markdown,
+                content_list_path=content,
+                manifest_path=manifest,
+            )
+        return results
+
+    cache_cls.return_value.ensure_many.side_effect = fake_ensure_many
     return stack
 
 
@@ -31,7 +65,7 @@ class TestWorkspaceIndex:
         with _patch_workspace(tmp_path):
             _invoke(["workspace", "new", "test-idx"])
             _invoke(["workspace", "add", "test-idx", "ATTN001"])
-            result = _invoke(["workspace", "index", "test-idx", "--extractor", "pymupdf"])
+            result = _invoke(["workspace", "index", "test-idx"])
         assert result.exit_code == 0
         assert "Indexed" in result.output
         idx_path = tmp_path / "test-idx" / "rag.idx.sqlite"
@@ -52,8 +86,8 @@ class TestWorkspaceIndex:
         with _patch_workspace(tmp_path):
             _invoke(["workspace", "new", "test-idx"])
             _invoke(["workspace", "add", "test-idx", "ATTN001"])
-            _invoke(["workspace", "index", "test-idx", "--extractor", "pymupdf"])
-            result = _invoke(["workspace", "index", "test-idx", "--force", "--extractor", "pymupdf"])
+            _invoke(["workspace", "index", "test-idx"])
+            result = _invoke(["workspace", "index", "test-idx", "--force"])
         assert result.exit_code == 0
         assert "Indexed" in result.output
 
@@ -61,29 +95,36 @@ class TestWorkspaceIndex:
         with _patch_workspace(tmp_path):
             _invoke(["workspace", "new", "test-idx"])
             _invoke(["workspace", "add", "test-idx", "ATTN001"])
-            _invoke(["workspace", "index", "test-idx", "--extractor", "pymupdf"])
-            result = _invoke(["workspace", "index", "test-idx", "--extractor", "pymupdf"])
+            _invoke(["workspace", "index", "test-idx"])
+            result = _invoke(["workspace", "index", "test-idx"])
         assert "up to date" in result.output
 
     def test_reindex_forces_rebuild(self, tmp_path):
         with _patch_workspace(tmp_path):
             _invoke(["workspace", "new", "test-idx"])
             _invoke(["workspace", "add", "test-idx", "ATTN001"])
-            _invoke(["workspace", "index", "test-idx", "--extractor", "pymupdf"])
-            result = _invoke(["workspace", "reindex", "test-idx", "--extractor", "pymupdf"])
+            _invoke(["workspace", "index", "test-idx"])
+            result = _invoke(["workspace", "reindex", "test-idx"])
         assert result.exit_code == 0
         assert "Indexed" in result.output
 
     def test_index_no_embed_skips_embedding(self, tmp_path):
-        with _patch_workspace(tmp_path), patch(
-            "zotero_cli.commands.workspace.embed_texts",
-            side_effect=AssertionError("should not embed"),
-        ) as embed_mock:
+        with (
+            _patch_workspace(tmp_path),
+            patch(
+                "zotero_cli.commands.workspace.embed_texts",
+                side_effect=AssertionError("should not embed"),
+            ) as embed_mock,
+        ):
             _invoke(["workspace", "new", "test-idx"])
             _invoke(["workspace", "add", "test-idx", "ATTN001"])
             result = _invoke(
-                ["workspace", "index", "test-idx", "--no-embed", "--extractor", "pymupdf"],
-                env={"ZOT_EMBEDDING_URL": "https://ai.gitee.com/v1", "ZOT_EMBEDDING_KEY": "k", "ZOT_EMBEDDING_MODEL": "bge-m3"},
+                ["workspace", "index", "test-idx", "--no-embed"],
+                env={
+                    "ZOT_EMBEDDING_URL": "https://ai.gitee.com/v1",
+                    "ZOT_EMBEDDING_KEY": "k",
+                    "ZOT_EMBEDDING_MODEL": "bge-m3",
+                },
             )
 
         assert result.exit_code == 0
@@ -96,13 +137,31 @@ class TestWorkspaceIndex:
         finally:
             idx.close()
 
+    def test_failed_mineru_parse_remains_pending_for_retry(self, tmp_path):
+        with _patch_workspace(tmp_path), patch("zotero_cli.commands.workspace.MinerUParseCache") as cache_cls:
+            cache_cls.return_value.ensure_many.side_effect = lambda paths, _progress=None: {
+                path: MinerUError("cloud parse failed") for path in paths
+            }
+            _invoke(["workspace", "new", "test-retry"])
+            _invoke(["workspace", "add", "test-retry", "ATTN001"])
+            result = _invoke(["workspace", "index", "test-retry", "--no-embed"])
+
+        assert result.exit_code == 0
+        assert "cloud parse failed" in result.output
+        idx = RagIndex(tmp_path / "test-retry" / "rag.idx.sqlite")
+        try:
+            assert idx.get_meta("pipeline:ATTN001") is None
+            assert idx.get_meta("pdf_hash:ATTN001") is None
+        finally:
+            idx.close()
+
 
 class TestWorkspaceQuery:
     def test_query_workspace(self, tmp_path):
         with _patch_workspace(tmp_path):
             _invoke(["workspace", "new", "test-q"])
             _invoke(["workspace", "add", "test-q", "ATTN001"])
-            _invoke(["workspace", "index", "test-q", "--extractor", "pymupdf"])
+            _invoke(["workspace", "index", "test-q"])
             result = _invoke(["workspace", "query", "attention", "--workspace", "test-q"])
         assert result.exit_code == 0
         assert "ATTN001" in result.output
@@ -111,7 +170,7 @@ class TestWorkspaceQuery:
         with _patch_workspace(tmp_path):
             _invoke(["workspace", "new", "test-q"])
             _invoke(["workspace", "add", "test-q", "ATTN001"])
-            _invoke(["workspace", "index", "test-q", "--extractor", "pymupdf"])
+            _invoke(["workspace", "index", "test-q"])
             result = _invoke(
                 ["workspace", "query", "attention", "--workspace", "test-q"],
                 json_output=True,
@@ -134,7 +193,7 @@ class TestWorkspaceQuery:
         with _patch_workspace(tmp_path), patch("zotero_cli.commands.workspace.rerank_chunks", fake_rerank):
             _invoke(["workspace", "new", "test-q"])
             _invoke(["workspace", "add", "test-q", "ATTN001"])
-            _invoke(["workspace", "index", "test-q", "--extractor", "pymupdf"])
+            _invoke(["workspace", "index", "test-q"])
             result = _invoke(
                 ["workspace", "query", "attention", "--workspace", "test-q", "--rerank", "--rerank-top-n", "2"],
                 json_output=True,
@@ -154,7 +213,7 @@ class TestWorkspaceQuery:
         with _patch_workspace(tmp_path):
             _invoke(["workspace", "new", "test-q"])
             _invoke(["workspace", "add", "test-q", "ATTN001"])
-            _invoke(["workspace", "index", "test-q", "--extractor", "pymupdf"])
+            _invoke(["workspace", "index", "test-q"])
             result = _invoke(["workspace", "query", "zzzzqqqxxx999", "--workspace", "test-q"])
         assert result.exit_code == 0
 

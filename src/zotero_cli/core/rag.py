@@ -3,10 +3,10 @@ from __future__ import annotations
 import re
 import sys
 from collections.abc import Callable, Sequence
-from pathlib import Path
+from dataclasses import dataclass
+from typing import Any
 
 from zotero_cli.config import EmbeddingConfig
-from zotero_cli.core.pdf_extractor import get_extractor
 from zotero_cli.core.providers.gitee import GiteeEmbeddingProvider
 
 _SUPPLEMENTARY_HINTS = (
@@ -28,7 +28,9 @@ _MAIN_PAPER_HINTS = (
     "broader context",
 )
 
-_SUPPLEMENTARY_LABEL_RE = re.compile(r"\b(Figure S\d+[A-Za-z]?|Table S\d+[A-Za-z]?|Scheme S\d+[A-Za-z]?)\b", re.IGNORECASE)
+_SUPPLEMENTARY_LABEL_RE = re.compile(
+    r"\b(Figure S\d+[A-Za-z]?|Table S\d+[A-Za-z]?|Scheme S\d+[A-Za-z]?)\b", re.IGNORECASE
+)
 
 
 def tokenize(text: str) -> list[str]:
@@ -260,71 +262,106 @@ def chunk_text(text: str, paper_title: str, max_tokens: int = 500, overlap: int 
     return chunks if chunks else [f"[{paper_title}] {text.strip()}"]
 
 
-def convert_pdf_to_text(
-    pdf_path: Path,
-    extractor_name: str = "pymupdf",
-    progress_callback: Callable[[str, int, int, int], None] | None = None,
-) -> str:
-    from zotero_cli.core.pdf_cache import PdfCache
+@dataclass(frozen=True)
+class MinerUStructuredChunk:
+    """Searchable text derived from one or more MinerU structured blocks."""
 
-    cache = PdfCache()
-    cached = cache.get(pdf_path, extractor_name)
-    if cached is not None:
-        return cached
-    extractor = get_extractor(extractor_name)
-    text = extractor.extract_text(pdf_path, progress_callback=progress_callback)  # type: ignore[call-arg]
-    cache.put(pdf_path, extractor_name, text)
-    return text
+    content: str
+    page: int | None
+    block_type: str
+    section: str
 
 
-def convert_pdfs_to_text(
-    pdf_paths: list[Path],
-    extractor_name: str = "pymupdf",
-    progress_callback: Callable[[str, int, int, int], None] | None = None,
-) -> dict[Path, str | Exception]:
-    from zotero_cli.core.pdf_cache import PdfCache
+def chunk_mineru_content(
+    content_list: Any,
+    paper_title: str,
+    max_tokens: int = 500,
+    overlap: int = 50,
+) -> list[MinerUStructuredChunk]:
+    """Build RAG chunks from MinerU JSON, preserving section, page, and block type."""
+    blocks = _mineru_blocks(content_list)
+    chunks: list[MinerUStructuredChunk] = []
+    current_section = ""
+    max_chars = max_tokens * 4
 
-    cache = PdfCache()
-    results: dict[Path, str | Exception] = {}
-    uncached: list[Path] = []
+    for block in blocks:
+        block_type = str(block.get("type") or block.get("block_type") or "text")
+        if block_type in {"header", "footer", "page_number"}:
+            continue
+        text_level = block.get("text_level")
+        text = _mineru_block_text(block).strip()
+        if not text:
+            continue
+        if block_type in {"title", "heading"} or isinstance(text_level, int):
+            current_section = text
+            if block_type in {"title", "heading"}:
+                continue
 
-    total_paths = len(pdf_paths)
-    for idx, pdf_path in enumerate(pdf_paths, 1):
-        cached_text = cache.get(pdf_path, extractor_name)
-        if cached_text is not None:
-            results[pdf_path] = cached_text
-        else:
-            uncached.append(pdf_path)
-        if progress_callback and (idx % 25 == 0 or idx == total_paths):
-            progress_callback("cache", idx, total_paths, 0)
+        raw_page = block.get("page_idx", block.get("page_index", block.get("page_no")))
+        page: int | None = None
+        if isinstance(raw_page, int):
+            page = raw_page + 1 if "page_idx" in block or "page_index" in block else raw_page
 
-    if not uncached:
-        return results
+        label_parts = [paper_title]
+        if current_section:
+            label_parts.append(current_section)
+        details = []
+        if page is not None:
+            details.append(f"page {page}")
+        details.append(block_type)
+        prefix = f"[{' > '.join(label_parts)} | {', '.join(details)}] "
+        for part in cascade_chunk(text, max_chars, overlap):
+            chunks.append(
+                MinerUStructuredChunk(
+                    content=prefix + part,
+                    page=page,
+                    block_type=block_type,
+                    section=current_section,
+                )
+            )
+    return chunks
 
-    if progress_callback:
-        progress_callback("cache-miss", len(uncached), total_paths, 0)
 
-    if extractor_name == "mineru" and len(uncached) > 1:
-        extractor = get_extractor(extractor_name)
-        if hasattr(extractor, "extract_text_batch"):  # type: ignore[reportAttributeAccessIssue]
-            batch_results = extractor.extract_text_batch(uncached, progress_callback)  # type: ignore[reportAttributeAccessIssue]
-            for path, text_or_err in batch_results.items():
-                if isinstance(text_or_err, str):
-                    cache.put(path, "mineru", text_or_err)
-                results[path] = text_or_err
-            return results
+def _mineru_blocks(content_list: Any) -> list[dict[str, Any]]:
+    if isinstance(content_list, list):
+        return [item for item in content_list if isinstance(item, dict)]
+    if isinstance(content_list, dict):
+        for key in ("content_list", "content", "blocks", "data"):
+            nested = content_list.get(key)
+            if isinstance(nested, list):
+                return [item for item in nested if isinstance(item, dict)]
+        return [content_list]
+    return []
 
-    total = len(uncached)
-    for idx, pdf_path in enumerate(uncached, 1):
-        if progress_callback:
-            progress_callback("extract", idx, total, 0)
-        try:
-            text = convert_pdf_to_text(pdf_path, extractor_name, progress_callback)
-            results[pdf_path] = text
-        except Exception as e:
-            results[pdf_path] = e
 
-    return results
+def _mineru_block_text(block: dict[str, Any]) -> str:
+    values: list[str] = []
+    for key in (
+        "text",
+        "title",
+        "table_caption",
+        "table_body",
+        "table_footnote",
+        "image_caption",
+        "image_footnote",
+        "equation",
+        "latex",
+    ):
+        value = block.get(key)
+        rendered = _render_mineru_value(value)
+        if rendered:
+            values.append(rendered)
+    return "\n".join(dict.fromkeys(values))
+
+
+def _render_mineru_value(value: Any) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, list):
+        return "\n".join(part for item in value if (part := _render_mineru_value(item)))
+    if isinstance(value, dict):
+        return "\n".join(part for item in value.values() if (part := _render_mineru_value(item)))
+    return ""
 
 
 def reciprocal_rank_fusion(*rankings: list[tuple[int, float, dict]], k: int = 60) -> list[tuple[int, float, dict]]:

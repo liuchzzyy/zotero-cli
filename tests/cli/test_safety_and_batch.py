@@ -1,4 +1,4 @@
-"""Tests for new features: --dry-run, --offset, PdfExtractionError, timeout, ZoteroWriteError in commands."""
+"""Tests for dry-run, pagination, batch operations, and writer errors."""
 
 from __future__ import annotations
 
@@ -7,10 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
-from tests.support import FIXTURES_DIR
 
 from zotero_cli.cli import main
-from zotero_cli.core.pdf_extractor import PdfExtractionError, PyMuPdfExtractor
 from zotero_cli.core.writer import SYNC_REMINDER, ZoteroWriteError, ZoteroWriter
 
 WRITE_ENV = {"ZOT_LIBRARY_ID": "123", "ZOT_API_KEY": "abc"}
@@ -191,9 +189,7 @@ class TestCollectionJsonOutput:
             "sync_required": True,
         }
         assert SYNC_REMINDER not in result.output
-        mock_writer.move_to_collection.assert_called_once_with(
-            "ITEM1", "DESTCOL", source_collection_key="SRCCOL"
-        )
+        mock_writer.move_to_collection.assert_called_once_with("ITEM1", "DESTCOL", source_collection_key="SRCCOL")
 
     @patch("zotero_cli.commands.collection.ZoteroWriter")
     def test_collection_delete_json_success_envelope(self, mock_writer_cls):
@@ -379,34 +375,6 @@ class TestOffset:
         assert env["meta"]["excluded_collection_keys"] == ["COLTR02"]
         assert env["meta"]["filtered_total"] >= env["meta"]["count"]
         assert all("COLTR02" not in item.get("collections", []) for item in env["data"])
-
-
-# --- PdfExtractionError tests ---
-
-
-class TestPdfExtractionError:
-    def test_corrupted_pdf(self, tmp_path):
-        bad_pdf = tmp_path / "bad.pdf"
-        bad_pdf.write_bytes(b"not a real pdf file")
-        with pytest.raises(PdfExtractionError, match="Cannot open PDF"):
-            PyMuPdfExtractor().extract_text(bad_pdf)
-
-    def test_page_range_exceeds_length(self):
-        fixtures = FIXTURES_DIR
-        pdf = fixtures / "test.pdf"
-        if not pdf.exists():
-            pytest.skip("test.pdf fixture not found")
-        with pytest.raises(PdfExtractionError, match="exceeds document length"):
-            PyMuPdfExtractor().extract_text(pdf, pages=(9999, 10000))
-
-    def test_pdf_extraction_error_is_catchable(self):
-        """Verify PdfExtractionError can be caught as expected in commands."""
-        with pytest.raises(PdfExtractionError):
-            raise PdfExtractionError("test error")
-
-    def test_pdf_extraction_error_has_message(self):
-        err = PdfExtractionError("Cannot open PDF: encrypted")
-        assert "encrypted" in str(err)
 
 
 # --- Batch operations tests ---

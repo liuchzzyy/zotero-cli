@@ -15,11 +15,11 @@
 
 - 搜索与阅读：`search`、`list`、`read`、`recent`、`stats`、`relate`
 - 引用与导出：`cite`、`export`、`summarize`、`summarize-all`
-- PDF：全文、页码范围、目录、章节和批注提取
+- PDF：MinerU 云端解析、Markdown/结构化 JSON 缓存、目录与章节读取
 - 安全写入：`add`、`update`、`attach`、`note`、`tag`、`collection`、`delete`
 - 文献维护：DOI/标题查重、回收站、预印本出版状态检查
-- 工作区 RAG：SQLite FTS5、Qdrant 本地向量库、embedding 和 rerank
-- AI 分析：读取条目与 PDF，生成结构化 Zotero note 和 short-note
+- 工作区 RAG：读取 MinerU 结构化 JSON，写入本地 SQLite FTS5、Qdrant、embedding 和 rerank
+- AI 分析：读取同一份 MinerU Markdown，调用 OpenAI 兼容接口生成 Zotero note 和 short-note
 
 ## 安装
 
@@ -59,6 +59,8 @@ prefs_js_path = "/Users/liuchzzyy/Library/Application Support/Zotero/Profiles/uf
 - `ZOT_DATA_DIR`
 - `ZOT_LIBRARY_ID`
 - `ZOT_API_KEY`
+- `ZOT_MINERU_TOKEN`
+- `ZOT_MINERU_MODEL_VERSION`
 - `ZOT_PROFILE`
 - `ZOT_FORMAT`
 
@@ -68,7 +70,8 @@ prefs_js_path = "/Users/liuchzzyy/Library/Application Support/Zotero/Profiles/uf
 uv run zot search "attention mechanism"
 uv run zot --json read ITEMKEY
 uv run zot cite ITEMKEY --style apa
-uv run zot pdf ITEMKEY --extractor pymupdf
+uv run zot pdf ITEMKEY
+uv run zot --json pdf ITEMKEY --structured
 uv run zot schema
 ```
 
@@ -89,12 +92,19 @@ uv run zot update ITEMKEY --title "New title" --idempotency-key update-001
 ### 工作区检索
 
 ```bash
-uv run zot workspace new mno2 --description "MnO2 research"
-uv run zot workspace add mno2 ITEMKEY1 ITEMKEY2
-uv run zot workspace index mno2 --extractor pymupdf --no-embed
-uv run zot workspace embed mno2
-uv run zot --json workspace query "reaction mechanism" --workspace mno2
+uv run zot workspace new 00_收件箱 --description "Zotero collection AG7NQ5UW"
+uv run zot workspace add 00_收件箱 ITEMKEY1 ITEMKEY2
+uv run zot workspace index 00_收件箱 --no-embed
+uv run zot workspace embed 00_收件箱
+uv run zot --json workspace query "reaction mechanism" --workspace 00_收件箱
 ```
+
+## PDF、AI note 与 RAG 的统一流程
+
+PDF 只上传到 MinerU 云端 API 一次。结果按 PDF SHA-256 与 MinerU 模型版本保存到
+`.zot/state/mineru/`：`document.md` 提供给 `ai_analyze`，`content_list.json` 提供给
+workspace RAG，manifest 和 MinerU 原始文件/图片同时保留。项目不包含本地 PDF 解析器，
+也不会在 MinerU 失败时回退到本地解析。
 
 ## Agent 接口
 

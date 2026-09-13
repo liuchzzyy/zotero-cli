@@ -20,11 +20,10 @@ from zotero_cli.config import (
     load_vector_store_config,
     resolve_library_id,
 )
+from zotero_cli.core.mineru import MinerUError, MinerUParseCache, MinerUParseResult
 from zotero_cli.core.rag import (
     build_metadata_chunk,
-    chunk_text,
-    convert_pdf_to_text,
-    convert_pdfs_to_text,
+    chunk_mineru_content,
     embed_texts,
     filter_ranked_results_by_pdf_kind,
     infer_pdf_kind,
@@ -45,13 +44,12 @@ from zotero_cli.core.workspace import (
     validate_name,
     workspace_exists,
     workspace_index_path,
-    workspaces_dir,
 )
 from zotero_cli.exit_codes import emit_error
 from zotero_cli.formatter import envelope_ok, format_items, format_workspace_list, format_workspace_query
 from zotero_cli.models import Collection, Item
 
-_TEST_PATCH_SEAMS = (convert_pdf_to_text, workspaces_dir)
+_RAG_PIPELINE_VERSION = "mineru-json-v1"
 
 
 @click.group("workspace", invoke_without_command=True)
@@ -511,16 +509,11 @@ def _index_workspace(
     name: str,
     *,
     force: bool,
-    extractor: str | None,
     progress_lines: bool,
     item_progress: bool,
     no_embed: bool,
 ) -> None:
     json_out = ctx.obj.get("json", False)
-    if extractor is None:
-        from zotero_cli.config import load_pdf_config
-
-        extractor = load_pdf_config().extractor
     if not workspace_exists(name):
         emit_error(
             "not_found",
@@ -562,7 +555,8 @@ def _index_workspace(
             note_refs = _collect_note_refs(reader, ws_item.key)
             pdf_hash = _compute_pdf_hash(pdf_refs)
             stored_hash = idx.get_meta(f"pdf_hash:{ws_item.key}")
-            if ws_item.key in already_indexed and stored_hash == pdf_hash:
+            stored_pipeline = idx.get_meta(f"pipeline:{ws_item.key}")
+            if ws_item.key in already_indexed and stored_hash == pdf_hash and stored_pipeline == _RAG_PIPELINE_VERSION:
                 continue
             if ws_item.key in already_indexed:
                 old_ids = idx.delete_chunks_for_item(ws_item.key)
@@ -592,25 +586,41 @@ def _index_workspace(
                 sys.stderr.write(f"\r{' ' * 100}\r")
                 sys.stderr.flush()
 
-        # Phase 1 — extract PDFs with the configured extractor (MinerU by default).
+        # Phase 1 — obtain canonical MinerU cloud parse packages.
         unique_pdf_paths: list[Path] = list(
             dict.fromkeys(path for _ws, _item, refs, _notes in to_index for _k, _n, path in refs)
         )
-        batch_pdf_texts: dict[Path, str | Exception] = {}
+        batch_pdf_parses: dict[Path, MinerUParseResult | Exception] = {}
         pdf_errors: list[tuple[str, str, Exception]] = []
         if unique_pdf_paths:
-            click.echo(f"  Extracting {len(unique_pdf_paths)} PDF attachment(s) with {extractor}...")
+            click.echo(f"  Parsing {len(unique_pdf_paths)} PDF attachment(s) with MinerU cloud API...")
 
             def batch_progress(phase: str, current: int, total: int, pages: int) -> None:
                 _ = pages
                 emit_progress(f"extract:{phase}", current, total)
 
-            batch_pdf_texts = convert_pdfs_to_text(unique_pdf_paths, extractor, batch_progress)
+            try:
+                batch_pdf_parses = MinerUParseCache().ensure_many(unique_pdf_paths, batch_progress)
+            except MinerUError as exc:
+                error_code = "configuration_error" if "token not configured" in str(exc).lower() else "network_error"
+                emit_error(
+                    error_code,
+                    str(exc),
+                    output_json=json_out,
+                    retryable=error_code == "network_error",
+                    hint=(
+                        "Set [pdf].mineru_token in .zot/config.toml"
+                        if error_code == "configuration_error"
+                        else "Check the MinerU token, API status, and network connection"
+                    ),
+                    context="workspace index",
+                )
             clear_progress_status()
 
-        # Phase 2 — chunk all texts (markdown-structured; main/supplementary preserved).
+        # Phase 2 — chunk MinerU structured JSON; Markdown is reserved for AI notes.
         click.echo(f"  Chunking {len(to_index)} item(s)...")
         all_chunks: list[tuple[str, str, str, int]] = []
+        failed_item_keys: set[str] = set()
         for ws_item, item, pdf_refs, note_refs in to_index:
             authors = ", ".join(c.full_name for c in item.creators)
             meta_text = build_metadata_chunk(item.title, authors, item.abstract, item.tags)
@@ -621,21 +631,30 @@ def _index_workspace(
                 all_chunks.append((ws_item.key, f"note:{note_key}", note_text, len(tokenize(note_text))))
 
             for att_key, pdf_name, pdf_path in pdf_refs:
-                pdf_text_or_err = batch_pdf_texts.get(pdf_path)
-                if isinstance(pdf_text_or_err, Exception):
-                    pdf_errors.append((ws_item.key, pdf_name, pdf_text_or_err))
+                parsed = batch_pdf_parses.get(pdf_path)
+                if isinstance(parsed, Exception):
+                    pdf_errors.append((ws_item.key, pdf_name, parsed))
+                    failed_item_keys.add(ws_item.key)
                     continue
-                if not isinstance(pdf_text_or_err, str) or not pdf_text_or_err.strip():
+                if not isinstance(parsed, MinerUParseResult):
                     continue
-                pdf_kind = infer_pdf_kind(pdf_text_or_err, pdf_name)
+                pdf_kind = infer_pdf_kind(parsed.markdown, pdf_name)
                 labeled_title = f"{item.title} | PDF: {pdf_name} | Attachment: {att_key} | Kind: {pdf_kind}"
-                for chunk_content in chunk_text(pdf_text_or_err, labeled_title):
+                structured_chunks = chunk_mineru_content(parsed.content_list, labeled_title)
+                if not structured_chunks:
+                    error = MinerUError("MinerU content_list produced no searchable blocks")
+                    pdf_errors.append((ws_item.key, pdf_name, error))
+                    failed_item_keys.add(ws_item.key)
+                    continue
+                for structured_chunk in structured_chunks:
+                    page_label = structured_chunk.page if structured_chunk.page is not None else 0
+                    source = f"pdf:{pdf_kind}:{att_key}:{pdf_name}:p{page_label}:{structured_chunk.block_type}"
                     all_chunks.append(
                         (
                             ws_item.key,
-                            f"pdf:{pdf_kind}:{att_key}:{pdf_name}",
-                            chunk_content,
-                            len(tokenize(chunk_content)),
+                            source,
+                            structured_chunk.content,
+                            len(tokenize(structured_chunk.content)),
                         )
                     )
 
@@ -679,12 +698,17 @@ def _index_workspace(
         idx.set_meta("chunk_count", str(total_chunks))
         idx.set_meta("indexed_at", datetime.now(timezone.utc).isoformat())
         for ws_item, _item, pdf_refs, _notes in to_index:
-            idx.set_meta(f"pdf_hash:{ws_item.key}", _compute_pdf_hash(pdf_refs))
+            if ws_item.key in failed_item_keys:
+                idx.delete_meta(f"pdf_hash:{ws_item.key}")
+                idx.delete_meta(f"pipeline:{ws_item.key}")
+            else:
+                idx.set_meta(f"pdf_hash:{ws_item.key}", _compute_pdf_hash(pdf_refs))
+                idx.set_meta(f"pipeline:{ws_item.key}", _RAG_PIPELINE_VERSION)
 
         if pdf_errors:
             click.echo(f"\nWarning: {len(pdf_errors)} PDF extraction(s) failed:")
-            for key, pdf_name, exc in pdf_errors:
-                click.echo(f"  - {key} ({pdf_name}): {exc}")
+            for key, pdf_name, pdf_error in pdf_errors:
+                click.echo(f"  - {key} ({pdf_name}): {pdf_error}")
 
         elapsed = time.monotonic() - t0
         click.echo(f"Indexed {len(to_index)} item(s) ({total_chunks} chunks) in {elapsed:.1f}s [{mode_label}]")
@@ -697,16 +721,18 @@ def _index_workspace(
 @workspace_group.command("index")
 @click.argument("name")
 @click.option("--force", is_flag=True, help="Rebuild index from scratch")
-@click.option("--extractor", default=None, help="PDF text extractor to use. Defaults to the configured MinerU extractor.")
-@click.option("--progress-lines", is_flag=True, help="Write progress as newline records for log-friendly real-time output.")
-@click.option("--item-progress", is_flag=True, help="Index and commit one workspace item at a time with per-item progress.")
+@click.option(
+    "--progress-lines", is_flag=True, help="Write progress as newline records for log-friendly real-time output."
+)
+@click.option(
+    "--item-progress", is_flag=True, help="Index and commit one workspace item at a time with per-item progress."
+)
 @click.option("--no-embed", is_flag=True, help="Skip embedding generation during indexing; use workspace embed later.")
 @click.pass_context
 def workspace_index(
     ctx: click.Context,
     name: str,
     force: bool,
-    extractor: str | None,
     progress_lines: bool,
     item_progress: bool,
     no_embed: bool,
@@ -716,7 +742,6 @@ def workspace_index(
         ctx,
         name,
         force=force,
-        extractor=extractor,
         progress_lines=progress_lines,
         item_progress=item_progress,
         no_embed=no_embed,
@@ -725,16 +750,16 @@ def workspace_index(
 
 @workspace_group.command("reindex")
 @click.argument("name")
-@click.option("--extractor", default=None, help="PDF text extractor to use. Defaults to the configured MinerU extractor.")
-@click.option("--progress-lines", is_flag=True, help="Write progress as newline records for log-friendly real-time output.")
+@click.option(
+    "--progress-lines", is_flag=True, help="Write progress as newline records for log-friendly real-time output."
+)
 @click.pass_context
-def workspace_reindex(ctx: click.Context, name: str, extractor: str | None, progress_lines: bool) -> None:
+def workspace_reindex(ctx: click.Context, name: str, progress_lines: bool) -> None:
     """Force a full rebuild of a workspace index."""
     _index_workspace(
         ctx,
         name,
         force=True,
-        extractor=extractor,
         progress_lines=progress_lines,
         item_progress=False,
         no_embed=False,
@@ -775,11 +800,20 @@ def _embed_batch_with_retries(
     show_default=True,
     help="Number of missing chunks to send to the provider per request.",
 )
-@click.option("--limit", default=0, show_default=True, help="Maximum chunks to attempt in this run; 0 means all missing.")
+@click.option(
+    "--limit", default=0, show_default=True, help="Maximum chunks to attempt in this run; 0 means all missing."
+)
 @click.option("--max-retries", default=5, show_default=True, help="Retry a failed provider batch this many times.")
 @click.option("--retry-sleep", default=10.0, show_default=True, help="Seconds to sleep between batch retries.")
-@click.option("--heartbeat-seconds", default=15.0, show_default=True, help="Seconds between progress lines when --progress-lines is set.")
-@click.option("--progress-lines", is_flag=True, help="Write progress as newline records for log-friendly real-time output.")
+@click.option(
+    "--heartbeat-seconds",
+    default=15.0,
+    show_default=True,
+    help="Seconds between progress lines when --progress-lines is set.",
+)
+@click.option(
+    "--progress-lines", is_flag=True, help="Write progress as newline records for log-friendly real-time output."
+)
 @click.pass_context
 def workspace_embed(
     ctx: click.Context,
@@ -811,15 +845,26 @@ def workspace_embed(
             context="workspace embed",
         )
     if batch_size <= 0:
-        emit_error("validation_error", "--batch-size must be greater than 0", output_json=json_out, context="workspace embed")
+        emit_error(
+            "validation_error", "--batch-size must be greater than 0", output_json=json_out, context="workspace embed"
+        )
     if limit < 0:
         emit_error("validation_error", "--limit must be 0 or greater", output_json=json_out, context="workspace embed")
     if max_retries < 0:
-        emit_error("validation_error", "--max-retries must be 0 or greater", output_json=json_out, context="workspace embed")
+        emit_error(
+            "validation_error", "--max-retries must be 0 or greater", output_json=json_out, context="workspace embed"
+        )
     if retry_sleep < 0:
-        emit_error("validation_error", "--retry-sleep must be 0 or greater", output_json=json_out, context="workspace embed")
+        emit_error(
+            "validation_error", "--retry-sleep must be 0 or greater", output_json=json_out, context="workspace embed"
+        )
     if heartbeat_seconds < 0:
-        emit_error("validation_error", "--heartbeat-seconds must be 0 or greater", output_json=json_out, context="workspace embed")
+        emit_error(
+            "validation_error",
+            "--heartbeat-seconds must be 0 or greater",
+            output_json=json_out,
+            context="workspace embed",
+        )
 
     emb_cfg = load_embedding_config(apply_env_overrides=True)
     if not emb_cfg.is_configured:
@@ -1015,7 +1060,9 @@ def workspace_query(
         top = filtered[:top_k]
         if not top:
             if json_out:
-                click.echo(json.dumps(envelope_ok([], meta={"count": 0, "mode": effective_mode}), indent=2, ensure_ascii=False))
+                click.echo(
+                    json.dumps(envelope_ok([], meta={"count": 0, "mode": effective_mode}), indent=2, ensure_ascii=False)
+                )
             else:
                 click.echo("No results found.")
             return

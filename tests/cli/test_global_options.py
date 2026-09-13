@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from click.testing import CliRunner
 
 from zotero_cli.cli import main
@@ -67,30 +69,20 @@ def test_profile_flag():
 
 
 def test_cache_clear_command(tmp_path):
-    from zotero_cli.core import pdf_cache as pdf_cache_module
-
-    old_default = pdf_cache_module.DEFAULT_CACHE_PATH
-    try:
-        pdf_cache_module.DEFAULT_CACHE_PATH = tmp_path / "pdf_cache.sqlite"
+    with patch("zotero_cli.core.mineru.MinerUParseCache") as cache_cls:
+        cache_cls.return_value.clear.return_value = 0
         runner = CliRunner()
         result = runner.invoke(main, ["config", "cache", "clear"])
         assert result.exit_code == 0
-    finally:
-        pdf_cache_module.DEFAULT_CACHE_PATH = old_default
 
 
 def test_cache_stats_command(tmp_path):
-    from zotero_cli.core import pdf_cache as pdf_cache_module
-
-    old_default = pdf_cache_module.DEFAULT_CACHE_PATH
-    try:
-        pdf_cache_module.DEFAULT_CACHE_PATH = tmp_path / "pdf_cache.sqlite"
+    with patch("zotero_cli.core.mineru.MinerUParseCache") as cache_cls:
+        cache_cls.return_value.stats.return_value = {"entries": 0, "total_bytes": 0}
         runner = CliRunner()
         result = runner.invoke(main, ["config", "cache", "stats"])
         assert result.exit_code == 0
         assert "Cached PDFs" in result.output
-    finally:
-        pdf_cache_module.DEFAULT_CACHE_PATH = old_default
 
 
 def test_profile_list_no_profiles():

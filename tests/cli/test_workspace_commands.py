@@ -14,9 +14,9 @@ from zotero_cli.core.workspace import (
     delete_workspace,
     list_workspaces,
     load_workspace,
+    mineru_cache_dir,
     save_workspace,
     validate_name,
-    workspace_cache_path,
     workspace_exists,
 )
 
@@ -92,9 +92,9 @@ class TestWorkspaceModel:
 
 
 class TestWorkspaceIO:
-    def test_workspace_cache_path_uses_repo_state_dir(self, tmp_path):
+    def test_mineru_cache_dir_uses_repo_state_dir(self, tmp_path):
         with patch("zotero_cli.core.workspace.project_root", return_value=tmp_path):
-            assert workspace_cache_path() == tmp_path / ".zot" / "state" / "pdf_cache.sqlite"
+            assert mineru_cache_dir() == tmp_path / ".zot" / "state" / "mineru"
 
     def test_save_and_load(self, tmp_path):
         with patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path):

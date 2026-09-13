@@ -72,9 +72,9 @@ When adding a command, register it in `cli.py` and place it in the correct safet
 
 - `src/zotero_cli/core/reader.py`: SQLite read layer.
 - `src/zotero_cli/core/writer.py`: Web API write layer (notes, tags, item fields, Extra short-note merge).
-- `src/zotero_cli/core/pdf_extractor.py`, `pdf_cache.py`, `pdf_errors.py`: PDF extraction (MinerU API / PyMuPDF) and caching.
+- `src/zotero_cli/core/mineru.py`: MinerU-only cloud parsing and the canonical shared parse package cache.
 - `src/zotero_cli/core/ai_client.py`, `note_analysis.py`, `note_renderer.py`, `note_templates.py`: the `ai_analyze` pipeline — OpenAI-compatible chat, item classification / note generation / short-note keywords, inline-styled HTML rendering, prompt templates under `tools/templates/`.
-- `src/zotero_cli/core/rag.py`, `rag_index.py`, `rerank.py`: PDF→text conversion, chunking, SQLite FTS5 (BM25), reciprocal rank fusion, Gitee embedding/rerank helpers.
+- `src/zotero_cli/core/rag.py`, `rag_index.py`, `rerank.py`: MinerU structured-JSON chunking, SQLite FTS5 (BM25), reciprocal rank fusion, Gitee embedding/rerank helpers.
 - `src/zotero_cli/core/semantic_search/vector_store.py`: local Qdrant vector store.
 - `src/zotero_cli/core/providers/gitee.py`: Gitee AI embedding / rerank provider.
 - `src/zotero_cli/core/workspace.py`: repo-local workspaces under `.workspace/`.

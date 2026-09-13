@@ -7,9 +7,8 @@ SCRIPT_PATH="${0:A}"
 SCRIPT_DIR="${SCRIPT_PATH:h}"
 source "$SCRIPT_DIR/zotero-workflow-common.zsh"
 
-workspace_name="rag-workspace"
-collections_csv="30_PROJECT,40_TOPIC"
-extractor="mineru"
+workspace_name="00_收件箱"
+collections_csv="00_收件箱"
 scan_limit=100000
 progress_every=100
 embed_batch_size=10
@@ -34,9 +33,8 @@ Usage: tools/run-rag-workspace.zsh [options]
 Incrementally inventory, index, and embed a Zotero workspace.
 
 Options:
-  --workspace NAME             Workspace name (default: rag-workspace)
+  --workspace NAME             Workspace name (default: 00_收件箱)
   --collections CSV           Collection names/keys, comma-separated
-  --extractor NAME            PDF extractor (default: mineru)
   --scan-limit N               Maximum Zotero items to scan
   --progress-every N           Inventory progress interval
   --embed-batch-size N         Embedding provider batch size
@@ -68,7 +66,6 @@ while (( $# )); do
   case "$1" in
     --workspace) need_value "$@"; workspace_name="$2"; shift 2 ;;
     --collections) need_value "$@"; collections_csv="$2"; shift 2 ;;
-    --extractor) need_value "$@"; extractor="$2"; shift 2 ;;
     --scan-limit) need_value "$@"; scan_limit="$2"; shift 2 ;;
     --progress-every) need_value "$@"; progress_every="$2"; shift 2 ;;
     --embed-batch-size) need_value "$@"; embed_batch_size="$2"; shift 2 ;;
@@ -111,7 +108,6 @@ workflow_section "Workspace RAG Incremental Index"
 workflow_setting "repo" "$repo_root"
 workflow_setting "workspace" "$workspace_name"
 workflow_setting "collections" "$collections_csv"
-workflow_setting "extractor" "$extractor"
 workflow_setting "output" "$run_dir"
 workflow_setting "dry_run" "$dry_run"
 workflow_setting "no_index" "$no_index"
@@ -207,7 +203,7 @@ else
   if (( pending_index_items == 0 )) && [[ "$force_rebuild" != true ]]; then
     print -r -- "RAG index is already up to date for '$workspace_name'."
   else
-    index_cmd=(uv run zot workspace index "$workspace_name" --extractor "$extractor" --progress-lines --item-progress --no-embed)
+    index_cmd=(uv run zot workspace index "$workspace_name" --progress-lines --item-progress --no-embed)
     [[ "$force_rebuild" == true ]] && index_cmd+=(--force)
     workflow_section "Item Index"
     workflow_run_logged "$run_dir/logs/index.log" "${index_cmd[@]}"
@@ -227,7 +223,7 @@ trap - EXIT
 workflow_finish "$workflow_status"
 workflow_section "Complete"
 workflow_setting "workspace/index" ".workspace/$workspace_name"
-workflow_setting "pdf cache" ".zot/state/pdf_cache.sqlite"
+workflow_setting "MinerU parse cache" ".zot/state/mineru"
 if [[ "$keep_log" != true && "$keep_inventory" != true ]]; then
   workflow_remove_success_logs "$repo_root" "$run_dir"
 else

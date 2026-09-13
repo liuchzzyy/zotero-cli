@@ -16,4 +16,4 @@ uv run pytest -q -m cli
 uv run pytest -q -m integration
 ```
 
-Tests must not inherit real Zotero credentials, embedding keys, or rerank keys. Use `tests.support.invoke_cli` for command tests and explicitly pass only the fake values required by the behavior under test.
+Tests must not inherit real Zotero, MinerU, embedding, or rerank credentials and must never call live services. Use `tests.support.invoke_cli` for command tests and explicitly pass only the fake values required by the behavior under test.

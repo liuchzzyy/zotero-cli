@@ -4,9 +4,10 @@ import json
 from collections.abc import Callable
 
 from zotero_cli.core.ai_client import AiClient
+from zotero_cli.core.mineru import MinerUError, MinerUParseCache, MinerUParseResult
 from zotero_cli.core.note_renderer import render_note
 from zotero_cli.core.note_templates import format_template, load_template
-from zotero_cli.core.rag import clean_html, convert_pdfs_to_text, infer_pdf_kind
+from zotero_cli.core.rag import clean_html, infer_pdf_kind
 from zotero_cli.core.reader import ZoteroReader
 from zotero_cli.core.writer import ZoteroWriter
 from zotero_cli.models import Item
@@ -34,7 +35,7 @@ _SHORT_NOTE_MIN_SEGMENTS = 3
 _PARSE_RETRY_SUFFIX = (
     "\n\n【输出格式要求（必须遵守）】"
     "上一次输出无法解析为 JSON。请重新输出，且只输出一个 json 代码块："
-    "不要输出任何解释文字，顶层必须是 {\"sections\": [...]}，"
+    '不要输出任何解释文字，顶层必须是 {"sections": [...]}，'
     "确保 JSON 完整闭合（花括号、引号全部配对），字符串内换行用 \\n 转义。"
 )
 
@@ -154,15 +155,15 @@ def _generate_short_note(
     if error:
         raise NoteAnalysisError(f"关键词格式不合规：{error}", code="runtime_error")
     return short_note
+
+
 def _chat(ai_client: AiClient, prompt: str, *, temperature: float | None = None) -> str:
     try:
         return ai_client.chat(prompt, temperature=temperature)
     except NoteAnalysisError:
         raise
     except Exception as e:
-        raise NoteAnalysisError(
-            f"AI 调用失败：{type(e).__name__}: {e}", code="network_error", retryable=True
-        ) from e
+        raise NoteAnalysisError(f"AI 调用失败：{type(e).__name__}: {e}", code="network_error", retryable=True) from e
 
 
 def _classify(
@@ -237,7 +238,6 @@ def analyze_item(
     *,
     force: bool = False,
     no_tag: bool = False,
-    extractor: str = "mineru",
     dry_run: bool = False,
     no_short_note: bool = False,
     short_note_only: bool = False,
@@ -262,16 +262,24 @@ def analyze_item(
         raise NoteAnalysisError(f"条目 '{key}' 的 PDF 附件文件不存在", code="validation_error")
 
     if progress:
-        progress("extract", f"{len(pdf_paths)} PDF(s)")
-    pdf_texts = convert_pdfs_to_text(pdf_paths, extractor)
+        progress("mineru", f"解析/读取缓存：{len(pdf_paths)} PDF(s)")
+    try:
+        pdf_parses = MinerUParseCache().ensure_many(pdf_paths)
+    except MinerUError as exc:
+        message = str(exc)
+        code = "configuration_error" if "token not configured" in message.lower() else "network_error"
+        raise NoteAnalysisError(message, code=code, retryable=code == "network_error") from exc
 
     main_parts: list[str] = []
     supp_parts: list[str] = []
     for att in attachments:
-        if att.path is None or att.path not in pdf_texts:
+        if att.path is None or att.path not in pdf_parses:
             continue
-        text = pdf_texts[att.path]
-        if isinstance(text, Exception) or not text or not text.strip():
+        parsed = pdf_parses[att.path]
+        if not isinstance(parsed, MinerUParseResult):
+            continue
+        text = parsed.markdown
+        if not text.strip():
             continue
         kind = infer_pdf_kind(text, att.filename or att.key)
         if kind == "supplementary":
@@ -281,7 +289,9 @@ def analyze_item(
 
     main_text = "\n\n".join(main_parts)
     if not main_text.strip():
-        raise NoteAnalysisError(f"条目 '{key}' 的 PDF 抽取结果为空", code="runtime_error")
+        failures = [str(value) for value in pdf_parses.values() if isinstance(value, Exception)]
+        detail = f"：{failures[0]}" if failures else ""
+        raise NoteAnalysisError(f"条目 '{key}' 的 MinerU Markdown 为空{detail}", code="runtime_error")
 
     full_text = main_text
     if supp_parts:

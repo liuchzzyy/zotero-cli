@@ -2,148 +2,74 @@ from __future__ import annotations
 
 import json
 import re
-from pathlib import Path
-from typing import TYPE_CHECKING
 
 import click
 
-from zotero_cli.config import get_data_dir, get_prefs_js_path, load_config, resolve_library_id
-from zotero_cli.core.pdf_extractor import PdfExtractionError, get_extractor
+from zotero_cli.config import get_data_dir, get_prefs_js_path, load_config, load_pdf_config, resolve_library_id
+from zotero_cli.core.mineru import MinerUError, MinerUParseCache
 from zotero_cli.core.reader import ZoteroReader
 from zotero_cli.exit_codes import emit_error
-from zotero_cli.formatter import envelope_ok, format_pdf_annotations, format_pdf_text
-
-if TYPE_CHECKING:
-    from zotero_cli.core.pdf_cache import PdfCache
+from zotero_cli.formatter import envelope_ok, format_pdf_text
 
 
 def _parse_outline(markdown: str) -> list[tuple[int, str, int]]:
-    """Parse markdown headings and return numbered outline.
-
-    Returns:
-        List of tuples: (sequential_number, heading_text, level)
-        where level is 1-6 for # to ######
-    """
     pattern = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
-    outline: list[tuple[int, str, int]] = []
-    seq_num = 0
-    for match in pattern.finditer(markdown):
-        hashes, text = match.groups()
-        level = len(hashes)
-        seq_num += 1
-        outline.append((seq_num, text.strip(), level))
-    return outline
+    return [
+        (index, match.group(2).strip(), len(match.group(1)))
+        for index, match in enumerate(pattern.finditer(markdown), 1)
+    ]
 
 
 def _extract_section(markdown: str, section_num: int) -> str:
-    """Extract content under the N-th heading.
-
-    Args:
-        markdown: Full markdown text
-        section_num: 1-based section number from outline
-
-    Returns:
-        Content from that heading until the next heading of equal or higher level.
-        Returns empty string if section_num is out of range.
-    """
     pattern = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
     matches = list(pattern.finditer(markdown))
-
     if section_num < 1 or section_num > len(matches):
         return ""
-
-    target_match = matches[section_num - 1]
-    target_level = len(target_match.group(1))
-    target_start = target_match.start()
-
-    # Find the next heading of same or higher level
-    end_pos = len(markdown)
+    target = matches[section_num - 1]
+    target_level = len(target.group(1))
+    end = len(markdown)
     for match in matches[section_num:]:
-        level = len(match.group(1))
-        if level <= target_level:
-            end_pos = match.start()
+        if len(match.group(1)) <= target_level:
+            end = match.start()
             break
-
-    return markdown[target_start:end_pos].strip()
-
-
-def _extract_text(
-    pdf_path: Path,
-    extractor_name: str,
-    cache: PdfCache,
-    page_range: tuple[int, int] | None,
-) -> str:
-    cached = cache.get(pdf_path, extractor_name) if page_range is None else None
-    if cached is not None:
-        return cached
-
-    pdf_extractor = get_extractor(extractor_name)
-    if page_range is None:
-        text = pdf_extractor.extract_text(pdf_path)
-        cache.put(pdf_path, extractor_name, text)
-        return text
-    return pdf_extractor.extract_text(pdf_path, pages=page_range)
+    return markdown[target.start() : end].strip()
 
 
 @click.command("pdf")
-@click.option("--pages", default=None, help="Page range, e.g. '1-5'")
-@click.option("--extractor", default=None, help="PDF extractor to use. Defaults to the configured MinerU extractor.")
-@click.option("--annotations", is_flag=True, help="Extract annotations (highlights, notes) instead of text")
-@click.option("--outline", is_flag=True, help="Extract and list all headings as a numbered outline")
-@click.option("--section", type=int, default=None, help="Extract content under the N-th heading from outline")
+@click.option("--outline", is_flag=True, help="List headings from the MinerU Markdown as a numbered outline")
+@click.option("--section", type=int, default=None, help="Return the N-th Markdown section")
+@click.option("--structured", is_flag=True, help="Return MinerU content_list JSON instead of Markdown")
 @click.argument("key")
 @click.pass_context
 def pdf_cmd(
     ctx: click.Context,
-    pages: str | None,
-    extractor: str | None,
-    annotations: bool,
     outline: bool,
     section: int | None,
+    structured: bool,
     key: str,
 ) -> None:
-    """Extract text from the PDF attachment.
+    """Parse a Zotero PDF with MinerU cloud API and read its cached result.
 
-    Full text is cached locally for fast repeated access.
-
-    \b
-    Examples:
-      zot pdf ABC123                Extract full text
-      zot pdf ABC123 --pages 1-5    Extract pages 1-5
-      zot pdf ABC123 --outline      List all headings as numbered outline
-      zot pdf ABC123 --section 3    Extract content under 3rd heading
-      zot --json pdf ABC123         JSON output with metadata
+    The canonical package stores Markdown for AI notes and content_list JSON for
+    RAG. Repeated calls reuse the same content-addressed package.
     """
-    cfg = load_config(profile=ctx.obj.get("profile"))
     json_out = ctx.obj.get("json", False)
-    page_range = None
-    if extractor is None:
-        from zotero_cli.config import load_pdf_config
+    if sum((outline, section is not None, structured)) > 1:
+        emit_error(
+            "validation_error",
+            "Use only one of --outline, --section, or --structured",
+            output_json=json_out,
+            context="pdf",
+        )
 
-        extractor = load_pdf_config().extractor
-    if pages:
-        try:
-            parts = pages.split("-")
-            start = int(parts[0])
-            end = int(parts[1]) if len(parts) > 1 else start
-            if start < 1 or end < start:
-                raise ValueError(f"invalid range: start={start}, end={end}")
-            page_range = (start, end)
-        except ValueError:
-            emit_error(
-                "validation_error",
-                f"Invalid page range '{pages}'",
-                output_json=json_out,
-                hint="Use format: '1-5' or '3' for a single page",
-                context="pdf",
-            )
+    cfg = load_config(profile=ctx.obj.get("profile"))
     data_dir = get_data_dir(cfg)
     db_path = data_dir / "zotero.sqlite"
     library_id = resolve_library_id(db_path, ctx.obj)
     reader = ZoteroReader(db_path, library_id=library_id, prefs_js_path=get_prefs_js_path(cfg))
     try:
-        att = reader.get_pdf_attachment(key)
-        if att is None:
+        attachment = reader.get_pdf_attachment(key)
+        if attachment is None:
             emit_error(
                 "not_found",
                 f"No PDF attachment found for '{key}'",
@@ -151,73 +77,83 @@ def pdf_cmd(
                 hint="Check item details with: zot read KEY",
                 context="pdf",
             )
-        pdf_path = att.path
+        pdf_path = attachment.path
         if not pdf_path or not pdf_path.exists():
             emit_error(
                 "not_found",
-                f"PDF file not found at {pdf_path or att.filename}",
+                f"PDF file not found at {pdf_path or attachment.filename}",
                 output_json=json_out,
-                hint="The file may have been moved or the attachment path could not be resolved. "
-                "Check Zotero storage directory",
+                hint="Check the Zotero storage directory",
                 context="pdf",
             )
-        if annotations:
-            try:
-                annots = get_extractor(extractor).extract_annotations(pdf_path)
-            except PdfExtractionError as e:
-                emit_error("runtime_error", str(e), output_json=json_out, context="pdf")
-            if not annots:
-                if json_out:
-                    click.echo(json.dumps(envelope_ok([], meta={"count": 0}), indent=2, ensure_ascii=False))
-                else:
-                    click.echo("No annotations found.")
-                return
-            click.echo(format_pdf_annotations(annots, output_json=json_out))
-            return
-        from zotero_cli.core.pdf_cache import PdfCache
 
-        cache = PdfCache()
-        try:
-            text = _extract_text(pdf_path, extractor, cache, page_range)
-        except PdfExtractionError as e:
-            cache.close()
+        cache = MinerUParseCache()
+        cached = cache.get(pdf_path)
+        if cached is None and not load_pdf_config().mineru_token:
             emit_error(
-                "runtime_error",
-                str(e),
+                "configuration_error",
+                "MinerU API token is not configured",
                 output_json=json_out,
-                hint="The PDF may be corrupted or password-protected",
+                hint="Set [pdf].mineru_token in .zot/config.toml",
                 context="pdf",
             )
-        cache.close()
-        if outline or section is not None:
-            if section is not None:
-                content = _extract_section(text, section)
-                if not content:
-                    emit_error(
-                        "not_found",
-                        f"Section {section} not found (document has fewer than {section} headings)",
-                        output_json=json_out,
-                        hint="Use --outline first to see available sections",
-                        context="pdf",
-                    )
-                click.echo(format_pdf_text(key, pages, section=section, content=content, output_json=json_out))
+        try:
+            parsed = cached or cache.ensure(pdf_path)
+        except MinerUError as exc:
+            emit_error(
+                "network_error",
+                str(exc),
+                output_json=json_out,
+                retryable=True,
+                hint="Check the MinerU token, API status, and network connection",
+                context="pdf",
+            )
+
+        meta = {
+            "fingerprint": parsed.fingerprint,
+            "mineru_model_version": parsed.model_version,
+            "cache_dir": str(parsed.root),
+        }
+        if structured:
+            data = {"key": key, "content_list": parsed.content_list, **meta}
+            if json_out:
+                click.echo(json.dumps(envelope_ok(data), ensure_ascii=False, indent=2))
             else:
-                outline_data = _parse_outline(text)
-                if not outline_data:
-                    if json_out:
-                        click.echo(
-                            json.dumps(
-                                envelope_ok({"key": key, "pages": pages, "outline": []}, meta={"count": 0}),
-                                indent=2,
-                                ensure_ascii=False,
-                            )
-                        )
-                    else:
-                        click.echo("No headings found in document.")
-                    return
-                outline_json = [{"number": n, "text": t, "level": lvl} for n, t, lvl in outline_data]
-                click.echo(format_pdf_text(key, pages, outline=outline_json, output_json=json_out))
+                click.echo(json.dumps(parsed.content_list, ensure_ascii=False, indent=2))
             return
-        click.echo(format_pdf_text(key, pages, text=text, output_json=json_out))
+
+        markdown = parsed.markdown
+        if section is not None:
+            content = _extract_section(markdown, section)
+            if not content:
+                emit_error(
+                    "not_found",
+                    f"Section {section} not found",
+                    output_json=json_out,
+                    hint="Use --outline first to see available sections",
+                    context="pdf",
+                )
+            click.echo(format_pdf_text(key, section=section, content=content, output_json=json_out))
+            return
+        if outline:
+            outline_data = [
+                {"number": number, "text": text, "level": level} for number, text, level in _parse_outline(markdown)
+            ]
+            if json_out:
+                click.echo(
+                    json.dumps(envelope_ok({"key": key, "outline": outline_data, **meta}), ensure_ascii=False, indent=2)
+                )
+            elif not outline_data:
+                click.echo("No headings found in document.")
+            else:
+                click.echo(format_pdf_text(key, outline=outline_data, output_json=False))
+            return
+
+        if json_out:
+            click.echo(
+                json.dumps(envelope_ok({"key": key, "markdown": markdown, **meta}), ensure_ascii=False, indent=2)
+            )
+        else:
+            click.echo(markdown)
     finally:
         reader.close()

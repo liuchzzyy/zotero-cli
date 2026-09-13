@@ -8,7 +8,6 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict
 from io import StringIO
-from pathlib import Path
 from typing import Any
 
 from rich.console import Console
@@ -229,39 +228,21 @@ def format_duplicates(groups: list[DuplicateGroup], output_json: bool = False) -
     return buf.getvalue()
 
 
-def format_pdf_annotations(annots: list[dict], output_json: bool = False) -> str:
-    if output_json:
-        return _dump(envelope_ok(annots, meta={"count": len(annots)}))
-    buf = StringIO()
-    console = Console(file=buf, force_terminal=False, width=120)
-    for a in annots:
-        line = f"[p.{a['page']}] {a['type']}"
-        if a.get("quote"):
-            line += f': "{a["quote"]}"'
-        if a.get("content"):
-            line += f" -- {a['content']}"
-        console.print(line)
-    return buf.getvalue()
-
-
 def format_pdf_text(
     key: str,
-    pages: str | None,
-    text: str | None = None,
+    *,
     outline: list[dict] | None = None,
     section: int | None = None,
     content: str | None = None,
     output_json: bool = False,
 ) -> str:
     if output_json:
-        data: dict[str, Any] = {"key": key, "pages": pages or "all"}
+        data: dict[str, Any] = {"key": key}
         if section is not None:
             data["section"] = section
             data["content"] = content or ""
         elif outline is not None:
             data["outline"] = outline
-        else:
-            data["text"] = text or ""
         return _dump(envelope_ok(data))
     buf = StringIO()
     console = Console(file=buf, force_terminal=False, width=120)
@@ -271,42 +252,6 @@ def format_pdf_text(
         for item in outline:
             indent = "  " * (item["level"] - 1)
             console.print(f"{item['number']}. {indent}{item['text']}")
-    else:
-        console.print(text or "")
-    return buf.getvalue()
-
-
-def format_cache_list(rows: list[tuple], output_json: bool = False) -> str:
-    if not rows:
-        if output_json:
-            return _dump(envelope_ok([], meta={"count": 0}))
-        return "Cache is empty."
-    if output_json:
-        data = [
-            {
-                "pdf_basename": row[0],
-                "extractor": row[1],
-                "text_length": row[2],
-                "preview": row[3][:100] if row[3] else "",
-                "extracted_at": row[4],
-            }
-            for row in rows
-        ]
-        return _dump(envelope_ok(data, meta={"count": len(rows)}))
-    buf = StringIO()
-    console = Console(file=buf, force_terminal=False, width=120)
-    table = Table(show_header=True, header_style="bold")
-    table.add_column("PDF Path", style="cyan", width=30)
-    table.add_column("Extractor", width=10)
-    table.add_column("Length", justify="right", width=10)
-    table.add_column("Preview", width=50)
-    table.add_column("Time", width=20)
-    for row in rows:
-        pdf_path, extractor, length, content, extracted_at = row
-        preview = content[:100] + "..." if content and len(content) > 100 else (content or "")
-        preview = preview.replace("\n", " ").replace("\r", " ")
-        table.add_row(Path(pdf_path).name, extractor, f"{length:,}", preview, extracted_at[:19] if extracted_at else "")
-    console.print(table)
     return buf.getvalue()
 
 

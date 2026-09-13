@@ -1,3 +1,6 @@
+import json
+from unittest.mock import MagicMock, patch
+
 from click.testing import CliRunner
 
 from zotero_cli import __version__
@@ -64,72 +67,48 @@ def test_config_show_json_envelope(tmp_path):
 
 
 def test_cache_list_empty(tmp_path):
-    from zotero_cli.core import pdf_cache as pdf_cache_module
-
-    old_default = pdf_cache_module.DEFAULT_CACHE_PATH
-    try:
-        pdf_cache_module.DEFAULT_CACHE_PATH = tmp_path / "pdf_cache.sqlite"
+    cache = MagicMock()
+    cache.entries.return_value = []
+    with patch("zotero_cli.core.mineru.MinerUParseCache", return_value=cache):
         runner = CliRunner()
         result = runner.invoke(main, ["config", "cache", "list"])
         assert result.exit_code == 0
         assert "Cache is empty." in result.output
-    finally:
-        pdf_cache_module.DEFAULT_CACHE_PATH = old_default
 
 
 def test_cache_list_populated(tmp_path):
-    from zotero_cli.core import pdf_cache as pdf_cache_module
-    from zotero_cli.core.pdf_cache import PdfCache
-
-    old_default = pdf_cache_module.DEFAULT_CACHE_PATH
-    try:
-        pdf_cache_module.DEFAULT_CACHE_PATH = tmp_path / "pdf_cache.sqlite"
-        cache = PdfCache()
-        cache._conn.execute(
-            "INSERT INTO pdf_cache (pdf_path, mtime, content, extracted_at) VALUES (?, ?, ?, ?)",
-            ("/path/to/paper1.pdf", 1.0, "This is the extracted text content.", "2024-01-15T10:30:00+00:00"),
-        )
-        cache._conn.commit()
-        cache.close()
-
+    cache = MagicMock()
+    cache.entries.return_value = [
+        {
+            "source_name": "paper1.pdf",
+            "source_sha256": "abcdef1234567890",
+            "mineru_model_version": "vlm",
+            "parsed_at": "2024-01-15T10:30:00+00:00",
+        }
+    ]
+    with patch("zotero_cli.core.mineru.MinerUParseCache", return_value=cache):
         runner = CliRunner()
         result = runner.invoke(main, ["config", "cache", "list"])
         assert result.exit_code == 0
         assert "paper1.pdf" in result.output
-        assert "This is the extracted text content." in result.output
-    finally:
-        pdf_cache_module.DEFAULT_CACHE_PATH = old_default
+        assert "abcdef123456" in result.output
 
 
 def test_cache_list_json(tmp_path):
-    import json
-
-    from zotero_cli.core import pdf_cache as pdf_cache_module
-    from zotero_cli.core.pdf_cache import PdfCache
-
-    old_default = pdf_cache_module.DEFAULT_CACHE_PATH
-    try:
-        pdf_cache_module.DEFAULT_CACHE_PATH = tmp_path / "pdf_cache.sqlite"
-        cache = PdfCache()
-        cache._conn.execute(
-            "INSERT INTO pdf_cache (pdf_path, mtime, content, extracted_at) VALUES (?, ?, ?, ?)",
-            ("/path/to/paper2.pdf", 1.0, "Short text.", "2024-06-01T08:00:00+00:00"),
-        )
-        cache._conn.commit()
-        cache.close()
-
+    cache = MagicMock()
+    entry = {
+        "source_name": "paper2.pdf",
+        "source_sha256": "0123456789abcdef",
+        "mineru_model_version": "vlm",
+        "parsed_at": "2024-06-01T08:00:00+00:00",
+    }
+    cache.entries.return_value = [entry]
+    with patch("zotero_cli.core.mineru.MinerUParseCache", return_value=cache):
         runner = CliRunner()
         result = runner.invoke(main, ["--json", "config", "cache", "list"])
         assert result.exit_code == 0
-        # `config cache list --json` is now routed through the agent envelope.
         data = json.loads(result.output)["data"]
-        assert isinstance(data, list)
-        assert len(data) == 1
-        assert data[0]["pdf_basename"] == "/path/to/paper2.pdf"
-        assert data[0]["text_length"] == 11
-        assert data[0]["preview"] == "Short text."
-    finally:
-        pdf_cache_module.DEFAULT_CACHE_PATH = old_default
+        assert data == [entry]
 
 
 def test_cache_list_reports_initialization_error_without_secondary_exception():
@@ -137,7 +116,7 @@ def test_cache_list_reports_initialization_error_without_secondary_exception():
 
     runner = CliRunner()
     with patch(
-        "zotero_cli.core.pdf_cache.PdfCache",
+        "zotero_cli.core.mineru.MinerUParseCache",
         side_effect=OSError("cache unavailable"),
     ):
         result = runner.invoke(main, ["config", "cache", "list"])

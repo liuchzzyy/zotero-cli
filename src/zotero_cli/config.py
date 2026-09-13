@@ -150,8 +150,8 @@ class SemanticSearchConfig:
 
 @dataclass
 class PdfConfig:
-    extractor: str = "mineru"
     mineru_token: str = ""
+    mineru_model_version: str = "vlm"
 
 
 @dataclass
@@ -160,14 +160,11 @@ class AiNoteConfig:
     base_url: str = ""
     model: str = "gpt-5.4"
     reasoning_effort: str = "high"
-    pdf_input_mode: str = ""
     api_mode: str = "auto"
     chat_token_param: str = "auto"
     temperature: float = 0.7
     max_tokens: int = 0
     max_extracted_chars: int = 180000
-    max_images: int = 24
-    max_image_mb: int = 8
 
 
 def load_config(path: Path | None = None, profile: str | None = None) -> AppConfig:
@@ -288,16 +285,18 @@ def _select_provider_config(section: Any, *, env_active: str = "") -> dict[str, 
     return selected
 
 
-def load_pdf_config(path: Path | None = None) -> PdfConfig:
+def load_pdf_config(path: Path | None = None, *, apply_env_overrides: bool = True) -> PdfConfig:
     defaults = PdfConfig()
     data = _load_toml_data(path)
-    if not data:
-        return defaults
-    pdf = data.get("pdf", {})
-    return PdfConfig(
-        extractor=pdf.get("extractor", defaults.extractor),
+    pdf = data.get("pdf", {}) if data else {}
+    config = PdfConfig(
         mineru_token=pdf.get("mineru_token", defaults.mineru_token),
+        mineru_model_version=pdf.get("mineru_model_version", defaults.mineru_model_version),
     )
+    if apply_env_overrides:
+        config.mineru_token = os.environ.get("ZOT_MINERU_TOKEN", config.mineru_token)
+        config.mineru_model_version = os.environ.get("ZOT_MINERU_MODEL_VERSION", config.mineru_model_version)
+    return config
 
 
 def load_vector_store_config(path: Path | None = None) -> VectorStoreConfig:
@@ -338,14 +337,11 @@ def load_ai_note_config(path: Path | None = None) -> AiNoteConfig:
         base_url=ai_notes.get("base_url", defaults.base_url),
         model=ai_notes.get("model", defaults.model),
         reasoning_effort=ai_notes.get("reasoning_effort", defaults.reasoning_effort),
-        pdf_input_mode=ai_notes.get("pdf_input_mode", defaults.pdf_input_mode),
         api_mode=ai_notes.get("api_mode", defaults.api_mode),
         chat_token_param=ai_notes.get("chat_token_param", defaults.chat_token_param),
         temperature=float(ai_notes.get("temperature", defaults.temperature)),
         max_tokens=int(ai_notes.get("max_tokens", defaults.max_tokens)),
         max_extracted_chars=int(ai_notes.get("max_extracted_chars", defaults.max_extracted_chars)),
-        max_images=int(ai_notes.get("max_images", defaults.max_images)),
-        max_image_mb=int(ai_notes.get("max_image_mb", defaults.max_image_mb)),
     )
 
 
@@ -362,6 +358,7 @@ def get_default_profile(path: Path | None = None) -> str:
 def save_config(config: AppConfig, path: Path | None = None) -> None:
     resolved = path or config_file_path()
     resolved.parent.mkdir(parents=True, exist_ok=True)
+
     # JSON string literals are also valid TOML basic strings and correctly
     # escape quotes, backslashes, control characters, and non-ASCII values.
     # Hand-written single-quoted TOML breaks as soon as a path or credential
@@ -441,7 +438,9 @@ def get_prefs_js_path(config: AppConfig) -> Path | None:
     return None
 
 
-def resolve_write_credentials(config: AppConfig, *, library_type: str = "user", group_id: str | None = None) -> tuple[str, str]:
+def resolve_write_credentials(
+    config: AppConfig, *, library_type: str = "user", group_id: str | None = None
+) -> tuple[str, str]:
     library_id = os.environ.get("ZOT_LIBRARY_ID", config.library_id)
     api_key = os.environ.get("ZOT_API_KEY", config.api_key)
     if library_type == "group" and group_id:

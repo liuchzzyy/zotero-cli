@@ -1,6 +1,6 @@
 [project]
 name = "zotero-cli"
-version = "1.1.0"
+version = "2.0.0"
 description = "Zotero CLI for AI agents — SQLite reads + Web API writes"
 license = "MIT"
 requires-python = ">=3.10"
@@ -14,7 +14,6 @@ classifiers = [
 dependencies = [
     "click>=8.1",
     "pyzotero>=1.5",
-    "pymupdf>=1.24",
     "rich>=13.0",
     "tomli>=2.0; python_version < '3.11'",
     "markdownify>=1.2.2",

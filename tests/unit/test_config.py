@@ -12,6 +12,7 @@ from zotero_cli.config import (
     load_ai_note_config,
     load_config,
     load_embedding_config,
+    load_pdf_config,
     load_rerank_config,
     load_semantic_search_config,
     load_vector_store_config,
@@ -418,25 +419,30 @@ api_key = "test-key"
 base_url = "https://api.example.com/v1"
 model = "deepseek-v4-pro"
 reasoning_effort = "max"
-pdf_input_mode = "mineru-text"
 api_mode = "chat"
 chat_token_param = "max_tokens"
 temperature = 0.3
 max_tokens = 16384
 max_extracted_chars = 1234
-max_images = 6
-max_image_mb = 3
 """)
     cfg = load_ai_note_config(config_file)
     assert cfg.api_key == "test-key"
     assert cfg.base_url == "https://api.example.com/v1"
     assert cfg.model == "deepseek-v4-pro"
     assert cfg.reasoning_effort == "max"
-    assert cfg.pdf_input_mode == "mineru-text"
     assert cfg.api_mode == "chat"
     assert cfg.chat_token_param == "max_tokens"
     assert cfg.temperature == 0.3
     assert cfg.max_tokens == 16384
     assert cfg.max_extracted_chars == 1234
-    assert cfg.max_images == 6
-    assert cfg.max_image_mb == 3
+
+
+def test_load_pdf_config_is_mineru_only(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        '[pdf]\nmineru_token = "token"\nmineru_model_version = "vlm"\n',
+        encoding="utf-8",
+    )
+    cfg = load_pdf_config(config_file, apply_env_overrides=False)
+    assert cfg.mineru_token == "token"
+    assert cfg.mineru_model_version == "vlm"

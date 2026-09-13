@@ -10,7 +10,6 @@ from zotero_cli.config import (
     get_prefs_js_path,
     load_ai_note_config,
     load_config,
-    load_pdf_config,
     resolve_library_id,
     resolve_write_credentials,
 )
@@ -26,7 +25,6 @@ from zotero_cli.formatter import envelope_ok
 @click.argument("key")
 @click.option("--dry-run", is_flag=True, help="只输出分类结果与将发给 AI 的输入，不调用 AI 分析、不写 note")
 @click.option("--force", is_flag=True, help="已打 ai/noted 也重跑")
-@click.option("--extractor", default=None, help="PDF 文本抽取器，默认使用 [pdf].extractor（MinerU）")
 @click.option("--no-tag", is_flag=True, help="写 note 但不打 ai/noted tag")
 @click.option("--no-short-note", is_flag=True, help="不生成关键词（简记 short-note），只生成 note")
 @click.option(
@@ -41,7 +39,6 @@ def ai_analyze_cmd(
     key: str,
     dry_run: bool,
     force: bool,
-    extractor: str | None,
     no_tag: bool,
     no_short_note: bool,
     short_note_only: bool,
@@ -49,9 +46,6 @@ def ai_analyze_cmd(
 ) -> None:
     """用 MinerU + AI 分析一个 Zotero 条目及其 PDF，生成 HTML note 并写回。"""
     json_out = ctx.obj.get("json", False)
-
-    if extractor is None:
-        extractor = load_pdf_config().extractor
 
     ai_cfg = load_ai_note_config()
     if not (ai_cfg.api_key and ai_cfg.base_url and ai_cfg.model):
@@ -108,7 +102,6 @@ def ai_analyze_cmd(
             key,
             force=force,
             no_tag=no_tag,
-            extractor=extractor,
             dry_run=dry_run,
             no_short_note=no_short_note,
             short_note_only=short_note_only,
@@ -162,9 +155,6 @@ def _print_short_note(result: dict) -> None:
     if status == "ok":
         click.echo("  简记（short-note）：已写入 Extra，tag ai/keywords")
     elif status == "failed":
-        click.echo(
-            f"  简记（short-note）：失败，tag ai/no_keywords"
-            f"（{result.get('short_note_error', '')}）"
-        )
+        click.echo(f"  简记（short-note）：失败，tag ai/no_keywords（{result.get('short_note_error', '')}）")
     else:
         click.echo("  简记（short-note）：跳过")
