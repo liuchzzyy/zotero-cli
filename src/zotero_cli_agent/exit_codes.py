@@ -22,6 +22,7 @@ CODE_TO_EXIT = {
     "auth_invalid": EXIT_AUTH,
     "auth_expired": EXIT_AUTH,
     "validation_error": EXIT_VALIDATION,
+    "configuration_error": EXIT_VALIDATION,
     "not_found": EXIT_NOT_FOUND,
     "network_error": EXIT_NETWORK,
     "rate_limited": EXIT_NETWORK,

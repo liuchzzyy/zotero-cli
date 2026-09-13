@@ -13,6 +13,7 @@ from zotero_cli_agent.exit_codes import (
     EXIT_NOT_FOUND,
     EXIT_OK,
     EXIT_VALIDATION,
+    exit_code_for,
 )
 from zotero_cli_agent.formatter import envelope_error, envelope_ok, envelope_partial
 
@@ -81,6 +82,9 @@ class TestTTYAutoDetect:
 
 
 class TestExitCodes:
+    def test_configuration_error_is_validation_failure(self):
+        assert exit_code_for("configuration_error") == EXIT_VALIDATION
+
     def test_auth_missing_returns_exit_2(self):
         result = _run(["add", "--doi", "10.1/x"], env={"ZOT_LIBRARY_ID": "", "ZOT_API_KEY": ""})
         assert result.exit_code == EXIT_AUTH
