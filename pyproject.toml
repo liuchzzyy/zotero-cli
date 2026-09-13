@@ -42,6 +42,12 @@ packages = ["src/zotero_cli"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = ["--strict-markers"]
+markers = [
+    "unit: isolated tests for core functions and data access",
+    "cli: command, output-contract, and safety-boundary tests",
+    "integration: multi-component and tool-script workflow tests",
+]
 
 [dependency-groups]
 dev = [

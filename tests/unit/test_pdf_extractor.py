@@ -1,27 +1,25 @@
 from io import BytesIO
-from pathlib import Path
 from zipfile import ZipFile
 
 import pytest
+from tests.support import FIXTURES_DIR
 
 from zotero_cli.core.pdf_extractor import PyMuPdfExtractor, _safe_extract_zip
 
-FIXTURES = Path(__file__).parent / "fixtures"
-
 
 def test_extract_full_pdf():
-    text = PyMuPdfExtractor().extract_text(FIXTURES / "test.pdf")
+    text = PyMuPdfExtractor().extract_text(FIXTURES_DIR / "test.pdf")
     assert "test PDF" in text
 
 
 def test_extract_specific_pages():
-    text = PyMuPdfExtractor().extract_text(FIXTURES / "test.pdf", pages=(1, 1))
+    text = PyMuPdfExtractor().extract_text(FIXTURES_DIR / "test.pdf", pages=(1, 1))
     assert "test PDF" in text
 
 
 def test_extract_nonexistent_pdf():
     with pytest.raises(FileNotFoundError):
-        PyMuPdfExtractor().extract_text(FIXTURES / "nonexistent.pdf")
+        PyMuPdfExtractor().extract_text(FIXTURES_DIR / "nonexistent.pdf")
 
 
 def test_safe_extract_zip_rejects_sibling_prefix_traversal(tmp_path):

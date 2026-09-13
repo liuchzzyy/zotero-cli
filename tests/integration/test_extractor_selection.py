@@ -1,20 +1,10 @@
 """Tests that PDF extraction does not silently switch extractors."""
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from click.testing import CliRunner
+from tests.support import invoke_cli as _invoke
 
-from zotero_cli.cli import main
 from zotero_cli.core.pdf_errors import PdfExtractionError
-
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
-
-
-def _invoke(args):
-    runner = CliRunner()
-    env = {"ZOT_DATA_DIR": str(FIXTURES_DIR), "ZOT_FORMAT": "table"}
-    return runner.invoke(main, args, env=env)
 
 
 class TestMinerUWithoutFallback:

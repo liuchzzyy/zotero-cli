@@ -3,23 +3,14 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
-from click.testing import CliRunner
+from tests.support import invoke_cli as _run
 
-from zotero_cli.cli import main
 from zotero_cli.core.semantic_scholar import (
     PublicationStatus,
     extract_arxiv_id,
     extract_preprint_info,
 )
-
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
-
-
-def _run(args: list[str]):
-    runner = CliRunner()
-    return runner.invoke(main, args, env={"ZOT_DATA_DIR": str(FIXTURES_DIR), "ZOT_FORMAT": "table"})
 
 
 class TestUpdateStatusCli:

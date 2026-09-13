@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
+from tests.support import FIXTURES_DIR
 
 from zotero_cli.cli import main
 from zotero_cli.config import AiNoteConfig
@@ -25,8 +25,6 @@ from zotero_cli.core.note_analysis import (
 )
 from zotero_cli.core.writer import merge_short_note_into_extra
 from zotero_cli.models import Attachment, Creator, Item, Note
-
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
 def _make_item(item_type="journalArticle", tags=None, abstract="摘要内容") -> Item:

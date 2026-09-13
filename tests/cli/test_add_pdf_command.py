@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
+from tests.support import FIXTURES_DIR
 
 from zotero_cli.cli import main
 from zotero_cli.core.pdf_extractor import PyMuPdfExtractor
-
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
 class TestExtractDoi:

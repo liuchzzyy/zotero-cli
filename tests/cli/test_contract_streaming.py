@@ -3,22 +3,10 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
-from click.testing import CliRunner
+from tests.support import invoke_agent_cli as _run
 
-from zotero_cli.cli import main
 from zotero_cli.exit_codes import EXIT_OK
-
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
-
-
-def _run(args, env=None):
-    runner = CliRunner()
-    base_env = {"ZOT_DATA_DIR": str(FIXTURES_DIR), "ZOT_FORMAT": ""}
-    if env:
-        base_env.update(env)
-    return runner.invoke(main, args, env=base_env)
 
 
 def _parse_ndjson(s: str) -> list[dict]:

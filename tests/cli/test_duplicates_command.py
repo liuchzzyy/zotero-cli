@@ -5,22 +5,12 @@ from __future__ import annotations
 import json
 import shutil
 import sqlite3
-from pathlib import Path
 from unittest.mock import patch
 
-from click.testing import CliRunner
+from tests.support import FIXTURES_DIR
+from tests.support import invoke_cli as _invoke
 
-from zotero_cli.cli import main
 from zotero_cli.core.reader import ZoteroReader
-
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
-
-
-def _invoke(args: list[str], json_output: bool = False):
-    runner = CliRunner()
-    base = ["--json"] if json_output else []
-    env = {"ZOT_DATA_DIR": str(FIXTURES_DIR), "ZOT_FORMAT": "table"}
-    return runner.invoke(main, base + args, env=env)
 
 
 class TestDuplicateReader:

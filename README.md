@@ -130,6 +130,13 @@ uv build
 
 源代码位于 `src/zotero_cli/`，bundled skill 位于 `skill/zotero-cli/`。
 
+Mac 工作流脚本位于 `tools/`，统一使用 zsh：
+
+```bash
+tools/run-rag-workspace.zsh --help
+tools/run-rag-evidence-search.zsh --help
+```
+
 ## 来源与许可
 
 本项目基于 [Agents365-ai/zotero-cli-cc](https://github.com/Agents365-ai/zotero-cli-cc) 扩展开发，采用 [MIT License](LICENSE)。

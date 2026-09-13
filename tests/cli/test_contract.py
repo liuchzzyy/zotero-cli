@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
-from click.testing import CliRunner
+from tests.support import invoke_agent_cli as _run
 
-from zotero_cli.cli import main
 from zotero_cli.exit_codes import (
     EXIT_AUTH,
     EXIT_NOT_FOUND,
@@ -16,18 +14,6 @@ from zotero_cli.exit_codes import (
     exit_code_for,
 )
 from zotero_cli.formatter import envelope_error, envelope_ok, envelope_partial
-
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
-
-
-def _run(args, env=None):
-    """Invoke the CLI with TTY auto-detect active (no ZOT_FORMAT override)."""
-    runner = CliRunner()
-    # Explicitly clear conftest's ZOT_FORMAT=table so TTY auto-detect fires.
-    base_env = {"ZOT_DATA_DIR": str(FIXTURES_DIR), "ZOT_FORMAT": ""}
-    if env:
-        base_env.update(env)
-    return runner.invoke(main, args, env=base_env)
 
 
 class TestEnvelopeShape:

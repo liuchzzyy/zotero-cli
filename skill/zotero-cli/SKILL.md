@@ -78,6 +78,8 @@ zot --json workspace query "question" --workspace topic
 
 Indexing may extract large PDFs or call configured external services. Reuse an existing complete index when possible. Check `zot workspace show NAME` and the index state before forcing a rebuild.
 
+For logged MacBook workflows, use `tools/run-rag-workspace.zsh` and `tools/run-rag-evidence-search.zsh`. Read `tools/Instructions.md` before running a full collection inventory, forced rebuild, or long embedding backfill.
+
 ## Troubleshooting
 
 - Run `zot config show` to verify the local database path without exposing the full API key.

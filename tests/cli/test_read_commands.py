@@ -3,15 +3,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 from click.testing import CliRunner
+from tests.support import invoke_cli
 
 from zotero_cli.cli import main
 
 
 def _invoke(args: list[str], test_db_path: Path, json_output: bool = False):
-    runner = CliRunner()
-    base_args = ["--json"] if json_output else []
-    env = {"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"}
-    return runner.invoke(main, base_args + args, env=env)
+    return invoke_cli(args, json_output=json_output, env={"ZOT_DATA_DIR": str(test_db_path.parent)})
 
 
 class TestSearch:

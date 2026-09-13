@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from click.testing import CliRunner
+from tests.support import invoke_cli as _invoke
 
-from zotero_cli.cli import main
 from zotero_cli.core.workspace import (
     Workspace,
     WorkspaceItem,
@@ -21,16 +19,6 @@ from zotero_cli.core.workspace import (
     workspace_cache_path,
     workspace_exists,
 )
-
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
-
-
-def _invoke(args: list[str], json_output: bool = False):
-    runner = CliRunner()
-    base = ["--json"] if json_output else []
-    env = {"ZOT_DATA_DIR": str(FIXTURES_DIR), "ZOT_FORMAT": "table"}
-    return runner.invoke(main, base + args, env=env)
-
 
 # --- Core unit tests ---
 
@@ -47,7 +35,8 @@ class TestValidateName:
         assert validate_name("") is False
         assert validate_name("LLM-Safety") is False
         assert validate_name("has spaces") is False
-        assert validate_name("under_score") is False
+        assert validate_name("under_score") is True
+        assert validate_name("00_收件箱") is True
         assert validate_name("-leading") is False
         assert validate_name("trailing-") is False
         assert validate_name("double--dash") is False

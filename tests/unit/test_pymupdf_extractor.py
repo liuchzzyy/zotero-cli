@@ -1,10 +1,8 @@
-from pathlib import Path
 
 import pytest
+from tests.support import FIXTURES_DIR
 
 from zotero_cli.core.pdf_extractor import PyMuPdfExtractor
-
-FIXTURES = Path(__file__).parent / "fixtures"
 
 
 class TestPyMuPdfExtractor:
@@ -15,41 +13,41 @@ class TestPyMuPdfExtractor:
         assert self.extractor.name() == "pymupdf"
 
     def test_extract_text_returns_string(self):
-        text = self.extractor.extract_text(FIXTURES / "test.pdf")
+        text = self.extractor.extract_text(FIXTURES_DIR / "test.pdf")
         assert isinstance(text, str)
 
     def test_extract_text_contains_content(self):
-        text = self.extractor.extract_text(FIXTURES / "test.pdf")
+        text = self.extractor.extract_text(FIXTURES_DIR / "test.pdf")
         assert "test PDF" in text
 
     def test_extract_text_with_pages(self):
-        text = self.extractor.extract_text(FIXTURES / "test.pdf", pages=(1, 1))
+        text = self.extractor.extract_text(FIXTURES_DIR / "test.pdf", pages=(1, 1))
         assert isinstance(text, str)
         assert len(text) > 0
 
     def test_extract_text_nonexistent_raises(self):
         with pytest.raises(FileNotFoundError):
-            self.extractor.extract_text(FIXTURES / "nonexistent.pdf")
+            self.extractor.extract_text(FIXTURES_DIR / "nonexistent.pdf")
 
     def test_extract_annotations_returns_list(self):
-        annotations = self.extractor.extract_annotations(FIXTURES / "test.pdf")
+        annotations = self.extractor.extract_annotations(FIXTURES_DIR / "test.pdf")
         assert isinstance(annotations, list)
 
     def test_extract_annotations_returns_list_of_dicts(self):
-        annotations = self.extractor.extract_annotations(FIXTURES / "test.pdf")
+        annotations = self.extractor.extract_annotations(FIXTURES_DIR / "test.pdf")
         for ann in annotations:
             assert isinstance(ann, dict)
 
     def test_extract_annotations_nonexistent_raises(self):
         with pytest.raises(FileNotFoundError):
-            self.extractor.extract_annotations(FIXTURES / "nonexistent.pdf")
+            self.extractor.extract_annotations(FIXTURES_DIR / "nonexistent.pdf")
 
     def test_extract_doi_returns_string_or_none(self):
-        result = self.extractor.extract_doi(FIXTURES / "test.pdf")
+        result = self.extractor.extract_doi(FIXTURES_DIR / "test.pdf")
         assert result is None or isinstance(result, str)
 
     def test_extract_doi_nonexistent_returns_none(self):
-        result = self.extractor.extract_doi(FIXTURES / "nonexistent.pdf")
+        result = self.extractor.extract_doi(FIXTURES_DIR / "nonexistent.pdf")
         assert result is None
 
     def test_pymupdf4llm_available_flag(self):

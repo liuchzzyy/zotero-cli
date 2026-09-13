@@ -3,33 +3,26 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
+from tests.support import FIXTURES_DIR, invoke_cli, parse_json_output
 
 from zotero_cli.cli import main
 from zotero_cli.core.writer import ZoteroWriteError, ZoteroWriter
 
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
-
 
 def _invoke(args: list[str], json_output: bool = False):
-    runner = CliRunner()
-    base = ["--json"] if json_output else []
-    env = {
-        "ZOT_DATA_DIR": str(FIXTURES_DIR),
-        "ZOT_LIBRARY_ID": "test_lib",
-        "ZOT_API_KEY": "test_key",
-        "ZOT_FORMAT": "table",
-    }
-    return runner.invoke(main, base + args, env=env)
+    return invoke_cli(
+        args,
+        json_output=json_output,
+        env={"ZOT_LIBRARY_ID": "test_lib", "ZOT_API_KEY": "test_key"},
+    )
 
 
 def _parse_json_output(output: str) -> dict:
-    cleaned = "\n".join(line for line in output.splitlines() if not line.lstrip().startswith('{"event"'))
-    return json.loads(cleaned)
+    return parse_json_output(output)
 
 
 class TestUpdateCommand:

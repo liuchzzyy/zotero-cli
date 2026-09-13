@@ -4,31 +4,12 @@ from __future__ import annotations
 
 import json
 from contextlib import ExitStack
-from pathlib import Path
 from unittest.mock import patch
 
-from click.testing import CliRunner
+from tests.support import invoke_cli as _invoke
 
-from zotero_cli.cli import main
 from zotero_cli.config import VectorStoreConfig
 from zotero_cli.core.rag_index import RagIndex
-
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
-
-
-def _invoke(args: list[str], json_output: bool = False, env: dict[str, str] | None = None):
-    runner = CliRunner()
-    base = ["--json"] if json_output else []
-    base_env = {
-        "ZOT_DATA_DIR": str(FIXTURES_DIR),
-        "ZOT_FORMAT": "table",
-        "ZOT_EMBEDDING_URL": "",
-        "ZOT_EMBEDDING_KEY": "",
-        "ZOT_EMBEDDING_MODEL": "",
-    }
-    if env:
-        base_env.update(env)
-    return runner.invoke(main, base + args, env=base_env)
 
 
 def _patch_workspace(tmp_path):

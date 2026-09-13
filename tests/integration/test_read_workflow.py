@@ -3,15 +3,14 @@
 import json
 
 from click.testing import CliRunner
+from tests.support import invoke_cli
 
 from zotero_cli import __version__
 from zotero_cli.cli import main
 
 
 def _run(args, test_db_path, json_out=False):
-    runner = CliRunner()
-    base = ["--json"] if json_out else []
-    return runner.invoke(main, base + args, env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"})
+    return invoke_cli(args, json_output=json_out, env={"ZOT_DATA_DIR": str(test_db_path.parent)})
 
 
 def test_full_read_workflow(test_db_path):

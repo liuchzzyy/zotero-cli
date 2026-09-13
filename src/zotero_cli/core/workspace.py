@@ -17,7 +17,9 @@ else:
 
 from zotero_cli.config import project_root, state_dir
 
-_NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+# Workspace names are path components: allow Unicode/CJK names plus `_` and
+# `-`, while requiring an alphanumeric/CJK first and last character.
+_NAME_RE = re.compile(r"^[a-z0-9\u4e00-\u9fff]+(?:[-_][a-z0-9\u4e00-\u9fff]+)*$")
 
 
 def workspaces_dir() -> Path:

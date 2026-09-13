@@ -20,7 +20,7 @@ The CLI follows an agent-native contract enforced by the Click tree, `zot schema
 
 Uses `uv` as the package manager. `uv.lock` is authoritative.
 
-```powershell
+```bash
 # Install dev environment
 uv sync --dev
 
@@ -30,8 +30,8 @@ uv run python -m mypy src/zotero_cli
 uv run pytest -q
 
 # Run a single test / file / node
-uv run pytest tests/test_reader.py -v
-uv run pytest tests/test_reader.py::test_name -v
+uv run pytest tests/unit/test_reader.py -v
+uv run pytest tests/unit/test_reader.py::test_name -v
 uv run pytest -k "search and not rag" -v
 
 # Run the CLI from source
@@ -85,7 +85,7 @@ When adding a command, register it in `cli.py` and place it in the correct safet
 ### Agent Contract and Skill
 
 - `zot schema` is the authoritative machine-readable CLI surface.
-- `tests/test_agent_interface.py`, `tests/test_agent_p1.py`, and `tests/test_agent_p2.py` are the regression guardrails for envelope shape, exit codes, dry-run behavior, streaming, and safety tiers.
+- `tests/cli/test_contract.py`, `test_contract_mutations.py`, and `test_contract_streaming.py` are the regression guardrails for envelope shape, exit codes, dry-run behavior, streaming, and safety tiers.
 - `skill/zotero-cli/` is the bundled agent skill and should stay aligned with real CLI behavior.
 - No `docs/` tree or MkDocs config is currently checked in. Do not treat missing docs paths as source of truth unless docs are reintroduced in a future change.
 
@@ -159,7 +159,7 @@ Before closing substantial changes, run the smallest relevant checks first, then
 
 For this repository on this machine, the environment has already been initialized successfully with:
 
-```powershell
+```bash
 uv sync --dev
 uv run zot --help
 uv run pytest -q

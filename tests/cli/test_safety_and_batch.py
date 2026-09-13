@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
+from tests.support import FIXTURES_DIR
 
 from zotero_cli.cli import main
 from zotero_cli.core.pdf_extractor import PdfExtractionError, PyMuPdfExtractor
@@ -392,7 +392,7 @@ class TestPdfExtractionError:
             PyMuPdfExtractor().extract_text(bad_pdf)
 
     def test_page_range_exceeds_length(self):
-        fixtures = Path(__file__).parent / "fixtures"
+        fixtures = FIXTURES_DIR
         pdf = fixtures / "test.pdf"
         if not pdf.exists():
             pytest.skip("test.pdf fixture not found")

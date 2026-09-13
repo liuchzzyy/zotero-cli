@@ -1,19 +1,57 @@
-import os
+from __future__ import annotations
+
 from pathlib import Path
 
 import pytest
+from click.testing import CliRunner
 
+from tests.support import FIXTURES_DIR, REPO_ROOT
 from zotero_cli.config import AppConfig
 
-# Default ZOT_FORMAT for tests.
-# Many existing tests assert `"some text" in result.output`. Under the new
-# contract, human prose goes to stderr while JSON envelopes go to stdout. The
-# JSON envelope still contains the error message text, so defaulting tests to
-# JSON mode keeps substring checks working against stdout.
-# test_agent_interface.py explicitly clears this to exercise TTY auto-detect.
-os.environ.setdefault("ZOT_FORMAT", "table")
 
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
+@pytest.fixture(autouse=True)
+def isolate_test_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep tests deterministic and disconnected from the user's live services."""
+    monkeypatch.setenv("ZOT_DATA_DIR", str(FIXTURES_DIR))
+    monkeypatch.setenv("ZOT_FORMAT", "table")
+    for name in (
+        "ZOT_LIBRARY_ID",
+        "ZOT_API_KEY",
+        "ZOT_EMBEDDING_URL",
+        "ZOT_EMBEDDING_KEY",
+        "ZOT_EMBEDDING_MODEL",
+        "ZOT_RERANK_URL",
+        "ZOT_RERANK_KEY",
+        "ZOT_RERANK_MODEL",
+    ):
+        monkeypatch.setenv(name, "")
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Derive test tier markers from the directory structure."""
+    for item in items:
+        path = Path(str(item.path))
+        if "unit" in path.parts:
+            item.add_marker(pytest.mark.unit)
+        elif "cli" in path.parts:
+            item.add_marker(pytest.mark.cli)
+        elif "integration" in path.parts:
+            item.add_marker(pytest.mark.integration)
+
+
+@pytest.fixture
+def repo_root() -> Path:
+    return REPO_ROOT
+
+
+@pytest.fixture
+def fixtures_dir() -> Path:
+    return FIXTURES_DIR
+
+
+@pytest.fixture
+def cli_runner() -> CliRunner:
+    return CliRunner()
 
 
 @pytest.fixture
