@@ -130,3 +130,16 @@ def test_cache_list_json(tmp_path):
         assert data[0]["preview"] == "Short text."
     finally:
         pdf_cache_module.DEFAULT_CACHE_PATH = old_default
+
+
+def test_cache_list_reports_initialization_error_without_secondary_exception():
+    from unittest.mock import patch
+
+    runner = CliRunner()
+    with patch(
+        "zotero_cli_agent.core.pdf_cache.PdfCache",
+        side_effect=OSError("cache unavailable"),
+    ):
+        result = runner.invoke(main, ["config", "cache", "list"])
+    assert result.exit_code == 1
+    assert "cache unavailable" in result.output

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import json
+
 import click
 
 from zotero_cli_agent.config import get_data_dir, load_config, resolve_library_id, resolve_write_credentials
 from zotero_cli_agent.core.reader import ZoteroReader
 from zotero_cli_agent.core.writer import SYNC_REMINDER, ZoteroWriteError, ZoteroWriter
 from zotero_cli_agent.exit_codes import emit_error
-from zotero_cli_agent.formatter import format_items, print_error
+from zotero_cli_agent.formatter import envelope_ok, format_items, print_error
 from zotero_cli_agent.models import ErrorInfo
 
 
@@ -38,7 +40,7 @@ def trash_list_cmd(ctx: click.Context, limit: int | None) -> None:
         items = reader.get_trash_items(limit=limit)
         if not items:
             if ctx.obj.get("json"):
-                click.echo("[]")
+                click.echo(json.dumps(envelope_ok([], meta={"count": 0}), indent=2, ensure_ascii=False))
             else:
                 click.echo("Trash is empty.")
             return

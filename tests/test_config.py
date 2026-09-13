@@ -187,6 +187,20 @@ def test_save_and_load_config_with_backslashes(tmp_path):
     assert loaded.api_key == "abc"
 
 
+def test_save_and_load_config_escapes_toml_strings(tmp_path):
+    config_path = tmp_path / "config.toml"
+    cfg = AppConfig(
+        data_dir="/tmp/O'Brien/Zotero\\library",
+        library_id='user"123',
+        api_key="key'with\"quotes",
+    )
+    save_config(cfg, config_path)
+    loaded = load_config(config_path)
+    assert loaded.data_dir == cfg.data_dir
+    assert loaded.library_id == cfg.library_id
+    assert loaded.api_key == cfg.api_key
+
+
 # --- Embedding config (Gitee API only) ---
 
 

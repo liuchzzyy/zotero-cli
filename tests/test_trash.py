@@ -98,3 +98,11 @@ class TestTrashCLI:
         result = _invoke(["trash", "list"])
         assert result.exit_code == 0
         assert "TRSH007" in result.output
+
+    def test_empty_trash_list_uses_json_envelope(self):
+        result = _invoke(["trash", "list", "--limit", "0"], json_output=True)
+        assert result.exit_code == 0
+        env = json.loads(result.output)
+        assert env["ok"] is True
+        assert env["data"] == []
+        assert env["meta"]["count"] == 0

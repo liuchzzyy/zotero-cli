@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
+
 import click
 
 from zotero_cli_agent.config import get_data_dir, load_config, resolve_library_id
 from zotero_cli_agent.core.reader import ZoteroReader
-from zotero_cli_agent.formatter import format_items
+from zotero_cli_agent.formatter import envelope_ok, format_items
 
 
 @click.command("relate")
@@ -31,7 +33,7 @@ def relate_cmd(ctx: click.Context, key: str, limit: int | None) -> None:
         if not items:
             # Empty result is a normal outcome, not an error — exit 0 with a friendly message.
             if json_out:
-                click.echo("[]")
+                click.echo(json.dumps(envelope_ok([], meta={"count": 0}), indent=2, ensure_ascii=False))
             else:
                 click.echo(
                     f"No related items found for '{key}'. Items need shared tags or collections to find relations."

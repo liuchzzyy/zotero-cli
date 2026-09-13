@@ -207,17 +207,19 @@ def cache_list(ctx: click.Context) -> None:
 
     json_out = ctx.obj.get("json", False) if ctx.obj else False
 
+    cache = None
     try:
         cache = PdfCache()
         rows = cache._conn.execute(
             "SELECT pdf_path, extractor, LENGTH(content), content, extracted_at FROM pdf_cache ORDER BY pdf_path"
         ).fetchall()
         click.echo(format_cache_list(rows, output_json=json_out))
-    except sqlite3.OperationalError as e:
+    except (sqlite3.OperationalError, OSError) as e:
         click.echo(f"Error: Could not access cache database: {e}", err=True)
         raise SystemExit(1)
     finally:
-        cache.close()
+        if cache is not None:
+            cache.close()
 
 
 @profile_group.command("set")

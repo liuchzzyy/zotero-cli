@@ -694,11 +694,10 @@ class _RateLimiter:
                     return
                 sleep_time = self._timestamps[0] - (now - self._window)
             if sleep_time > 0:
-                sys.stdout.write(f"\r{' ' * 60}\r    [rate-limit] sleeping {sleep_time:.1f}s")
-                sys.stdout.flush()
+                # Progress must never contaminate the CLI's JSON stdout.
+                sys.stderr.write(f"\r{' ' * 60}\r    [rate-limit] sleeping {sleep_time:.1f}s")
+                sys.stderr.flush()
                 time.sleep(sleep_time)
-                while self._timestamps and self._timestamps[0] <= now - self._window:
-                    self._timestamps.popleft()
 
 
 def _load_token(config_token: str | None = None) -> str:
@@ -737,7 +736,11 @@ def _safe_extract_zip(zf: zipfile.ZipFile, output_dir: Path) -> None:
         if member.is_dir():
             continue
         target = (output_dir / member.filename).resolve()
-        if not str(target).startswith(str(root)):
+        try:
+            target.relative_to(root)
+        except ValueError:
+            # Reject `../` traversal and sibling-prefix paths such as
+            # `/tmp/out_evil` when the destination is `/tmp/out`.
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
         with zf.open(member) as src, target.open("wb") as dst:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 from dataclasses import dataclass
@@ -361,23 +362,30 @@ def get_default_profile(path: Path | None = None) -> str:
 def save_config(config: AppConfig, path: Path | None = None) -> None:
     resolved = path or config_file_path()
     resolved.parent.mkdir(parents=True, exist_ok=True)
+    # JSON string literals are also valid TOML basic strings and correctly
+    # escape quotes, backslashes, control characters, and non-ASCII values.
+    # Hand-written single-quoted TOML breaks as soon as a path or credential
+    # contains an apostrophe.
+    def quote(value: str) -> str:
+        return json.dumps(value, ensure_ascii=False)
+
     lines = [
         "[zotero]",
-        f"data_dir = '{config.data_dir}'",
-        f"library_id = '{config.library_id}'",
-        f"api_key = '{config.api_key}'",
-        f"semantic_scholar_api_key = '{config.semantic_scholar_api_key}'",
-        f"prefs_js_path = '{config.prefs_js_path}'",
+        f"data_dir = {quote(config.data_dir)}",
+        f"library_id = {quote(config.library_id)}",
+        f"api_key = {quote(config.api_key)}",
+        f"semantic_scholar_api_key = {quote(config.semantic_scholar_api_key)}",
+        f"prefs_js_path = {quote(config.prefs_js_path)}",
         "",
         "[integrations]",
-        f"crossref_mailto = '{config.crossref_mailto}'",
+        f"crossref_mailto = {quote(config.crossref_mailto)}",
         "",
         "[output]",
-        f"default_format = '{config.default_format}'",
+        f"default_format = {quote(config.default_format)}",
         f"limit = {config.default_limit}",
         "",
         "[export]",
-        f"default_style = '{config.default_export_style}'",
+        f"default_style = {quote(config.default_export_style)}",
         "",
     ]
     resolved.write_text("\n".join(lines), encoding="utf-8")

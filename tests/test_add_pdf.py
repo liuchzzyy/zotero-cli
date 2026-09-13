@@ -86,3 +86,29 @@ class TestAddPdfCLI:
         assert result.exit_code == 3
         env_data = json.loads(result.output)
         assert env_data["error"]["code"] == "validation_error"
+
+    def test_add_pdf_uses_configured_extractor(self, tmp_path):
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"%PDF-1.4 test")
+        runner = CliRunner()
+        env = {
+            "ZOT_DATA_DIR": str(FIXTURES_DIR),
+            "ZOT_LIBRARY_ID": "123",
+            "ZOT_API_KEY": "abc",
+            "ZOT_FORMAT": "",
+        }
+        with (
+            patch("zotero_cli_agent.core.pdf_extractor.get_extractor") as mock_get,
+            patch("zotero_cli_agent.commands.add.ZoteroWriter") as mock_writer_cls,
+        ):
+            mock_extractor = MagicMock()
+            mock_extractor.extract_doi.return_value = "10.1234/test"
+            mock_get.return_value = mock_extractor
+            mock_writer = MagicMock()
+            mock_writer_cls.return_value = mock_writer
+            mock_writer.add_item.return_value = "NEW001"
+            mock_writer.upload_attachment.return_value = "ATT001"
+            result = runner.invoke(main, ["add", "--pdf", str(pdf)], env=env)
+
+        assert result.exit_code == 0
+        mock_get.assert_called_once_with()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import time
 from datetime import datetime, timezone
@@ -47,7 +48,7 @@ from zotero_cli_agent.core.workspace import (
     workspaces_dir,
 )
 from zotero_cli_agent.exit_codes import emit_error
-from zotero_cli_agent.formatter import format_items, format_workspace_list, format_workspace_query
+from zotero_cli_agent.formatter import envelope_ok, format_items, format_workspace_list, format_workspace_query
 from zotero_cli_agent.models import Collection, Item
 
 _TEST_PATCH_SEAMS = (convert_pdf_to_text, workspaces_dir)
@@ -1012,7 +1013,7 @@ def workspace_query(
         top = filtered[:top_k]
         if not top:
             if json_out:
-                click.echo("[]")
+                click.echo(json.dumps(envelope_ok([], meta={"count": 0, "mode": effective_mode}), indent=2, ensure_ascii=False))
             else:
                 click.echo("No results found.")
             return

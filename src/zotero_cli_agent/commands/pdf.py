@@ -11,7 +11,7 @@ from zotero_cli_agent.config import get_data_dir, get_prefs_js_path, load_config
 from zotero_cli_agent.core.pdf_extractor import PdfExtractionError, get_extractor
 from zotero_cli_agent.core.reader import ZoteroReader
 from zotero_cli_agent.exit_codes import emit_error
-from zotero_cli_agent.formatter import format_pdf_annotations, format_pdf_text
+from zotero_cli_agent.formatter import envelope_ok, format_pdf_annotations, format_pdf_text
 
 if TYPE_CHECKING:
     from zotero_cli_agent.core.pdf_cache import PdfCache
@@ -168,7 +168,7 @@ def pdf_cmd(
                 emit_error("runtime_error", str(e), output_json=json_out, context="pdf")
             if not annots:
                 if json_out:
-                    click.echo("[]")
+                    click.echo(json.dumps(envelope_ok([], meta={"count": 0}), indent=2, ensure_ascii=False))
                 else:
                     click.echo("No annotations found.")
                 return
@@ -205,7 +205,13 @@ def pdf_cmd(
                 outline_data = _parse_outline(text)
                 if not outline_data:
                     if json_out:
-                        click.echo(json.dumps({"key": key, "pages": pages, "outline": []}, ensure_ascii=False))
+                        click.echo(
+                            json.dumps(
+                                envelope_ok({"key": key, "pages": pages, "outline": []}, meta={"count": 0}),
+                                indent=2,
+                                ensure_ascii=False,
+                            )
+                        )
                     else:
                         click.echo("No headings found in document.")
                     return

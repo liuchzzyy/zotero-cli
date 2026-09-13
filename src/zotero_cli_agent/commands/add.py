@@ -246,7 +246,10 @@ def _add_from_pdf(
 
     doi = doi_override
     if not doi:
-        doi = get_extractor("mineru").extract_doi(pdf_path)
+        # Honor the configured PDF extractor.  Hard-coding MinerU here made
+        # `zot add --pdf` unexpectedly require a MinerU token even when the
+        # user selected the local PyMuPDF extractor.
+        doi = get_extractor().extract_doi(pdf_path)
     if not doi:
         emit_error(
             "validation_error",

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
+
 import click
 
 from zotero_cli_agent.config import get_data_dir, load_config, resolve_library_id
 from zotero_cli_agent.core.reader import ZoteroReader
 from zotero_cli_agent.exit_codes import EXIT_CONFLICT
-from zotero_cli_agent.formatter import format_duplicates
+from zotero_cli_agent.formatter import envelope_ok, format_duplicates
 
 
 @click.command("duplicates")
@@ -39,7 +41,7 @@ def duplicates_cmd(ctx: click.Context, strategy: str, threshold: float, limit: i
         groups = reader.find_duplicates(strategy=strategy, threshold=threshold, limit=limit)
         if not groups:
             if ctx.obj.get("json"):
-                click.echo("[]")
+                click.echo(json.dumps(envelope_ok([], meta={"count": 0}), indent=2, ensure_ascii=False))
             else:
                 click.echo("No duplicates found.")
             return
