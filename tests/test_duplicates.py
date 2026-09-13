@@ -75,6 +75,20 @@ class TestDuplicateReader:
         finally:
             reader.close()
 
+    def test_title_matches_with_conflicting_dois_are_not_duplicates(self, tmp_path):
+        """Different DOI records with similar titles must not be auto-cleaned."""
+        # The fixture already contains an exact-DOI duplicate pair; this
+        # assertion verifies the stricter title path only reports compatible
+        # DOI records rather than unrelated works with similar wording.
+        reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite")
+        try:
+            groups = reader.find_duplicates(strategy="title", threshold=0.99)
+            for group in groups:
+                dois = {item.doi for item in group.items if item.doi}
+                assert len(dois) <= 1
+        finally:
+            reader.close()
+
     def test_find_duplicates_stops_after_doi_limit(self):
         reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite")
         try:

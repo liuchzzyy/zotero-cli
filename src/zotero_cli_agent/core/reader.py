@@ -442,6 +442,25 @@ class ZoteroReader:
                 item_ids,
             ).fetchall()
 
+            # A title-only match is not enough when both records carry
+            # different DOIs: books, reviews, translations, and conference
+            # chapters often share nearly identical titles.  Keep same-DOI
+            # matches (already found by the DOI strategy) and title matches
+            # where at least one DOI is absent, but suppress conflicting DOI
+            # pairs as false positives.
+            title_doi_rows = conn.execute(
+                f"SELECT id.itemID, LOWER(TRIM(iv.value)) AS doi FROM itemData id "
+                f"JOIN fields f ON id.fieldID = f.fieldID "
+                f"JOIN itemDataValues iv ON id.valueID = iv.valueID "
+                f"WHERE f.fieldName = 'DOI' AND id.itemID IN ({ph}) AND TRIM(iv.value) != ''",
+                item_ids,
+            ).fetchall()
+            doi_by_item_id = {row["itemID"]: row["doi"] for row in title_doi_rows}
+
+            def _compatible_title_ids(ids: list[int]) -> bool:
+                dois = {doi_by_item_id[item_id] for item_id in ids if item_id in doi_by_item_id}
+                return len(dois) <= 1
+
             def _normalize(title: str) -> str:
                 t = re.sub(r"[^\w\s]", "", title.lower()).strip()
                 return re.sub(r"\s+", " ", t)
@@ -464,7 +483,7 @@ class ZoteroReader:
                 norm_groups.setdefault(norm, []).append(item_id)
 
             for ids in norm_groups.values():
-                if len(ids) >= 2:
+                if len(ids) >= 2 and _compatible_title_ids(ids):
                     group_key = frozenset(item_keys[i] for i in ids)
                     if group_key not in seen_group_keys:
                         seen_group_keys.add(group_key)
@@ -489,6 +508,8 @@ class ZoteroReader:
                         continue
                     ratio = SequenceMatcher(None, norm_a, norm_b).ratio()
                     if ratio >= threshold:
+                        if not _compatible_title_ids([*cluster, id_b]):
+                            continue
                         cluster.append(id_b)
                         matched.add(id_b)
                 if len(cluster) >= 2:
