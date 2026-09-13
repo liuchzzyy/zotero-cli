@@ -1,12 +1,12 @@
 [default]
-profile = "zotero-cil"
+profile = "macbook"
 
-[profile.zotero-cil]
-data_dir = "C:/Users/chengliu/Zotero"
+[profile.macbook]
+data_dir = "/Users/liuchzzyy/Zotero"
 library_id = ""
 api_key = ""
 semantic_scholar_api_key = ""
-prefs_js_path = ""
+prefs_js_path = "/Users/liuchzzyy/Library/Application Support/Zotero/Profiles/uffjwrp8.default/prefs.js"
 
 [integrations]
 crossref_mailto = ""
