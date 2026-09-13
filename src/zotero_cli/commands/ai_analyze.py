@@ -68,7 +68,7 @@ def ai_analyze_cmd(
         library_type=ctx.obj.get("library_type", "user"),
         group_id=ctx.obj.get("group_id"),
     )
-    if not writer_library_id or not writer_api_key:
+    if not dry_run and (not writer_library_id or not writer_api_key):
         reader.close()
         emit_error(
             "auth_missing",
@@ -78,11 +78,13 @@ def ai_analyze_cmd(
             context="ai_analyze",
         )
 
-    writer = ZoteroWriter(
-        library_id=writer_library_id,
-        api_key=writer_api_key,
-        library_type=ctx.obj.get("library_type", "user"),
-    )
+    writer = None
+    if writer_library_id and writer_api_key:
+        writer = ZoteroWriter(
+            library_id=writer_library_id,
+            api_key=writer_api_key,
+            library_type=ctx.obj.get("library_type", "user"),
+        )
     ai_client = AiClient(ai_cfg)
 
     def progress(event: str, message: str) -> None:

@@ -81,7 +81,11 @@ uv run zot schema
 uv run zot add --doi "10.1038/example" --dry-run
 uv run zot update ITEMKEY --title "New title" --dry-run
 uv run zot delete ITEMKEY --dry-run
+uv run zot ai_analyze ITEMKEY --dry-run
 ```
+
+`ai_analyze --dry-run` 只读取本地 Zotero 数据、MinerU 解析结果并生成预览，
+不写入 Zotero，因此不要求 Zotero Web API 写入凭证。实际生成 note 时仍要求有效写入凭证。
 
 确认写入时，建议为可重试操作提供唯一幂等键：
 
@@ -115,6 +119,8 @@ uv run zot schema
 uv run zot schema search
 uv run zot schema collection move
 ```
+
+直接运行 `uv run zot` 会显示顶层帮助并以退出码 0 结束。
 
 主要退出码：
 

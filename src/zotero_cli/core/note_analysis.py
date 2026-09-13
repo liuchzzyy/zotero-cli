@@ -232,7 +232,7 @@ def _analyze_short_note_only(
 
 def analyze_item(
     reader: ZoteroReader,
-    writer: ZoteroWriter,
+    writer: ZoteroWriter | None,
     ai_client: AiClient,
     key: str,
     *,
@@ -248,6 +248,8 @@ def analyze_item(
         raise NoteAnalysisError(f"条目 '{key}' 不存在", code="not_found")
 
     if short_note_only:
+        if writer is None:
+            raise NoteAnalysisError("写入凭证未配置", code="auth_missing")
         return _analyze_short_note_only(reader, writer, ai_client, item, key, progress)
 
     if ANALYZED_TAG in item.tags and not force:
@@ -299,7 +301,9 @@ def analyze_item(
 
     paper_type = _classify(item, main_text[:_CLASSIFY_CHARS], ai_client, progress)
     if paper_type == "uncertain":
-        if not no_tag:
+        if not dry_run and not no_tag:
+            if writer is None:
+                raise NoteAnalysisError("写入凭证未配置", code="auth_missing")
             writer.add_tags(key, [NOT_ANALYZED_TAG])
         return {"status": "uncertain", "item_key": key, "paper_type": paper_type}
     if paper_type not in _TEMPLATE_BY_TYPE:
@@ -336,6 +340,8 @@ def analyze_item(
 
     if progress:
         progress("analyze", f"paper_type={paper_type}")
+    if writer is None:
+        raise NoteAnalysisError("写入凭证未配置", code="auth_missing")
     answer = _chat(ai_client, prompt)
     try:
         sections = extract_json_object(answer).get("sections", [])

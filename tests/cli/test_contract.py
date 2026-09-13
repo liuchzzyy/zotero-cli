@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import patch
 
 from tests.support import invoke_agent_cli as _run
 
@@ -91,13 +92,28 @@ class TestExitCodes:
         assert env["error"]["code"] == "auth_missing"
 
     def test_ai_analyze_auth_missing_returns_exit_2(self):
-        result = _run(
-            ["ai_analyze", "ABC123", "--dry-run"],
-            env={"ZOT_LIBRARY_ID": "", "ZOT_API_KEY": ""},
-        )
+        result = _run(["ai_analyze", "ABC123"], env={"ZOT_LIBRARY_ID": "", "ZOT_API_KEY": ""})
         assert result.exit_code == EXIT_AUTH
         env = json.loads(result.output)
         assert env["error"]["code"] == "auth_missing"
+
+    def test_ai_analyze_dry_run_does_not_require_write_credentials(self):
+        expected = {"status": "dry_run", "item_key": "ABC123"}
+        with (
+            patch("zotero_cli.commands.ai_analyze.analyze_item", return_value=expected) as analyze,
+            patch("zotero_cli.commands.ai_analyze.ZoteroReader"),
+            patch("zotero_cli.commands.ai_analyze.ZoteroWriter") as writer,
+            patch("zotero_cli.commands.ai_analyze.AiClient"),
+        ):
+            result = _run(
+                ["ai_analyze", "ABC123", "--dry-run"],
+                env={"ZOT_LIBRARY_ID": "", "ZOT_API_KEY": ""},
+            )
+
+        assert result.exit_code == EXIT_OK
+        assert json.loads(result.output)["data"] == expected
+        writer.assert_not_called()
+        assert analyze.call_args.args[1] is None
 
     def test_validation_error_returns_exit_3(self):
         result = _run(["add"], env={"ZOT_LIBRARY_ID": "abc", "ZOT_API_KEY": "xyz"})
@@ -111,9 +127,9 @@ class TestExitCodes:
         env = json.loads(result.output)
         assert env["error"]["code"] == "not_found"
 
-    def test_top_level_without_subcommand_is_click_usage_error(self):
+    def test_top_level_without_subcommand_shows_help_and_succeeds(self):
         result = _run([])
-        assert result.exit_code == 2
+        assert result.exit_code == EXIT_OK
         combined = f"{result.output}\n{result.stderr}"
         assert "Usage:" in combined
         assert "zot — Zotero CLI" in combined

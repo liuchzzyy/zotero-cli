@@ -54,9 +54,12 @@ zot attach ITEMKEY --file paper.pdf --dry-run
 zot note ITEMKEY --add "Key finding" --dry-run
 zot tag ITEMKEY --add important --dry-run
 zot delete ITEMKEY --dry-run
+zot ai_analyze ITEMKEY --dry-run
 ```
 
 After the user authorizes the actual mutation, remove `--dry-run`. For retryable single-item mutations, add `--idempotency-key UNIQUE_KEY` where supported. Zotero Web API changes require Zotero Desktop sync before they appear in the local SQLite database.
+
+`zot ai_analyze ITEMKEY --dry-run` does not write to Zotero and therefore does not require Zotero Web API write credentials. A non-dry-run analysis still requires a library ID and an API key with write access.
 
 ## Workspaces and RAG
 

@@ -135,7 +135,7 @@ class TieredGroup(click.Group):
                 formatter.write_dl(rows)
 
 
-@click.group(cls=TieredGroup)
+@click.group(cls=TieredGroup, invoke_without_command=True, no_args_is_help=False)
 @click.version_option(version=__version__, prog_name="zot")
 @click.option(
     "--json",
@@ -223,6 +223,9 @@ def main(
         ctx.obj["group_id"] = group_part
     else:
         raise click.BadParameter(f"Invalid --library format: '{library}'. Use 'user' or 'group:<id>'")
+
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
 @main.result_callback()
