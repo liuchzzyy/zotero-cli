@@ -90,6 +90,15 @@ class TestExitCodes:
         env = json.loads(result.output)
         assert env["error"]["code"] == "auth_missing"
 
+    def test_ai_analyze_auth_missing_returns_exit_2(self):
+        result = _run(
+            ["ai_analyze", "ABC123", "--dry-run"],
+            env={"ZOT_LIBRARY_ID": "", "ZOT_API_KEY": ""},
+        )
+        assert result.exit_code == EXIT_AUTH
+        env = json.loads(result.output)
+        assert env["error"]["code"] == "auth_missing"
+
     def test_validation_error_returns_exit_3(self):
         result = _run(["add"], env={"ZOT_LIBRARY_ID": "abc", "ZOT_API_KEY": "xyz"})
         assert result.exit_code == EXIT_VALIDATION
@@ -101,6 +110,13 @@ class TestExitCodes:
         assert result.exit_code == EXIT_NOT_FOUND
         env = json.loads(result.output)
         assert env["error"]["code"] == "not_found"
+
+    def test_top_level_without_subcommand_is_click_usage_error(self):
+        result = _run([])
+        assert result.exit_code == 2
+        combined = f"{result.output}\n{result.stderr}"
+        assert "Usage:" in combined
+        assert "zot — Zotero CLI" in combined
 
 
 class TestStderrRouting:

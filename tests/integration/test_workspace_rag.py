@@ -155,6 +155,25 @@ class TestWorkspaceIndex:
         finally:
             idx.close()
 
+    def test_embed_missing_configuration_returns_exit_3(self, tmp_path):
+        with _patch_workspace(tmp_path):
+            _invoke(["workspace", "new", "embed-missing"])
+            _invoke(["workspace", "add", "embed-missing", "ATTN001"])
+            _invoke(["workspace", "index", "embed-missing", "--no-embed"])
+            result = _invoke(
+                ["workspace", "embed", "embed-missing"],
+                json_output=True,
+                env={
+                    "ZOT_EMBEDDING_URL": "",
+                    "ZOT_EMBEDDING_KEY": "",
+                    "ZOT_EMBEDDING_MODEL": "",
+                },
+            )
+
+        assert result.exit_code == 3
+        envelope = json.loads(result.output)
+        assert envelope["error"]["code"] == "configuration_error"
+
 
 class TestWorkspaceQuery:
     def test_query_workspace(self, tmp_path):
