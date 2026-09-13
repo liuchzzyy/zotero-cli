@@ -13,10 +13,12 @@ from zotero_cli_agent.formatter import envelope_ok, format_collections, format_i
 from zotero_cli_agent.models import ErrorInfo
 
 
-@click.group("collection")
-def collection_group() -> None:
+@click.group("collection", invoke_without_command=True)
+@click.pass_context
+def collection_group(ctx: click.Context) -> None:
     """Manage Zotero collections."""
-    pass
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
 def _emit_json_or_text(

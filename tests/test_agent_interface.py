@@ -85,6 +85,19 @@ class TestExitCodes:
     def test_configuration_error_is_validation_failure(self):
         assert exit_code_for("configuration_error") == EXIT_VALIDATION
 
+    def test_bare_command_groups_show_help_and_succeed(self):
+        for command_path in (
+            ["config"],
+            ["config", "cache"],
+            ["config", "profile"],
+            ["collection"],
+            ["trash"],
+            ["workspace"],
+        ):
+            result = _run(command_path)
+            assert result.exit_code == EXIT_OK, command_path
+            assert "Usage:" in result.output
+
     def test_auth_missing_returns_exit_2(self):
         result = _run(["add", "--doi", "10.1/x"], env={"ZOT_LIBRARY_ID": "", "ZOT_API_KEY": ""})
         assert result.exit_code == EXIT_AUTH

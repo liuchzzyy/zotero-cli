@@ -54,10 +54,12 @@ from zotero_cli_agent.models import Collection, Item
 _TEST_PATCH_SEAMS = (convert_pdf_to_text, workspaces_dir)
 
 
-@click.group("workspace")
-def workspace_group() -> None:
+@click.group("workspace", invoke_without_command=True)
+@click.pass_context
+def workspace_group(ctx: click.Context) -> None:
     """Manage local workspaces for organizing papers by topic."""
-    pass
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
 @workspace_group.command("new")

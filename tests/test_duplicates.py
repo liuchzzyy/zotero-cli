@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import sqlite3
 from pathlib import Path
 from unittest.mock import patch
 
@@ -77,15 +79,25 @@ class TestDuplicateReader:
 
     def test_title_matches_with_conflicting_dois_are_not_duplicates(self, tmp_path):
         """Different DOI records with similar titles must not be auto-cleaned."""
-        # The fixture already contains an exact-DOI duplicate pair; this
-        # assertion verifies the stricter title path only reports compatible
-        # DOI records rather than unrelated works with similar wording.
-        reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite")
+        db_path = tmp_path / "zotero.sqlite"
+        shutil.copy2(FIXTURES_DIR / "zotero.sqlite", db_path)
+        with sqlite3.connect(db_path) as conn:
+            different_doi_value_id = conn.execute(
+                "SELECT id.valueID FROM itemData id "
+                "JOIN items i ON id.itemID = i.itemID "
+                "JOIN fields f ON id.fieldID = f.fieldID "
+                "WHERE i.key = 'BERT002' AND f.fieldName = 'DOI'"
+            ).fetchone()[0]
+            conn.execute(
+                "UPDATE itemData SET valueID = ? WHERE itemID = (SELECT itemID FROM items WHERE key = 'DUPE008') "
+                "AND fieldID = (SELECT fieldID FROM fields WHERE fieldName = 'DOI')",
+                (different_doi_value_id,),
+            )
+
+        reader = ZoteroReader(db_path)
         try:
-            groups = reader.find_duplicates(strategy="title", threshold=0.99)
-            for group in groups:
-                dois = {item.doi for item in group.items if item.doi}
-                assert len(dois) <= 1
+            groups = reader.find_duplicates(strategy="title", threshold=0.7)
+            assert not any({"ATTN001", "DUPE008"} <= {item.key for item in group.items} for group in groups)
         finally:
             reader.close()
 

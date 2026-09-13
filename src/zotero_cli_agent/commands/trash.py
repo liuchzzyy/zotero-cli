@@ -12,10 +12,12 @@ from zotero_cli_agent.formatter import envelope_ok, format_items, print_error
 from zotero_cli_agent.models import ErrorInfo
 
 
-@click.group("trash")
-def trash_group() -> None:
+@click.group("trash", invoke_without_command=True)
+@click.pass_context
+def trash_group(ctx: click.Context) -> None:
     """Manage trashed items (list, restore)."""
-    pass
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
 @trash_group.command("list")

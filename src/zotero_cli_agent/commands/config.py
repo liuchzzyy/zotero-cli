@@ -18,10 +18,12 @@ from zotero_cli_agent.config import (
 from zotero_cli_agent.formatter import envelope_ok, format_cache_list
 
 
-@click.group("config")
-def config_group() -> None:
+@click.group("config", invoke_without_command=True)
+@click.pass_context
+def config_group(ctx: click.Context) -> None:
     """Manage zot configuration."""
-    pass
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
 @config_group.command("init")
@@ -127,10 +129,12 @@ def config_show(ctx: click.Context, config_path: str | None) -> None:
         click.echo(click.style(f"\nDatabase:   {db_file} (OK)", fg="green"))
 
 
-@config_group.group("profile")
-def profile_group() -> None:
+@config_group.group("profile", invoke_without_command=True)
+@click.pass_context
+def profile_group(ctx: click.Context) -> None:
     """Manage configuration profiles."""
-    pass
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
 @profile_group.command("list")
@@ -148,10 +152,12 @@ def profile_list(config_path: str | None) -> None:
         click.echo(f"  {p}{marker}")
 
 
-@config_group.group("cache")
-def cache_group() -> None:
+@config_group.group("cache", invoke_without_command=True)
+@click.pass_context
+def cache_group(ctx: click.Context) -> None:
     """Manage PDF text cache."""
-    pass
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
 @cache_group.command("clear")
