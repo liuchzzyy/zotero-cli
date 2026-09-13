@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from zotero_cli_agent.config import EmbeddingConfig
-from zotero_cli_agent.core.rag import (
+from zotero_cli.config import EmbeddingConfig
+from zotero_cli.core.rag import (
     build_metadata_chunk,
     chunk_text,
     embed_texts,
@@ -16,7 +16,7 @@ from zotero_cli_agent.core.rag import (
     tokenize,
     weighted_reciprocal_rank_fusion,
 )
-from zotero_cli_agent.core.rag_index import RagIndex, _fts_query
+from zotero_cli.core.rag_index import RagIndex, _fts_query
 
 
 class TestRagIndex:
@@ -219,7 +219,7 @@ class TestEmbedding:
     def test_embed_texts_gitee_api_call(self):
         cfg = EmbeddingConfig(url="https://ai.gitee.com/v1", api_key="key", model="bge-m3")
         resp = self._gitee_response([[0.1, 0.2, 0.3]])
-        with patch("zotero_cli_agent.core.providers.gitee.requests.post", return_value=resp) as mock_post:
+        with patch("zotero_cli.core.providers.gitee.requests.post", return_value=resp) as mock_post:
             result = embed_texts(["hello world"], cfg)
 
         assert result == [[0.1, 0.2, 0.3]]
@@ -234,7 +234,7 @@ class TestEmbedding:
     def test_embed_texts_surfaces_provider_error(self, capsys):
         cfg = EmbeddingConfig(url="https://ai.gitee.com/v1", api_key="key", model="bge-m3")
         with patch(
-            "zotero_cli_agent.core.providers.gitee.requests.post",
+            "zotero_cli.core.providers.gitee.requests.post",
             side_effect=RuntimeError("boom"),
         ):
             result = embed_texts(["hello"], cfg)

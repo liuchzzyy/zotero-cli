@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from zotero_cli_agent.cli import main
+from zotero_cli.cli import main
 
 
 def _invoke(args: list[str], test_db_path: Path, json_output: bool = False):
@@ -145,7 +145,7 @@ class TestCiteCommand:
         assert "not found" in result.output
 
     def test_cite_copies_to_clipboard(self, test_db_path):
-        with patch("zotero_cli_agent.commands.cite._copy_to_clipboard", return_value=True) as mock_copy:
+        with patch("zotero_cli.commands.cite._copy_to_clipboard", return_value=True) as mock_copy:
             result = _invoke(["cite", "ATTN001"], test_db_path)
             assert result.exit_code == 0
             assert "copied to clipboard" in result.output

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from zotero_cli_agent.core.note_renderer import render_note
-from zotero_cli_agent.core.note_templates import format_template, load_template, template_path
+from zotero_cli.core.note_renderer import render_note
+from zotero_cli.core.note_templates import format_template, load_template, template_path
 
 
 class TestNoteTemplates:

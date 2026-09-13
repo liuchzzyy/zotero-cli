@@ -16,7 +16,9 @@
 
 ### 推荐给代理的直接提示词
 ```text
-当前日常目标是 F:\ChengL1u\10_资源库\代码\zotero-cli-agent\.workspace\501-mno2-zn，
+当前项目名称统一为 `zotero-cli`，MacBook 仓库位于
+`/Users/liuchzzyy/python-code/zotero-cli`。日常工作区目标为
+`.workspace/501-mno2-zn`，Windows PowerShell 包装器仍按仓库根目录相对寻址。
 对应 Zotero 集合 501-MnO2-Zn 及其子集合。
 
 集合 key：
@@ -55,8 +57,8 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File tools\run-rag-workspace.ps1 `
 @'
 import sqlite3
 from pathlib import Path
-from zotero_cli_agent.config import load_vector_store_config
-from zotero_cli_agent.core.semantic_search import QdrantVectorStore, resolve_vector_store_path
+from zotero_cli.config import load_vector_store_config
+from zotero_cli.core.semantic_search import QdrantVectorStore, resolve_vector_store_path
 
 p = Path(".workspace/501-mno2-zn/rag.idx.sqlite")
 con = sqlite3.connect(p)

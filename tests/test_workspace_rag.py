@@ -9,9 +9,9 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from zotero_cli_agent.cli import main
-from zotero_cli_agent.config import VectorStoreConfig
-from zotero_cli_agent.core.rag_index import RagIndex
+from zotero_cli.cli import main
+from zotero_cli.config import VectorStoreConfig
+from zotero_cli.core.rag_index import RagIndex
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -34,11 +34,11 @@ def _invoke(args: list[str], json_output: bool = False, env: dict[str, str] | No
 def _patch_workspace(tmp_path):
     """Patch workspace dirs + vector store so tests are fully isolated."""
     stack = ExitStack()
-    stack.enter_context(patch("zotero_cli_agent.core.workspace.workspaces_dir", return_value=tmp_path))
-    stack.enter_context(patch("zotero_cli_agent.commands.workspace.workspaces_dir", return_value=tmp_path))
+    stack.enter_context(patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path))
+    stack.enter_context(patch("zotero_cli.commands.workspace.workspaces_dir", return_value=tmp_path))
     stack.enter_context(
         patch(
-            "zotero_cli_agent.commands.workspace.load_vector_store_config",
+            "zotero_cli.commands.workspace.load_vector_store_config",
             return_value=VectorStoreConfig(path=str(tmp_path / "_qdrant")),
         )
     )
@@ -95,7 +95,7 @@ class TestWorkspaceIndex:
 
     def test_index_no_embed_skips_embedding(self, tmp_path):
         with _patch_workspace(tmp_path), patch(
-            "zotero_cli_agent.commands.workspace.embed_texts",
+            "zotero_cli.commands.workspace.embed_texts",
             side_effect=AssertionError("should not embed"),
         ) as embed_mock:
             _invoke(["workspace", "new", "test-idx"])
@@ -150,7 +150,7 @@ class TestWorkspaceQuery:
             selected = candidates[:top_n]
             return [(cid, 10.0 - idx, chunk) for idx, (cid, _score, chunk) in enumerate(selected)] + candidates[top_n:]
 
-        with _patch_workspace(tmp_path), patch("zotero_cli_agent.commands.workspace.rerank_chunks", fake_rerank):
+        with _patch_workspace(tmp_path), patch("zotero_cli.commands.workspace.rerank_chunks", fake_rerank):
             _invoke(["workspace", "new", "test-q"])
             _invoke(["workspace", "add", "test-q", "ATTN001"])
             _invoke(["workspace", "index", "test-q", "--extractor", "pymupdf"])

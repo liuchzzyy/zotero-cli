@@ -4,9 +4,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from zotero_cli_agent.config import RerankConfig
-from zotero_cli_agent.core.providers.gitee import GiteeRerankerProvider, _extract_scores
-from zotero_cli_agent.core.rerank import rerank_chunks
+from zotero_cli.config import RerankConfig
+from zotero_cli.core.providers.gitee import GiteeRerankerProvider, _extract_scores
+from zotero_cli.core.rerank import rerank_chunks
 
 
 def test_rerank_chunks_sorts_selected_candidates():
@@ -25,7 +25,7 @@ def test_rerank_chunks_sorts_selected_candidates():
             assert documents == ["weak", "strong"]
             return [0.1, 0.9]
 
-    with patch("zotero_cli_agent.core.rerank.GiteeRerankerProvider", FakeProvider):
+    with patch("zotero_cli.core.rerank.GiteeRerankerProvider", FakeProvider):
         result = rerank_chunks(
             "battery",
             candidates,
@@ -75,7 +75,7 @@ def test_gitee_reranker_posts_with_unified_headers():
             {"index": 0, "relevance_score": 0.1},
         ]
     }
-    with patch("zotero_cli_agent.core.providers.gitee.requests.post", return_value=resp) as mock_post:
+    with patch("zotero_cli.core.providers.gitee.requests.post", return_value=resp) as mock_post:
         provider = GiteeRerankerProvider(api_key="k", url="https://ai.gitee.com/v1/rerank")
         scores = provider.score("q", ["a", "b"])
 

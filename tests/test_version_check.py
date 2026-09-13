@@ -6,7 +6,7 @@ import json
 import time
 from unittest.mock import MagicMock, patch
 
-from zotero_cli_agent.core.version_check import _parse_version, check_for_update, upgrade_command
+from zotero_cli.core.version_check import _parse_version, check_for_update, upgrade_command
 
 
 class TestParseVersion:
@@ -23,8 +23,8 @@ class TestParseVersion:
 
 
 class TestCheckForUpdate:
-    @patch("zotero_cli_agent.core.version_check.urlopen")
-    @patch("zotero_cli_agent.core.version_check._CACHE_FILE")
+    @patch("zotero_cli.core.version_check.urlopen")
+    @patch("zotero_cli.core.version_check._CACHE_FILE")
     def test_newer_version_available(self, mock_cache_file, mock_urlopen):
         mock_cache_file.exists.return_value = False
         mock_cache_file.parent = MagicMock()
@@ -38,8 +38,8 @@ class TestCheckForUpdate:
         result = check_for_update("0.2.3")
         assert result == "0.3.0"
 
-    @patch("zotero_cli_agent.core.version_check.urlopen")
-    @patch("zotero_cli_agent.core.version_check._CACHE_FILE")
+    @patch("zotero_cli.core.version_check.urlopen")
+    @patch("zotero_cli.core.version_check._CACHE_FILE")
     def test_already_latest(self, mock_cache_file, mock_urlopen):
         mock_cache_file.exists.return_value = False
         mock_cache_file.parent = MagicMock()
@@ -53,7 +53,7 @@ class TestCheckForUpdate:
         result = check_for_update("0.2.3")
         assert result is None
 
-    @patch("zotero_cli_agent.core.version_check._CACHE_FILE")
+    @patch("zotero_cli.core.version_check._CACHE_FILE")
     def test_cache_hit_newer(self, mock_cache_file):
         mock_cache_file.exists.return_value = True
         mock_cache_file.read_text.return_value = json.dumps(
@@ -66,7 +66,7 @@ class TestCheckForUpdate:
         result = check_for_update("0.2.3")
         assert result == "0.3.0"
 
-    @patch("zotero_cli_agent.core.version_check._CACHE_FILE")
+    @patch("zotero_cli.core.version_check._CACHE_FILE")
     def test_cache_hit_same(self, mock_cache_file):
         mock_cache_file.exists.return_value = True
         mock_cache_file.read_text.return_value = json.dumps(
@@ -79,7 +79,7 @@ class TestCheckForUpdate:
         result = check_for_update("0.2.3")
         assert result is None
 
-    @patch("zotero_cli_agent.core.version_check._CACHE_FILE")
+    @patch("zotero_cli.core.version_check._CACHE_FILE")
     def test_cache_expired(self, mock_cache_file):
         mock_cache_file.exists.return_value = True
         mock_cache_file.read_text.return_value = json.dumps(
@@ -90,7 +90,7 @@ class TestCheckForUpdate:
         )
         mock_cache_file.parent = MagicMock()
 
-        with patch("zotero_cli_agent.core.version_check.urlopen") as mock_urlopen:
+        with patch("zotero_cli.core.version_check.urlopen") as mock_urlopen:
             resp = MagicMock()
             resp.read.return_value = json.dumps({"info": {"version": "0.3.0"}}).encode()
             resp.__enter__ = MagicMock(return_value=resp)
@@ -100,8 +100,8 @@ class TestCheckForUpdate:
             result = check_for_update("0.2.3")
             assert result == "0.3.0"
 
-    @patch("zotero_cli_agent.core.version_check.urlopen", side_effect=Exception("network error"))
-    @patch("zotero_cli_agent.core.version_check._CACHE_FILE")
+    @patch("zotero_cli.core.version_check.urlopen", side_effect=Exception("network error"))
+    @patch("zotero_cli.core.version_check._CACHE_FILE")
     def test_network_error_returns_none(self, mock_cache_file, mock_urlopen):
         mock_cache_file.exists.return_value = False
         mock_cache_file.parent = MagicMock()
@@ -112,27 +112,27 @@ class TestCheckForUpdate:
 
 class TestUpgradeCommand:
     def test_uv_tool_install(self):
-        exe = "/Users/me/.local/share/uv/tools/zotero-cli-agent/bin/python"
-        assert upgrade_command(exe) == "uv tool upgrade zotero-cli-agent"
+        exe = "/Users/me/.local/share/uv/tools/zotero-cli/bin/python"
+        assert upgrade_command(exe) == "uv tool upgrade zotero-cli"
 
     def test_pipx_install(self):
-        exe = "/Users/me/.local/pipx/venvs/zotero-cli-agent/bin/python"
-        assert upgrade_command(exe) == "pipx upgrade zotero-cli-agent"
+        exe = "/Users/me/.local/pipx/venvs/zotero-cli/bin/python"
+        assert upgrade_command(exe) == "pipx upgrade zotero-cli"
 
     def test_conda_install_falls_back_to_pip(self):
         exe = "/Users/me/mambaforge/bin/python"
-        assert upgrade_command(exe) == "pip install -U zotero-cli-agent"
+        assert upgrade_command(exe) == "pip install -U zotero-cli"
 
     def test_system_pip_falls_back_to_pip(self):
         exe = "/usr/bin/python3"
-        assert upgrade_command(exe) == "pip install -U zotero-cli-agent"
+        assert upgrade_command(exe) == "pip install -U zotero-cli"
 
     def test_windows_uv_tool_path(self):
-        exe = r"C:\Users\me\AppData\Roaming\uv\tools\zotero-cli-agent\Scripts\python.exe"
-        assert upgrade_command(exe) == "uv tool upgrade zotero-cli-agent"
+        exe = r"C:\Users\me\AppData\Roaming\uv\tools\zotero-cli\Scripts\python.exe"
+        assert upgrade_command(exe) == "uv tool upgrade zotero-cli"
 
     def test_uses_sys_executable_by_default(self):
-        with patch("zotero_cli_agent.core.version_check.sys") as mock_sys:
-            mock_sys.executable = "/opt/uv/tools/zotero-cli-agent/bin/python"
-            assert upgrade_command() == "uv tool upgrade zotero-cli-agent"
+        with patch("zotero_cli.core.version_check.sys") as mock_sys:
+            mock_sys.executable = "/opt/uv/tools/zotero-cli/bin/python"
+            assert upgrade_command() == "uv tool upgrade zotero-cli"
 

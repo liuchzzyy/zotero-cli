@@ -7,8 +7,8 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from zotero_cli_agent.cli import main
-from zotero_cli_agent.core.reader import ZoteroReader
+from zotero_cli.cli import main
+from zotero_cli.core.reader import ZoteroReader
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 

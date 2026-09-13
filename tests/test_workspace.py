@@ -9,8 +9,8 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from zotero_cli_agent.cli import main
-from zotero_cli_agent.core.workspace import (
+from zotero_cli.cli import main
+from zotero_cli.core.workspace import (
     Workspace,
     WorkspaceItem,
     delete_workspace,
@@ -104,11 +104,11 @@ class TestWorkspaceModel:
 
 class TestWorkspaceIO:
     def test_workspace_cache_path_uses_repo_state_dir(self, tmp_path):
-        with patch("zotero_cli_agent.core.workspace.project_root", return_value=tmp_path):
+        with patch("zotero_cli.core.workspace.project_root", return_value=tmp_path):
             assert workspace_cache_path() == tmp_path / ".zot" / "state" / "pdf_cache.sqlite"
 
     def test_save_and_load(self, tmp_path):
-        with patch("zotero_cli_agent.core.workspace.workspaces_dir", return_value=tmp_path):
+        with patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path):
             ws = Workspace(
                 name="test-ws",
                 created="2026-03-29T10:00:00+00:00",
@@ -130,12 +130,12 @@ class TestWorkspaceIO:
         assert loaded.items[1].key == "DEF456"
 
     def test_load_nonexistent(self, tmp_path):
-        with patch("zotero_cli_agent.core.workspace.workspaces_dir", return_value=tmp_path):
+        with patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path):
             with pytest.raises(FileNotFoundError):
                 load_workspace("nonexistent")
 
     def test_list_workspaces(self, tmp_path):
-        with patch("zotero_cli_agent.core.workspace.workspaces_dir", return_value=tmp_path):
+        with patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path):
             save_workspace(Workspace(name="ws-a", created="2026-01-01"))
             save_workspace(Workspace(name="ws-b", created="2026-01-02"))
             result = list_workspaces()
@@ -144,24 +144,24 @@ class TestWorkspaceIO:
         assert result[1].name == "ws-b"
 
     def test_list_empty(self, tmp_path):
-        with patch("zotero_cli_agent.core.workspace.workspaces_dir", return_value=tmp_path):
+        with patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path):
             result = list_workspaces()
         assert result == []
 
     def test_delete_workspace(self, tmp_path):
-        with patch("zotero_cli_agent.core.workspace.workspaces_dir", return_value=tmp_path):
+        with patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path):
             save_workspace(Workspace(name="doomed", created="2026-01-01"))
             assert workspace_exists("doomed")
             delete_workspace("doomed")
             assert not workspace_exists("doomed")
 
     def test_delete_nonexistent(self, tmp_path):
-        with patch("zotero_cli_agent.core.workspace.workspaces_dir", return_value=tmp_path):
+        with patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path):
             with pytest.raises(FileNotFoundError):
                 delete_workspace("nonexistent")
 
     def test_save_with_special_chars_in_title(self, tmp_path):
-        with patch("zotero_cli_agent.core.workspace.workspaces_dir", return_value=tmp_path):
+        with patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path):
             ws = Workspace(
                 name="test-special",
                 created="2026-01-01",
@@ -179,30 +179,30 @@ class TestWorkspaceIO:
 
 class TestWorkspaceCLI:
     def test_new_workspace(self, tmp_path):
-        with patch("zotero_cli_agent.core.workspace.workspaces_dir", return_value=tmp_path):
+        with patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path):
             result = _invoke(["workspace", "new", "test-ws", "--description", "A test"])
         assert result.exit_code == 0
         assert "Workspace created: test-ws" in result.output
 
     def test_new_workspace_invalid_name(self, tmp_path):
-        with patch("zotero_cli_agent.core.workspace.workspaces_dir", return_value=tmp_path):
+        with patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path):
             result = _invoke(["workspace", "new", "Bad Name"])
         assert result.exit_code != 0
         assert "Invalid workspace name" in result.output
 
     def test_new_workspace_duplicate(self, tmp_path):
-        with patch("zotero_cli_agent.core.workspace.workspaces_dir", return_value=tmp_path):
+        with patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path):
             _invoke(["workspace", "new", "test-ws"])
             result = _invoke(["workspace", "new", "test-ws"])
         assert "already exists" in result.output
 
     def test_list_workspaces_empty(self, tmp_path):
-        with patch("zotero_cli_agent.core.workspace.workspaces_dir", return_value=tmp_path):
+        with patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path):
             result = _invoke(["workspace", "list"])
         assert "No workspaces found" in result.output
 
     def test_list_workspaces(self, tmp_path):
-        with patch("zotero_cli_agent.core.workspace.workspaces_dir", return_value=tmp_path):
+        with patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path):
             _invoke(["workspace", "new", "ws-a"])
             _invoke(["workspace", "new", "ws-b", "--description", "Second workspace"])
             result = _invoke(["workspace", "list"])
@@ -210,7 +210,7 @@ class TestWorkspaceCLI:
         assert "ws-b" in result.output
 
     def test_list_workspaces_json(self, tmp_path):
-        with patch("zotero_cli_agent.core.workspace.workspaces_dir", return_value=tmp_path):
+        with patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path):
             _invoke(["workspace", "new", "ws-json"])
             result = _invoke(["workspace", "list"], json_output=True)
         # `workspace list --json` is routed through the agent envelope.
@@ -219,56 +219,56 @@ class TestWorkspaceCLI:
         assert data[0]["name"] == "ws-json"
 
     def test_delete_workspace_with_yes(self, tmp_path):
-        with patch("zotero_cli_agent.core.workspace.workspaces_dir", return_value=tmp_path):
+        with patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path):
             _invoke(["workspace", "new", "doomed"])
             result = _invoke(["workspace", "delete", "doomed", "--yes"])
         assert "Workspace deleted: doomed" in result.output
 
     def test_delete_workspace_not_found(self, tmp_path):
-        with patch("zotero_cli_agent.core.workspace.workspaces_dir", return_value=tmp_path):
+        with patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path):
             result = _invoke(["workspace", "delete", "nonexistent", "--yes"])
         assert "not found" in result.output
 
     def test_add_item(self, tmp_path):
-        with patch("zotero_cli_agent.core.workspace.workspaces_dir", return_value=tmp_path):
+        with patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path):
             _invoke(["workspace", "new", "test-ws"])
             result = _invoke(["workspace", "add", "test-ws", "ATTN001"])
         assert result.exit_code == 0
         assert "Added 1 item(s)" in result.output
 
     def test_add_item_not_found_in_zotero(self, tmp_path):
-        with patch("zotero_cli_agent.core.workspace.workspaces_dir", return_value=tmp_path):
+        with patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path):
             _invoke(["workspace", "new", "test-ws"])
             result = _invoke(["workspace", "add", "test-ws", "NONEXIST"])
         assert "not found in Zotero" in result.output
 
     def test_add_item_duplicate(self, tmp_path):
-        with patch("zotero_cli_agent.core.workspace.workspaces_dir", return_value=tmp_path):
+        with patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path):
             _invoke(["workspace", "new", "test-ws"])
             _invoke(["workspace", "add", "test-ws", "ATTN001"])
             result = _invoke(["workspace", "add", "test-ws", "ATTN001"])
         assert "already in workspace" in result.output
 
     def test_add_to_nonexistent_workspace(self, tmp_path):
-        with patch("zotero_cli_agent.core.workspace.workspaces_dir", return_value=tmp_path):
+        with patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path):
             result = _invoke(["workspace", "add", "nope", "ATTN001"])
         assert "not found" in result.output
 
     def test_remove_item(self, tmp_path):
-        with patch("zotero_cli_agent.core.workspace.workspaces_dir", return_value=tmp_path):
+        with patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path):
             _invoke(["workspace", "new", "test-ws"])
             _invoke(["workspace", "add", "test-ws", "ATTN001"])
             result = _invoke(["workspace", "remove", "test-ws", "ATTN001"])
         assert "Removed 1 item(s)" in result.output
 
     def test_remove_nonexistent_item(self, tmp_path):
-        with patch("zotero_cli_agent.core.workspace.workspaces_dir", return_value=tmp_path):
+        with patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path):
             _invoke(["workspace", "new", "test-ws"])
             result = _invoke(["workspace", "remove", "test-ws", "NONEXIST"])
         assert "Removed 0 item(s)" in result.output
 
     def test_show_workspace(self, tmp_path):
-        with patch("zotero_cli_agent.core.workspace.workspaces_dir", return_value=tmp_path):
+        with patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path):
             _invoke(["workspace", "new", "test-ws"])
             _invoke(["workspace", "add", "test-ws", "ATTN001"])
             result = _invoke(["workspace", "show", "test-ws"])
@@ -276,7 +276,7 @@ class TestWorkspaceCLI:
         assert "ATTN001" in result.output
 
     def test_show_workspace_json(self, tmp_path):
-        with patch("zotero_cli_agent.core.workspace.workspaces_dir", return_value=tmp_path):
+        with patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path):
             _invoke(["workspace", "new", "test-ws"])
             _invoke(["workspace", "add", "test-ws", "ATTN001"])
             result = _invoke(["workspace", "show", "test-ws"], json_output=True)
@@ -285,12 +285,12 @@ class TestWorkspaceCLI:
         assert data[0]["key"] == "ATTN001"
 
     def test_show_empty_workspace(self, tmp_path):
-        with patch("zotero_cli_agent.core.workspace.workspaces_dir", return_value=tmp_path):
+        with patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path):
             _invoke(["workspace", "new", "test-ws"])
             result = _invoke(["workspace", "show", "test-ws"])
         assert "empty" in result.output
 
     def test_show_nonexistent_workspace(self, tmp_path):
-        with patch("zotero_cli_agent.core.workspace.workspaces_dir", return_value=tmp_path):
+        with patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path):
             result = _invoke(["workspace", "show", "nope"])
         assert "not found" in result.output

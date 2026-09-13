@@ -1,0 +1,254 @@
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+
+import click
+
+from zotero_cli.config import (
+    AppConfig,
+    config_file_path,
+    detect_zotero_data_dir,
+    get_default_profile,
+    list_profiles,
+    load_config,
+    save_config,
+)
+from zotero_cli.formatter import envelope_ok, format_cache_list
+
+
+@click.group("config", invoke_without_command=True)
+@click.pass_context
+def config_group(ctx: click.Context) -> None:
+    """Manage zot configuration."""
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+@config_group.command("init")
+@click.option("--config-path", type=click.Path(), default=None, help="Config file path")
+@click.option("--data-dir", "data_dir", default=None, help="Zotero data directory (auto-detected if not set)")
+@click.option("--library-id", default=None, help="Zotero library ID")
+@click.option("--api-key", default=None, help="Zotero API key")
+@click.pass_context
+def config_init(
+    ctx: click.Context,
+    config_path: str | None,
+    data_dir: str | None,
+    library_id: str | None,
+    api_key: str | None,
+) -> None:
+    """Initialize configuration interactively."""
+    path = Path(config_path) if config_path else config_file_path()
+    no_interaction = ctx.obj.get("no_interaction", False) if ctx.obj else False
+
+    detected_dir = detect_zotero_data_dir(AppConfig())
+
+    if no_interaction:
+        library_id = library_id or ""
+        api_key = api_key or ""
+        data_dir = data_dir or str(detected_dir)
+    else:
+        library_id = library_id or click.prompt("Zotero library ID", default="")
+        api_key = api_key or click.prompt("Zotero API key", default="")
+        if data_dir is None:
+            data_dir = click.prompt(
+                "Zotero data directory",
+                default=str(detected_dir),
+            )
+
+    # Normalize path (resolve ~, convert to absolute) to avoid Windows backslash issues
+    if data_dir:
+        data_dir = str(Path(data_dir).expanduser().resolve())
+
+    cfg = AppConfig(
+        data_dir=data_dir or "",
+        library_id=library_id or "",
+        api_key=api_key or "",
+    )
+    save_config(cfg, path)
+    click.echo(f"Configuration saved to {path}")
+    click.echo(f"  Data directory: {cfg.data_dir or '(auto-detect)'}")
+
+    # Validate the data directory
+    if cfg.data_dir:
+        dd = Path(cfg.data_dir)
+        if not dd.exists():
+            click.echo(click.style(f"  WARNING: Directory does not exist: {dd}", fg="yellow"))
+        elif not (dd / "zotero.sqlite").exists():
+            click.echo(click.style(f"  WARNING: zotero.sqlite not found in {dd}", fg="yellow"))
+
+
+@config_group.command("show")
+@click.option("--config-path", type=click.Path(), default=None, help="Config file path")
+@click.pass_context
+def config_show(ctx: click.Context, config_path: str | None) -> None:
+    """Show current configuration."""
+    from zotero_cli.config import get_data_dir
+
+    json_out = ctx.obj.get("json", False) if ctx.obj else False
+    path = Path(config_path) if config_path else config_file_path()
+    cfg = load_config(path)
+    data_dir = get_data_dir(cfg)
+    db_file = data_dir / "zotero.sqlite"
+    data_dir_exists = data_dir.exists()
+    database_ok = db_file.exists()
+    if json_out:
+        data = {
+            "config_path": str(path),
+            "library_id": cfg.library_id,
+            "api_key_set": bool(cfg.api_key),
+            "api_key_tail": cfg.api_key[-4:] if len(cfg.api_key) > 4 else "",
+            "data_dir": cfg.data_dir or "(auto-detect)",
+            "resolved_data_dir": str(data_dir),
+            "default_format": cfg.default_format,
+            "default_limit": cfg.default_limit,
+            "default_export_style": cfg.default_export_style,
+            "database_path": str(db_file),
+            "data_dir_exists": data_dir_exists,
+            "database_ok": database_ok,
+        }
+        click.echo(json.dumps(envelope_ok(data), indent=2, ensure_ascii=False))
+        return
+
+    click.echo(f"Config:     {path}")
+    click.echo(f"Library ID: {cfg.library_id}")
+    click.echo(f"API Key:    {'***' + cfg.api_key[-4:] if len(cfg.api_key) > 4 else '(not set)'}")
+    click.echo(f"Data Dir:   {cfg.data_dir or '(auto-detect)'}")
+    click.echo(f"Format:     {cfg.default_format}")
+    click.echo(f"Limit:      {cfg.default_limit}")
+    click.echo(f"Export:     {cfg.default_export_style}")
+
+    # Path validation
+    if not data_dir_exists:
+        click.echo(click.style(f"\nWARNING: Data directory not found: {data_dir}", fg="yellow"))
+    elif not database_ok:
+        click.echo(click.style(f"\nWARNING: zotero.sqlite not found in {data_dir}", fg="yellow"))
+    else:
+        click.echo(click.style(f"\nDatabase:   {db_file} (OK)", fg="green"))
+
+
+@config_group.group("profile", invoke_without_command=True)
+@click.pass_context
+def profile_group(ctx: click.Context) -> None:
+    """Manage configuration profiles."""
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+@profile_group.command("list")
+@click.option("--config-path", type=click.Path(), default=None)
+def profile_list(config_path: str | None) -> None:
+    """List all profiles."""
+    path = Path(config_path) if config_path else config_file_path()
+    profiles = list_profiles(path)
+    default = get_default_profile(path)
+    if not profiles:
+        click.echo("No profiles configured.")
+        return
+    for p in profiles:
+        marker = " (default)" if p == default else ""
+        click.echo(f"  {p}{marker}")
+
+
+@config_group.group("cache", invoke_without_command=True)
+@click.pass_context
+def cache_group(ctx: click.Context) -> None:
+    """Manage PDF text cache."""
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+@cache_group.command("clear")
+def cache_clear() -> None:
+    """Clear the PDF text cache."""
+    import sqlite3
+
+    from zotero_cli.core.pdf_cache import PdfCache
+
+    try:
+        cache = PdfCache()
+    except (sqlite3.OperationalError, OSError) as e:
+        click.echo(f"Error: Could not open cache database: {e}", err=True)
+        raise SystemExit(1)
+    try:
+        stats = cache.stats()
+        cache.clear()
+        click.echo(f"Cache cleared. Removed {stats['entries']} entries.")
+    except sqlite3.OperationalError as e:
+        click.echo(f"Error: Could not modify cache database: {e}", err=True)
+        raise SystemExit(1)
+    finally:
+        cache.close()
+
+
+@cache_group.command("stats")
+def cache_stats() -> None:
+    """Show PDF cache statistics."""
+    import sqlite3
+
+    from zotero_cli.core.pdf_cache import PdfCache
+
+    try:
+        cache = PdfCache()
+    except (sqlite3.OperationalError, OSError) as e:
+        click.echo(f"Error: Could not open cache database: {e}", err=True)
+        raise SystemExit(1)
+    try:
+        stats = cache.stats()
+        click.echo(f"Cached PDFs: {stats['entries']}")
+        click.echo(f"Total chars: {stats['total_chars']:,}")
+    finally:
+        cache.close()
+
+
+@cache_group.command("list")
+@click.pass_context
+def cache_list(ctx: click.Context) -> None:
+    """List all cached PDF entries."""
+    import sqlite3
+
+    from zotero_cli.core.pdf_cache import PdfCache
+
+    json_out = ctx.obj.get("json", False) if ctx.obj else False
+
+    cache = None
+    try:
+        cache = PdfCache()
+        rows = cache._conn.execute(
+            "SELECT pdf_path, extractor, LENGTH(content), content, extracted_at FROM pdf_cache ORDER BY pdf_path"
+        ).fetchall()
+        click.echo(format_cache_list(rows, output_json=json_out))
+    except (sqlite3.OperationalError, OSError) as e:
+        click.echo(f"Error: Could not access cache database: {e}", err=True)
+        raise SystemExit(1)
+    finally:
+        if cache is not None:
+            cache.close()
+
+
+@profile_group.command("set")
+@click.argument("name")
+@click.option("--config-path", type=click.Path(), default=None)
+def profile_set(name: str, config_path: str | None) -> None:
+    """Set the default profile."""
+    path = Path(config_path) if config_path else config_file_path()
+    from zotero_cli.exit_codes import emit_error
+
+    profiles = list_profiles(path)
+    if name not in profiles:
+        emit_error(
+            "not_found",
+            f"Profile '{name}' not found",
+            output_json=False,
+            hint=f"Available profiles: {', '.join(profiles)}",
+            context="config",
+        )
+    content = path.read_text()
+    if "[default]" in content:
+        content = re.sub(r'(profile\s*=\s*)"[^"]*"', f'\\1"{name}"', content)
+    else:
+        content = f'[default]\nprofile = "{name}"\n\n' + content
+    path.write_text(content)
+    click.echo(f"Default profile set to '{name}'.")

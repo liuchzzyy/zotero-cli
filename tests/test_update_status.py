@@ -7,8 +7,8 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from zotero_cli_agent.cli import main
-from zotero_cli_agent.core.semantic_scholar import (
+from zotero_cli.cli import main
+from zotero_cli.core.semantic_scholar import (
     PublicationStatus,
     extract_arxiv_id,
     extract_preprint_info,

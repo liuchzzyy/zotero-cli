@@ -7,7 +7,7 @@ from pathlib import Path
 import pymupdf
 import pytest
 
-from zotero_cli_agent.core.pdf_extractor import PyMuPdfExtractor
+from zotero_cli.core.pdf_extractor import PyMuPdfExtractor
 
 
 @pytest.fixture

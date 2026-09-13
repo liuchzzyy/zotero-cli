@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from zotero_cli_agent.config import AppConfig
+from zotero_cli.config import AppConfig
 
 # Default ZOT_FORMAT for tests.
 # Many existing tests assert `"some text" in result.output`. Under the new

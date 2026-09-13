@@ -10,10 +10,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from zotero_cli_agent.cli import main
-from zotero_cli_agent.config import AiNoteConfig
-from zotero_cli_agent.core.ai_client import AiClient
-from zotero_cli_agent.core.note_analysis import (
+from zotero_cli.cli import main
+from zotero_cli.config import AiNoteConfig
+from zotero_cli.core.ai_client import AiClient
+from zotero_cli.core.note_analysis import (
     ANALYZED_TAG,
     KEYWORDS_TAG,
     NO_KEYWORDS_TAG,
@@ -23,8 +23,8 @@ from zotero_cli_agent.core.note_analysis import (
     extract_json_object,
     validate_short_note,
 )
-from zotero_cli_agent.core.writer import merge_short_note_into_extra
-from zotero_cli_agent.models import Attachment, Creator, Item, Note
+from zotero_cli.core.writer import merge_short_note_into_extra
+from zotero_cli.models import Attachment, Creator, Item, Note
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -112,7 +112,7 @@ class TestAnalyzeItem:
         ]
 
         with patch(
-            "zotero_cli_agent.core.note_analysis.convert_pdfs_to_text",
+            "zotero_cli.core.note_analysis.convert_pdfs_to_text",
             return_value={att.path: "Introduction. This is the main text."},
         ):
             result = analyze_item(reader, writer, ai_client, "ABC123")
@@ -142,7 +142,7 @@ class TestAnalyzeItem:
         ai_client.chat.side_effect = [_sections_json(12), _short_note_json()]
 
         with patch(
-            "zotero_cli_agent.core.note_analysis.convert_pdfs_to_text",
+            "zotero_cli.core.note_analysis.convert_pdfs_to_text",
             return_value={att.path: "Chapter 1. Introduction."},
         ):
             result = analyze_item(reader, writer, ai_client, "ABC123")
@@ -163,7 +163,7 @@ class TestAnalyzeItem:
         ai_client.chat.return_value = '{"paper_type":"uncertain","confidence":0.4,"evidence":["e"],"reason":"r"}'
 
         with patch(
-            "zotero_cli_agent.core.note_analysis.convert_pdfs_to_text",
+            "zotero_cli.core.note_analysis.convert_pdfs_to_text",
             return_value={att.path: "Some text."},
         ):
             result = analyze_item(reader, writer, ai_client, "ABC123")
@@ -200,7 +200,7 @@ class TestAnalyzeItem:
         ]
 
         with patch(
-            "zotero_cli_agent.core.note_analysis.convert_pdfs_to_text",
+            "zotero_cli.core.note_analysis.convert_pdfs_to_text",
             return_value={att.path: "text"},
         ):
             result = analyze_item(reader, writer, ai_client, "ABC123", force=True)
@@ -221,7 +221,7 @@ class TestAnalyzeItem:
         ]
 
         with patch(
-            "zotero_cli_agent.core.note_analysis.convert_pdfs_to_text",
+            "zotero_cli.core.note_analysis.convert_pdfs_to_text",
             return_value={att.path: "Introduction text."},
         ):
             result = analyze_item(reader, writer, ai_client, "ABC123", dry_run=True)
@@ -249,7 +249,7 @@ class TestAnalyzeItem:
         ]
 
         with patch(
-            "zotero_cli_agent.core.note_analysis.convert_pdfs_to_text",
+            "zotero_cli.core.note_analysis.convert_pdfs_to_text",
             return_value={att.path: "Introduction text."},
         ):
             result = analyze_item(reader, writer, ai_client, "ABC123")
@@ -277,7 +277,7 @@ class TestAnalyzeItem:
         ]
 
         with patch(
-            "zotero_cli_agent.core.note_analysis.convert_pdfs_to_text",
+            "zotero_cli.core.note_analysis.convert_pdfs_to_text",
             return_value={att.path: "Introduction text."},
         ):
             result = analyze_item(reader, writer, ai_client, "ABC123")
@@ -303,7 +303,7 @@ class TestAnalyzeItem:
         ]
 
         with patch(
-            "zotero_cli_agent.core.note_analysis.convert_pdfs_to_text",
+            "zotero_cli.core.note_analysis.convert_pdfs_to_text",
             return_value={att.path: "Chapter 1. Introduction."},
         ):
             result = analyze_item(reader, writer, ai_client, "ABC123")
@@ -325,7 +325,7 @@ class TestAnalyzeItem:
         ai_client.chat.side_effect = ["无 JSON 一", "无 JSON 二"]
 
         with patch(
-            "zotero_cli_agent.core.note_analysis.convert_pdfs_to_text",
+            "zotero_cli.core.note_analysis.convert_pdfs_to_text",
             return_value={att.path: "Chapter 1. Introduction."},
         ):
             with pytest.raises(NoteAnalysisError) as exc:
@@ -352,7 +352,7 @@ class TestAnalyzeItem:
         ]
 
         with patch(
-            "zotero_cli_agent.core.note_analysis.convert_pdfs_to_text",
+            "zotero_cli.core.note_analysis.convert_pdfs_to_text",
             return_value={att.path: "Introduction text."},
         ):
             result = analyze_item(reader, writer, ai_client, "ABC123", no_short_note=True)
@@ -383,7 +383,7 @@ class TestAnalyzeItem:
         ]
 
         with patch(
-            "zotero_cli_agent.core.note_analysis.convert_pdfs_to_text",
+            "zotero_cli.core.note_analysis.convert_pdfs_to_text",
             return_value={att.path: "Introduction text."},
         ):
             result = analyze_item(reader, writer, ai_client, "ABC123")
@@ -557,10 +557,10 @@ class TestAiAnalyzeCLI:
             "chars": 100,
             "prompt_preview": "preview",
         }
-        with patch("zotero_cli_agent.commands.ai_analyze.analyze_item", return_value=result), patch(
-            "zotero_cli_agent.commands.ai_analyze.ZoteroReader"
-        ), patch("zotero_cli_agent.commands.ai_analyze.ZoteroWriter"), patch(
-            "zotero_cli_agent.commands.ai_analyze.AiClient"
+        with patch("zotero_cli.commands.ai_analyze.analyze_item", return_value=result), patch(
+            "zotero_cli.commands.ai_analyze.ZoteroReader"
+        ), patch("zotero_cli.commands.ai_analyze.ZoteroWriter"), patch(
+            "zotero_cli.commands.ai_analyze.AiClient"
         ):
             res = self._run(["ai_analyze", "ABC123", "--dry-run"])
 
@@ -571,11 +571,11 @@ class TestAiAnalyzeCLI:
 
     def test_not_found_error_exit_code(self):
         with patch(
-            "zotero_cli_agent.commands.ai_analyze.analyze_item",
+            "zotero_cli.commands.ai_analyze.analyze_item",
             side_effect=NoteAnalysisError("条目 'X' 不存在", code="not_found"),
-        ), patch("zotero_cli_agent.commands.ai_analyze.ZoteroReader"), patch(
-            "zotero_cli_agent.commands.ai_analyze.ZoteroWriter"
-        ), patch("zotero_cli_agent.commands.ai_analyze.AiClient"):
+        ), patch("zotero_cli.commands.ai_analyze.ZoteroReader"), patch(
+            "zotero_cli.commands.ai_analyze.ZoteroWriter"
+        ), patch("zotero_cli.commands.ai_analyze.AiClient"):
             res = self._run(["ai_analyze", "X"])
 
         assert res.exit_code == 4

@@ -1,7 +1,7 @@
 from click.testing import CliRunner
 
-from zotero_cli_agent import __version__
-from zotero_cli_agent.cli import main
+from zotero_cli import __version__
+from zotero_cli.cli import main
 
 
 def test_cli_version():
@@ -64,7 +64,7 @@ def test_config_show_json_envelope(tmp_path):
 
 
 def test_cache_list_empty(tmp_path):
-    from zotero_cli_agent.core import pdf_cache as pdf_cache_module
+    from zotero_cli.core import pdf_cache as pdf_cache_module
 
     old_default = pdf_cache_module.DEFAULT_CACHE_PATH
     try:
@@ -78,8 +78,8 @@ def test_cache_list_empty(tmp_path):
 
 
 def test_cache_list_populated(tmp_path):
-    from zotero_cli_agent.core import pdf_cache as pdf_cache_module
-    from zotero_cli_agent.core.pdf_cache import PdfCache
+    from zotero_cli.core import pdf_cache as pdf_cache_module
+    from zotero_cli.core.pdf_cache import PdfCache
 
     old_default = pdf_cache_module.DEFAULT_CACHE_PATH
     try:
@@ -104,8 +104,8 @@ def test_cache_list_populated(tmp_path):
 def test_cache_list_json(tmp_path):
     import json
 
-    from zotero_cli_agent.core import pdf_cache as pdf_cache_module
-    from zotero_cli_agent.core.pdf_cache import PdfCache
+    from zotero_cli.core import pdf_cache as pdf_cache_module
+    from zotero_cli.core.pdf_cache import PdfCache
 
     old_default = pdf_cache_module.DEFAULT_CACHE_PATH
     try:
@@ -137,7 +137,7 @@ def test_cache_list_reports_initialization_error_without_secondary_exception():
 
     runner = CliRunner()
     with patch(
-        "zotero_cli_agent.core.pdf_cache.PdfCache",
+        "zotero_cli.core.pdf_cache.PdfCache",
         side_effect=OSError("cache unavailable"),
     ):
         result = runner.invoke(main, ["config", "cache", "list"])

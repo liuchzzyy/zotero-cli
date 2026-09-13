@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import mock_open, patch
 
-from zotero_cli_agent.core.path_utils import (
+from zotero_cli.core.path_utils import (
     is_wsl_environment,
     windows_to_wsl_path,
 )

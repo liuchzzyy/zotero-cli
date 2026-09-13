@@ -9,7 +9,7 @@ function Get-ZoteroRepoRootPath {
     $current = Resolve-Path (Split-Path -Parent $ScriptPath)
     while ($true) {
         $candidate = $current.Path
-        if ((Test-Path (Join-Path $candidate "pyproject.toml")) -and (Test-Path (Join-Path $candidate "src\zotero_cli_agent"))) {
+        if ((Test-Path (Join-Path $candidate "pyproject.toml")) -and (Test-Path (Join-Path $candidate "src\zotero_cli"))) {
             return $candidate
         }
 

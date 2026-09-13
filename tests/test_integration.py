@@ -4,8 +4,8 @@ import json
 
 from click.testing import CliRunner
 
-from zotero_cli_agent import __version__
-from zotero_cli_agent.cli import main
+from zotero_cli import __version__
+from zotero_cli.cli import main
 
 
 def _run(args, test_db_path, json_out=False):

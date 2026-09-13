@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 
-from zotero_cli_agent.config import (
+from zotero_cli.config import (
     AppConfig,
     EmbeddingConfig,
     RerankConfig,
@@ -69,7 +69,7 @@ def test_config_has_write_credentials():
 
 
 def test_get_data_dir_env_override(tmp_path, monkeypatch):
-    from zotero_cli_agent.config import get_data_dir
+    from zotero_cli.config import get_data_dir
 
     monkeypatch.setenv("ZOT_DATA_DIR", str(tmp_path))
     cfg = AppConfig(data_dir="/some/other/path")
@@ -78,7 +78,7 @@ def test_get_data_dir_env_override(tmp_path, monkeypatch):
 
 
 def test_get_data_dir_falls_back_to_config(monkeypatch, tmp_path):
-    from zotero_cli_agent.config import get_data_dir
+    from zotero_cli.config import get_data_dir
 
     monkeypatch.delenv("ZOT_DATA_DIR", raising=False)
     cfg = AppConfig(data_dir=str(tmp_path))

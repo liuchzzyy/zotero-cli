@@ -4,7 +4,7 @@ from zipfile import ZipFile
 
 import pytest
 
-from zotero_cli_agent.core.pdf_extractor import PyMuPdfExtractor, _safe_extract_zip
+from zotero_cli.core.pdf_extractor import PyMuPdfExtractor, _safe_extract_zip
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

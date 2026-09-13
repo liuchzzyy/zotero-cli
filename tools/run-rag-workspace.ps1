@@ -277,7 +277,7 @@ function Get-EffectiveEmbeddingSetting {
 
     Push-Location $RepoRoot
     try {
-        $pythonCode = "from zotero_cli_agent.config import load_embedding_config; cfg = load_embedding_config(apply_env_overrides=True); print(getattr(cfg, '$Name', '') or '')"
+        $pythonCode = "from zotero_cli.config import load_embedding_config; cfg = load_embedding_config(apply_env_overrides=True); print(getattr(cfg, '$Name', '') or '')"
         $pythonValue = & uv run python -c $pythonCode 2>$null
         if (($LASTEXITCODE -eq 0) -and $pythonValue) {
             return ([string]$pythonValue).Trim()
@@ -344,11 +344,11 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from zotero_cli_agent.config import get_data_dir, get_prefs_js_path, load_config, load_vector_store_config, resolve_library_id
-from zotero_cli_agent.core.reader import ZoteroReader
-from zotero_cli_agent.core.rag_index import RagIndex
-from zotero_cli_agent.core.semantic_search import QdrantVectorStore, resolve_vector_store_path
-from zotero_cli_agent.core.workspace import Workspace, load_workspace, save_workspace, workspace_exists, workspace_index_path
+from zotero_cli.config import get_data_dir, get_prefs_js_path, load_config, load_vector_store_config, resolve_library_id
+from zotero_cli.core.reader import ZoteroReader
+from zotero_cli.core.rag_index import RagIndex
+from zotero_cli.core.semantic_search import QdrantVectorStore, resolve_vector_store_path
+from zotero_cli.core.workspace import Workspace, load_workspace, save_workspace, workspace_exists, workspace_index_path
 
 
 def utc_now() -> str:

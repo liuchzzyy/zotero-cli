@@ -7,11 +7,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from zotero_cli_agent.core.writer import ZoteroWriteError, ZoteroWriter
+from zotero_cli.core.writer import ZoteroWriteError, ZoteroWriter
 
 
 class TestAttachWriter:
-    @patch("zotero_cli_agent.core.writer.zotero.Zotero")
+    @patch("zotero_cli.core.writer.zotero.Zotero")
     def test_upload_attachment_success(self, mock_zotero_cls, tmp_path):
         mock_zot = MagicMock()
         mock_zotero_cls.return_value = mock_zot
@@ -27,7 +27,7 @@ class TestAttachWriter:
         assert key == "ATT001"
         mock_zot.attachment_simple.assert_called_once()
 
-    @patch("zotero_cli_agent.core.writer.zotero.Zotero")
+    @patch("zotero_cli.core.writer.zotero.Zotero")
     def test_upload_attachment_unchanged(self, mock_zotero_cls, tmp_path):
         mock_zot = MagicMock()
         mock_zotero_cls.return_value = mock_zot
@@ -42,7 +42,7 @@ class TestAttachWriter:
         key = writer.upload_attachment("PARENT1", pdf)
         assert key == "ATT001"
 
-    @patch("zotero_cli_agent.core.writer.zotero.Zotero")
+    @patch("zotero_cli.core.writer.zotero.Zotero")
     def test_upload_attachment_failure(self, mock_zotero_cls, tmp_path):
         mock_zot = MagicMock()
         mock_zotero_cls.return_value = mock_zot
@@ -58,12 +58,12 @@ class TestAttachWriter:
             writer.upload_attachment("PARENT1", pdf)
 
     def test_upload_attachment_file_not_found(self):
-        with patch("zotero_cli_agent.core.writer.zotero.Zotero"):
+        with patch("zotero_cli.core.writer.zotero.Zotero"):
             writer = ZoteroWriter(library_id="123", api_key="abc")
             with pytest.raises(ZoteroWriteError, match="not found"):
                 writer.upload_attachment("PARENT1", Path("/nonexistent/file.pdf"))
 
-    @patch("zotero_cli_agent.core.writer.zotero.Zotero")
+    @patch("zotero_cli.core.writer.zotero.Zotero")
     def test_upload_attachment_empty_response(self, mock_zotero_cls, tmp_path):
         mock_zot = MagicMock()
         mock_zotero_cls.return_value = mock_zot
