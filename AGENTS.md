@@ -117,7 +117,7 @@ Zotero data dir auto-detects when not configured, but this checkout now treats r
 
 Current local config is expected at:
 
-- `/Users/liuchzzyy/python-code/zotero-cli/.zot/config.toml`
+- `/Users/liuchzzyy/CodeSpace/zotero-cli/.zot/config.toml`
 - active default profile `macbook`
 - real local database at `/Users/liuchzzyy/Zotero/zotero.sqlite`
 - working Web API credentials for writes

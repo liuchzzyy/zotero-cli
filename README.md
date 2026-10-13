@@ -34,7 +34,7 @@ uv sync --dev
 当前 MacBook 可直接执行：
 
 ```bash
-cd /Users/liuchzzyy/python-code/zotero-cli
+cd /Users/liuchzzyy/CodeSpace/zotero-cli
 uv sync --dev
 uv run zot --help
 ```

@@ -10,7 +10,7 @@ The maintained workflow entrypoints are native zsh scripts:
 Run them from the repository root on the current MacBook:
 
 ```bash
-cd /Users/liuchzzyy/python-code/zotero-cli
+cd /Users/liuchzzyy/CodeSpace/zotero-cli
 ```
 
 All generated run artifacts live under `log/`. Each kept run contains:
