@@ -152,4 +152,4 @@ uv build
 
 ## 许可
 
-[MIT License](LICENSE)
+本项目基于 [Agents365-ai/zotero-cli-cc](https://github.com/Agents365-ai/zotero-cli-cc) 扩展开发，采用 [MIT License](LICENSE)。
