@@ -1,0 +1,97 @@
+from __future__ import annotations
+
+import shutil
+import sqlite3
+from pathlib import Path
+
+import pytest
+
+from zotero_cli.core.reader import ZoteroReader
+from zotero_cli.models import Item
+
+
+def _read_items(reader: ZoteroReader, method: str) -> list[Item]:
+    if method == "collection":
+        return reader.get_collection_items("COLML01")
+    return reader.get_related_items("ATTN001", limit=100)
+
+
+@pytest.mark.parametrize(
+    ("method", "keys"),
+    [
+        ("collection", ["ATTN001", "BERT002", "DEEP003", "SCAL006"]),
+        ("related", ["BERT002", "DEEP003", "SCAL006"]),
+    ],
+)
+def test_batch_reads_preserve_order_and_metadata(test_db_path: Path, method: str, keys: list[str]) -> None:
+    with ZoteroReader(test_db_path) as reader:
+        expected = [reader.get_item(key) for key in keys]
+        assert _read_items(reader, method) == expected
+
+
+@pytest.mark.parametrize("method", ["collection", "related"])
+def test_query_count_does_not_grow_with_result_count(test_db_path: Path, tmp_path: Path, method: str) -> None:
+    db_path = tmp_path / "zotero.sqlite"
+    shutil.copy2(test_db_path, db_path)
+
+    def query_count() -> tuple[int, int]:
+        with ZoteroReader(db_path) as reader:
+            conn = reader._connect()
+            reader._get_excluded_sql()
+            queries: list[str] = []
+            conn.set_trace_callback(queries.append)
+            items = _read_items(reader, method)
+            return len(queries), len(items)
+
+    small_queries, small_results = query_count()
+    with sqlite3.connect(db_path) as conn:
+        conn.executemany(
+            "INSERT INTO items (itemID, itemTypeID, libraryID, key) VALUES (?, 2, 1, ?)",
+            [(i, f"BATCH{i}") for i in range(100, 140)],
+        )
+        conn.executemany(
+            "INSERT INTO collectionItems (collectionID, itemID) VALUES (1, ?)",
+            [(i,) for i in range(100, 140)] + [(4,), (5,)],
+        )
+    large_queries, large_results = query_count()
+    assert large_results == small_results + 40  # Notes and attachments stay excluded.
+    assert large_queries == small_queries
+
+
+@pytest.mark.parametrize("method", ["collection", "related"])
+def test_batch_reads_preserve_group_library_filter(test_db_path: Path, method: str) -> None:
+    with ZoteroReader(test_db_path, library_id=2) as reader:
+        assert _read_items(reader, method) == []
+        group_items = reader.get_collection_items("GRPCOL03")
+        assert group_items == [reader.get_item("GRPITM09")]
+
+
+def test_related_items_preserve_limit(test_db_path: Path) -> None:
+    with ZoteroReader(test_db_path) as reader:
+        assert reader.get_related_items("ATTN001", limit=0) == []
+        assert reader.get_related_items("ATTN001", limit=1) == [reader.get_item("BERT002")]
+
+
+def test_missing_collection_and_related_item(test_db_path: Path) -> None:
+    with ZoteroReader(test_db_path) as reader:
+        assert reader.get_collection_items("MISSING") == []
+        assert reader.get_related_items("MISSING") == []
+
+
+@pytest.mark.skipif(not hasattr(sqlite3.Connection, "setlimit"), reason="SQLite limit API requires Python 3.11+")
+def test_large_collection_stays_within_sqlite_parameter_limit(test_db_path: Path, tmp_path: Path) -> None:
+    db_path = tmp_path / "zotero.sqlite"
+    shutil.copy2(test_db_path, db_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.executemany(
+            "INSERT INTO items (itemID, itemTypeID, libraryID, key) VALUES (?, 2, 2, ?)",
+            [(i, f"BATCH{i}") for i in range(100, 1100)],
+        )
+        conn.executemany(
+            "INSERT INTO collectionItems (collectionID, itemID) VALUES (3, ?)",
+            [(i,) for i in range(100, 1100)],
+        )
+    with ZoteroReader(db_path, library_id=2) as reader:
+        reader._connect().setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 999)
+        items = reader.get_collection_items("GRPCOL03")
+        assert [item.key for item in items] == ["GRPITM09", *[f"BATCH{i}" for i in range(100, 1100)]]

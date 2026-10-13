@@ -348,28 +348,27 @@ def collection_reorganize(ctx: click.Context, plan_file: str, dry_run: bool) -> 
             if not json_out:
                 click.echo(f"Failed to create collection '{name}': {e}")
 
-    _emit_sync_success(
-        {
-            "created_collections": created_results,
-            "items_moved": moved_results,
-            "failed": failed_results,
-            "summary": {
-                "collections_requested": len(collections),
-                "collections_created": len(created_collections),
-                "items_moved": len(moved_results),
-                "failures": len(failed_results),
-            },
-            "sync_required": True,
-        },
-        output_json=json_out,
-        human_text=f"\nDone. Created {len(created_collections)} collections.",
-        meta={
-            "collections_requested": len(collections),
-            "collections_created": len(created_collections),
-            "items_moved": len(moved_results),
-            "failures": len(failed_results),
-        },
-    )
+    summary = {
+        "collections_requested": len(collections),
+        "collections_created": len(created_collections),
+        "items_moved": len(moved_results),
+        "failures": len(failed_results),
+    }
+    data = {
+        "created_collections": created_results,
+        "items_moved": moved_results,
+        "failed": failed_results,
+        "summary": summary,
+        "sync_required": True,
+    }
+    if failed_results:
+        if json_out:
+            click.echo(json.dumps({**envelope_ok(data, meta=summary), "ok": False}, indent=2, ensure_ascii=False))
+        else:
+            click.echo(f"Incomplete: {len(failed_results)} operation(s) failed.", err=True)
+        ctx.exit(EXIT_RUNTIME)
+    _emit_sync_success(data, output_json=json_out,
+                       human_text=f"\nDone. Created {len(created_collections)} collections.", meta=summary)
 
 
 @collection_group.command("rename")

@@ -67,9 +67,9 @@ def delete_cmd(
             else:
                 click.echo("Cancelled.", err=True)
             return
-    from zotero_cli.core.idempotency import get_cached, store_cached
+    from zotero_cli.core.idempotency import get_cached, request_scope, store_cached
 
-    cache_scope = "delete:" + ",".join(sorted(keys))
+    cache_scope = request_scope("delete", library_type, str(library_id), sorted(keys))
     if idempotency_key:
         cached = get_cached(cache_scope, idempotency_key)
         if cached is not None:

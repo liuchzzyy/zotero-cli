@@ -22,6 +22,9 @@ from zotero_cli.models import (
 # Excluded type names (looked up dynamically per database)
 _EXCLUDED_TYPE_NAMES = ("attachment", "note", "annotation")
 
+# Stay below SQLite's legacy 999-variable limit, including library parameters.
+_ITEM_BATCH_SIZE = 900
+
 # Tested schema version range (Zotero 6–8)
 MIN_SCHEMA_VERSION = 100
 MAX_SCHEMA_VERSION = 200
@@ -591,17 +594,12 @@ class ZoteroReader:
         if col_row is None:
             return []
         rows = conn.execute(
-            "SELECT i.key FROM collectionItems ci "
+            "SELECT i.itemID FROM collectionItems ci "
             "JOIN items i ON ci.itemID = i.itemID "
             "WHERE ci.collectionID = ? AND i.itemTypeID " + self._get_excluded_sql(),
             (col_row["collectionID"],),
         ).fetchall()
-        items = []
-        for r in rows:
-            item = self.get_item(r["key"])
-            if item:
-                items.append(item)
-        return items
+        return self._get_items_batch(conn, [r["itemID"] for r in rows])
 
     def get_attachments(self, key: str) -> list[Attachment]:
         conn = self._connect()
@@ -831,14 +829,7 @@ class ZoteroReader:
                 related_ids[r["itemID"]] = related_ids.get(r["itemID"], 0) + r["cnt"] * 5
 
         sorted_ids = sorted(related_ids, key=lambda x: related_ids[x], reverse=True)[:limit]
-        items = []
-        for rid in sorted_ids:
-            key_row = conn.execute("SELECT key FROM items WHERE itemID = ?", (rid,)).fetchone()
-            if key_row:
-                item = self.get_item(key_row["key"])
-                if item:
-                    items.append(item)
-        return items
+        return self._get_items_batch(conn, sorted_ids)
 
     # --- Private helpers ---
 
@@ -846,14 +837,21 @@ class ZoteroReader:
         """Resolve multiple item IDs to Items using bulk queries instead of N+1."""
         if not item_ids:
             return []
+        if len(item_ids) > _ITEM_BATCH_SIZE:
+            return [
+                item
+                for start in range(0, len(item_ids), _ITEM_BATCH_SIZE)
+                for item in self._get_items_batch(conn, item_ids[start : start + _ITEM_BATCH_SIZE])
+            ]
 
         placeholders = ",".join("?" * len(item_ids))
 
         # Fetch base item rows
+        lib_sql, lib_params = self._library_filter()
         rows = conn.execute(
             f"SELECT itemID, itemTypeID, key, dateAdded, dateModified "
-            f"FROM items WHERE itemID IN ({placeholders}) AND itemTypeID {self._get_excluded_sql()}",
-            item_ids,
+            f"FROM items i WHERE itemID IN ({placeholders}) AND itemTypeID {self._get_excluded_sql()} {lib_sql}",
+            (*item_ids, *lib_params),
         ).fetchall()
         if not rows:
             return []

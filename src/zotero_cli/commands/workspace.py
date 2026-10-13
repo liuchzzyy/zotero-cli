@@ -499,6 +499,12 @@ def _compute_pdf_hash(pdf_refs: list[tuple[str, str, Path]]) -> str:
     return sha1("|".join(parts).encode("utf-8")).hexdigest()
 
 
+def _compute_content_hash(item: Item, notes: list[tuple[str, str]]) -> str:
+    authors = ", ".join(c.full_name for c in item.creators)
+    payload = [build_metadata_chunk(item.title, authors, item.abstract, item.tags), sorted(notes)]
+    return sha1(json.dumps(payload, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
 def _vector_store_for(name: str) -> QdrantVectorStore:
     cfg = load_vector_store_config()
     return QdrantVectorStore(resolve_vector_store_path(cfg), f"ws_{name}")
@@ -554,9 +560,12 @@ def _index_workspace(
             pdf_refs = _collect_pdf_refs(reader, ws_item.key)
             note_refs = _collect_note_refs(reader, ws_item.key)
             pdf_hash = _compute_pdf_hash(pdf_refs)
+            content_hash = _compute_content_hash(item, note_refs)
             stored_hash = idx.get_meta(f"pdf_hash:{ws_item.key}")
+            stored_content = idx.get_meta(f"content_hash:{ws_item.key}")
             stored_pipeline = idx.get_meta(f"pipeline:{ws_item.key}")
-            if ws_item.key in already_indexed and stored_hash == pdf_hash and stored_pipeline == _RAG_PIPELINE_VERSION:
+            if (ws_item.key in already_indexed and stored_hash == pdf_hash
+                    and stored_content == content_hash and stored_pipeline == _RAG_PIPELINE_VERSION):
                 continue
             if ws_item.key in already_indexed:
                 old_ids = idx.delete_chunks_for_item(ws_item.key)
@@ -700,9 +709,11 @@ def _index_workspace(
         for ws_item, _item, pdf_refs, _notes in to_index:
             if ws_item.key in failed_item_keys:
                 idx.delete_meta(f"pdf_hash:{ws_item.key}")
+                idx.delete_meta(f"content_hash:{ws_item.key}")
                 idx.delete_meta(f"pipeline:{ws_item.key}")
             else:
                 idx.set_meta(f"pdf_hash:{ws_item.key}", _compute_pdf_hash(pdf_refs))
+                idx.set_meta(f"content_hash:{ws_item.key}", _compute_content_hash(_item, _notes))
                 idx.set_meta(f"pipeline:{ws_item.key}", _RAG_PIPELINE_VERSION)
 
         if pdf_errors:

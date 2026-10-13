@@ -5,7 +5,7 @@ description: Use the local `zot` command to search, read, export, and manage the
 
 # zotero-cli
 
-Use the `zot` command from `/Users/liuchzzyy/python-code/zotero-cli`. Run it as `uv run zot ...` inside the repository unless a working global `zot` executable is already available.
+Use the `zot` command from `/Users/liuchzzyy/CodeSpace/zotero-cli`. Run it as `uv run zot ...` inside the repository unless a working global `zot` executable is already available.
 
 ## Invariants
 
@@ -19,7 +19,7 @@ Use the `zot` command from `/Users/liuchzzyy/python-code/zotero-cli`. Run it as 
 
 ## Current MacBook configuration
 
-- Repository: `/Users/liuchzzyy/python-code/zotero-cli`
+- Repository: `/Users/liuchzzyy/CodeSpace/zotero-cli`
 - Config: `.zot/config.toml`
 - Zotero data: `/Users/liuchzzyy/Zotero`
 - Python package: `zotero_cli`
@@ -36,8 +36,9 @@ Do not print API keys or service tokens. The actual config and `.zot/state/` are
 | Recent items or statistics | `zot --json recent`; `zot --json stats` |
 | Export citation data | `zot export ITEMKEY --format bibtex` |
 | Format a citation | `zot cite ITEMKEY --style apa` |
-| Read PDF text | `zot --json pdf ITEMKEY` |
-| Read MinerU structured JSON | `zot --json pdf ITEMKEY --structured` |
+| Enumerate PDFs under one parent item | `zot --json pdf ITEMKEY --list-attachments` (keys, names, availability; no cloud parse) |
+| Read one selected PDF | `zot --json pdf ITEMKEY --attachment ATTACHMENTKEY` (MinerU cloud or cache) |
+| Read MinerU structured JSON | `zot --json pdf ITEMKEY --attachment ATTACHMENTKEY --structured` |
 | Inspect PDF structure | `zot --json pdf ITEMKEY --outline` |
 | Read one PDF section | `zot --json pdf ITEMKEY --section N` |
 | Find duplicates | `zot --json duplicates --by doi` |
@@ -80,7 +81,7 @@ zot workspace embed topic
 zot --json workspace query "question" --workspace topic
 ```
 
-PDF parsing is cloud-only. MinerU Markdown feeds `ai_analyze`; MinerU `content_list.json` feeds RAG; both reuse the same SHA-256-addressed package under `.zot/state/mineru/`. There is no local parser or fallback. Reuse an existing complete index when possible. Check `zot workspace show NAME` and the index state before forcing a rebuild.
+PDF parsing is cloud-only. Use `zot pdf ITEMKEY --list-attachments` first when a parent has multiple PDFs; plain `zot pdf ITEMKEY` refuses ambiguous parents, and `--attachment ATTACHMENTKEY` selects the exact child. MinerU Markdown feeds `ai_analyze`; MinerU `content_list.json` feeds RAG; both reuse the same SHA-256-addressed package under `.zot/state/mineru/`. Reuse an existing complete index when possible. Check `zot workspace show NAME` and the index state before forcing a rebuild.
 
 For logged MacBook workflows, use `tools/run-rag-workspace.zsh` and `tools/run-rag-evidence-search.zsh`. Read `tools/Instructions.md` before running a full collection inventory, forced rebuild, or long embedding backfill.
 

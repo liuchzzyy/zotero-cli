@@ -58,9 +58,17 @@ def attach_cmd(
             context="attach",
         )
 
-    from zotero_cli.core.idempotency import get_cached, store_cached
+    from zotero_cli.core.idempotency import get_cached, request_scope, store_cached
 
-    cache_scope = f"attach:{key}:{fp.name}"
+    if idempotency_key:
+        from zotero_cli.core.mineru import file_sha256
+
+        cache_scope = request_scope(
+            "attach", library_type, str(library_id),
+            {"parent": key, "file": str(fp.resolve()), "sha256": file_sha256(fp)},
+        )
+    else:
+        cache_scope = ""
     if idempotency_key:
         cached = get_cached(cache_scope, idempotency_key)
         if cached is not None:

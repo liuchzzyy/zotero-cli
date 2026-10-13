@@ -12,14 +12,23 @@ user-supplied key don't collide.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import time
+from contextlib import closing
 from pathlib import Path
 
 from zotero_cli.config import state_dir
 
 TTL_SECONDS = 24 * 60 * 60
+
+
+def request_scope(command: str, library_type: str, library_id: str, payload: object) -> str:
+    """Bind a retry key to the target library and exact request, never credentials."""
+    serialized = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
+    digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    return f"{command}:{library_type}:{library_id}:{digest}"
 
 
 def _db_path() -> Path:
@@ -42,7 +51,7 @@ def get_cached(scope: str, key: str) -> dict | None:
     if not key:
         return None
     now = int(time.time())
-    with _connect() as conn:
+    with closing(_connect()) as conn, conn:
         row = conn.execute(
             "SELECT value, created_at FROM cache WHERE scope=? AND key=?",
             (scope, key),
@@ -63,7 +72,7 @@ def store_cached(scope: str, key: str, envelope: dict) -> None:
     if not key:
         return
     now = int(time.time())
-    with _connect() as conn:
+    with closing(_connect()) as conn, conn:
         conn.execute(
             "INSERT OR REPLACE INTO cache (scope, key, value, created_at) VALUES (?, ?, ?, ?)",
             (scope, key, json.dumps(envelope), now),
@@ -72,6 +81,6 @@ def store_cached(scope: str, key: str, envelope: dict) -> None:
 
 def clear() -> None:
     """Clear the entire cache. Exposed for tests."""
-    with _connect() as conn:
+    with closing(_connect()) as conn, conn:
         conn.execute("DELETE FROM cache")
 

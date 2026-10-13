@@ -55,6 +55,9 @@ def build_metadata_chunk(title: str, authors: str, abstract: str | None, tags: l
 def infer_pdf_kind(text: str, filename: str = "") -> str:
     head = f"{filename}\n{text[:2500]}".lower()
     extended = f"{filename}\n{text[:10000]}".lower()
+    lead = f"{filename}\n{text[:500]}".lower()
+    if any(hint in lead for hint in _SUPPLEMENTARY_HINTS[:6]) and "cite this:" not in lead:
+        return "supplementary"
     if any(hint in head for hint in _MAIN_PAPER_HINTS):
         return "main"
     if "experimental section" in head:

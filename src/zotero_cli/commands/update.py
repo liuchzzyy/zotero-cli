@@ -318,9 +318,10 @@ def update_cmd(
         )
 
     # Idempotency cache check
-    from zotero_cli.core.idempotency import get_cached, store_cached
+    from zotero_cli.core.idempotency import get_cached, request_scope, store_cached
 
-    cache_scope = f"update:{key}"
+    cache_scope = request_scope("update", library_type, str(library_id),
+                                {"key": key, "fields": fields, "add_tags": sorted(add_tags)})
     if idempotency_key:
         cached = get_cached(cache_scope, idempotency_key)
         if cached is not None:

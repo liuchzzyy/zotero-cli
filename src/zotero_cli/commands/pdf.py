@@ -39,6 +39,8 @@ def _extract_section(markdown: str, section_num: int) -> str:
 @click.option("--outline", is_flag=True, help="List headings from the MinerU Markdown as a numbered outline")
 @click.option("--section", type=int, default=None, help="Return the N-th Markdown section")
 @click.option("--structured", is_flag=True, help="Return MinerU content_list JSON instead of Markdown")
+@click.option("--list-attachments", is_flag=True, help="List PDF attachment keys without parsing")
+@click.option("--attachment", "attachment_key", default=None, help="Select a PDF by attachment key")
 @click.argument("key")
 @click.pass_context
 def pdf_cmd(
@@ -46,6 +48,8 @@ def pdf_cmd(
     outline: bool,
     section: int | None,
     structured: bool,
+    list_attachments: bool,
+    attachment_key: str | None,
     key: str,
 ) -> None:
     """Parse a Zotero PDF with MinerU cloud API and read its cached result.
@@ -68,14 +72,38 @@ def pdf_cmd(
     library_id = resolve_library_id(db_path, ctx.obj)
     reader = ZoteroReader(db_path, library_id=library_id, prefs_js_path=get_prefs_js_path(cfg))
     try:
-        attachment = reader.get_pdf_attachment(key)
-        if attachment is None:
+        attachments = reader.get_pdf_attachments(key)
+        if list_attachments:
+            data = {
+                "key": key,
+                "attachments": [
+                    {"key": att.key, "filename": att.filename, "available": bool(att.path and att.path.is_file())}
+                    for att in attachments
+                ],
+            }
+            if json_out:
+                click.echo(json.dumps(envelope_ok(data), ensure_ascii=False, indent=2))
+            else:
+                click.echo("\n".join(f"{att.key}  {att.filename}" for att in attachments))
+            return
+        if not attachments:
             emit_error(
                 "not_found",
                 f"No PDF attachment found for '{key}'",
                 output_json=json_out,
                 hint="Check item details with: zot read KEY",
                 context="pdf",
+            )
+        if not attachment_key and len(attachments) > 1:
+            emit_error(
+                "validation_error", f"Multiple PDFs for '{key}'; select with --attachment KEY",
+                output_json=json_out, hint=f"Run zot pdf {key} --list-attachments", context="pdf",
+            )
+        attachment = next((att for att in attachments if att.key == attachment_key), None) if attachment_key else attachments[0]
+        if attachment is None:
+            emit_error(
+                "not_found", f"PDF attachment '{attachment_key}' not found for '{key}'",
+                output_json=json_out, context="pdf",
             )
         pdf_path = attachment.path
         if not pdf_path or not pdf_path.exists():
@@ -110,6 +138,7 @@ def pdf_cmd(
             )
 
         meta = {
+            "attachment_key": attachment.key,
             "fingerprint": parsed.fingerprint,
             "mineru_model_version": parsed.model_version,
             "cache_dir": str(parsed.root),

@@ -57,9 +57,10 @@ def note_cmd(
                 context="note",
             )
 
-        from zotero_cli.core.idempotency import get_cached, store_cached
+        from zotero_cli.core.idempotency import get_cached, request_scope, store_cached
 
-        cache_scope = f"note:{key}"
+        cache_scope = request_scope("note", library_type, str(write_library_id),
+                                    {"parent": key, "content": content})
         if idempotency_key:
             cached = get_cached(cache_scope, idempotency_key)
             if cached is not None:

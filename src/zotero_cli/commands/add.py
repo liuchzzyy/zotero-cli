@@ -159,9 +159,10 @@ def add_cmd(
             context="add",
         )
 
-    from zotero_cli.core.idempotency import get_cached, store_cached
+    from zotero_cli.core.idempotency import get_cached, request_scope, store_cached
 
-    cache_scope = f"add:{'doi:' + doi if doi else 'url:' + (url or '')}"
+    cache_scope = request_scope("add", library_type, str(library_id),
+                                {"doi": doi, "url": url, "no_resolve": no_resolve})
     if idempotency_key:
         cached = get_cached(cache_scope, idempotency_key)
         if cached is not None:
@@ -309,7 +310,7 @@ def _add_from_pdf(
         if attach_error:
             data["attachment_error"] = attach_error
             data["next"] = [f"zot attach {key} --file {pdf_path}"]
-        click.echo(json.dumps(envelope_ok(data), indent=2, ensure_ascii=False))
+        click.echo(json.dumps({**envelope_ok(data), "ok": not bool(attach_error)}, indent=2, ensure_ascii=False))
     else:
         click.echo(f"Item created: {key} (DOI: {doi})")
         if resolved_summary:
@@ -332,6 +333,8 @@ def _add_from_pdf(
         else:
             click.echo(f"Item created ({key}) but attachment upload failed: {attach_error}", err=True)
             click.echo(f"Retry with: zot attach {key} --file {pdf_path}", err=True)
+    if attach_error:
+        raise SystemExit(5)
 
 
 def _add_from_file(
