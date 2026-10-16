@@ -168,7 +168,8 @@ def main(argv: list[str] | None = None) -> None:
         return
     api, writer = open_zotero()
     count = sync_csv(path, api, writer)
-    print(f"Zotero 收件箱核实完成：{count} 个 DOI 已导入；CSV：{path}")
+    path.unlink()
+    print(f"Zotero 收件箱核实完成：{count} 个 DOI 已导入；已删除 CSV：{path}")
 
 
 if __name__ == "__main__":

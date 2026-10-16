@@ -174,6 +174,59 @@ class ZoteroInboxTests(unittest.TestCase):
                 with self.assertRaises(inbox.ZoteroInboxError):
                     inbox.main([])
 
+    def test_successful_run_deletes_only_the_processed_csv(self):
+        row = {"doi": "10.1000/a", "title": "A", "title_zh": "正极", "is_cathode_material": "1",
+               "is_characterization_technique": "0"}
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "updates_2026-10-15.csv"
+            other = Path(folder) / "updates_2026-10-14.csv"
+            other.write_text("unrelated", encoding="utf-8")
+            with path.open("w", encoding="utf-8-sig", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=list(row))
+                writer.writeheader()
+                writer.writerow(row)
+            with patch.object(inbox, "SCRIPT_DIR", Path(folder)), patch.object(
+                inbox, "open_zotero", return_value=(Mock(), Mock())
+            ), patch.object(inbox, "sync_csv", return_value=1) as sync:
+                inbox.main(["--date", "2026-10-15"])
+            sync.assert_called_once()
+            self.assertFalse(path.exists())
+            self.assertTrue(other.exists())
+
+    def test_failed_run_keeps_csv_for_retry(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "updates_2026-10-15.csv"
+            path.write_text("original contents", encoding="utf-8")
+            before = path.read_bytes()
+            with patch.object(inbox, "SCRIPT_DIR", Path(folder)), patch.object(
+                inbox, "open_zotero", return_value=(Mock(), Mock())
+            ), patch.object(inbox, "sync_csv", side_effect=inbox.ZoteroInboxError("write failed")):
+                with self.assertRaises(inbox.ZoteroInboxError):
+                    inbox.main(["--date", "2026-10-15"])
+            self.assertEqual(path.read_bytes(), before)
+
+    def test_realistic_mid_batch_failure_retains_checkpoint_csv(self):
+        rows = [
+            {"doi": "10.1000/a", "title": "A", "title_zh": "正极", "is_cathode_material": "1", "is_characterization_technique": "0"},
+            {"doi": "10.1000/b", "title": "B", "title_zh": "正极", "is_cathode_material": "1", "is_characterization_technique": "0"},
+        ]
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "updates_2026-10-15.csv"
+            with path.open("w", encoding="utf-8-sig", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+                writer.writeheader()
+                writer.writerows(rows)
+            with patch.object(inbox, "SCRIPT_DIR", Path(folder)), patch.object(
+                inbox, "open_zotero", return_value=(api_for_new_item(), Mock())
+            ), patch.object(inbox, "import_doi", side_effect=["NEWITEM1", inbox.ZoteroInboxError("second failed")]):
+                with self.assertRaises(inbox.ZoteroInboxError):
+                    inbox.main(["--date", "2026-10-15"])
+            self.assertTrue(path.exists())
+            with path.open(encoding="utf-8-sig", newline="") as handle:
+                actual = list(csv.DictReader(handle))
+            self.assertEqual(actual[0]["zotero_key"], "NEWITEM1")
+            self.assertEqual(actual[1]["zotero_key"], "")
+
     def test_dry_run_lists_candidates_without_web_api_writes(self):
         row = {"doi": "10.1000/a", "title": "A", "title_zh": "正极", "is_cathode_material": "1",
                "is_characterization_technique": "0"}
