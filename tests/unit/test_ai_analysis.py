@@ -674,7 +674,14 @@ class TestAiAnalyzeCLI:
         }
         if env:
             base_env.update(env)
-        return runner.invoke(main, args, env=base_env)
+        # `[ai_notes]` is read from the Git-ignored `.zot/config.toml`, so a
+        # clean checkout has no key and `ai_analyze` exits 3 before these tests
+        # reach the behavior under test. Stub the loader instead.
+        with patch(
+            "zotero_cli.commands.ai_analyze.load_ai_note_config",
+            return_value=_make_ai_config(),
+        ):
+            return runner.invoke(main, args, env=base_env)
 
     def test_dry_run_envelope(self):
         result = {

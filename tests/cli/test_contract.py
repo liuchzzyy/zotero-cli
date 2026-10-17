@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from tests.support import invoke_agent_cli as _run
 
+from zotero_cli.config import AiNoteConfig
 from zotero_cli.exit_codes import (
     EXIT_AUTH,
     EXIT_NOT_FOUND,
@@ -15,6 +16,17 @@ from zotero_cli.exit_codes import (
     exit_code_for,
 )
 from zotero_cli.formatter import envelope_error, envelope_ok, envelope_partial
+
+
+def _ai_config() -> AiNoteConfig:
+    """A complete `[ai_notes]` block, so these tests never read the repo config.
+
+    `ai_analyze` loads `[ai_notes]` from `.zot/config.toml`, which is
+    Git-ignored. Without this stub the exit code depends on whether the
+    developer happens to have a local API key: a clean checkout stops at
+    `configuration_error` (exit 3) and never reaches the credential branch.
+    """
+    return AiNoteConfig(api_key="test-key", base_url="http://127.0.0.1:9/v1", model="test-model")
 
 
 class TestEnvelopeShape:
@@ -92,7 +104,11 @@ class TestExitCodes:
         assert env["error"]["code"] == "auth_missing"
 
     def test_ai_analyze_auth_missing_returns_exit_2(self):
-        result = _run(["ai_analyze", "ABC123"], env={"ZOT_LIBRARY_ID": "", "ZOT_API_KEY": ""})
+        with patch(
+            "zotero_cli.commands.ai_analyze.load_ai_note_config",
+            return_value=_ai_config(),
+        ):
+            result = _run(["ai_analyze", "ABC123"], env={"ZOT_LIBRARY_ID": "", "ZOT_API_KEY": ""})
         assert result.exit_code == EXIT_AUTH
         env = json.loads(result.output)
         assert env["error"]["code"] == "auth_missing"
@@ -100,6 +116,10 @@ class TestExitCodes:
     def test_ai_analyze_dry_run_does_not_require_write_credentials(self):
         expected = {"status": "dry_run", "item_key": "ABC123"}
         with (
+            patch(
+                "zotero_cli.commands.ai_analyze.load_ai_note_config",
+                return_value=_ai_config(),
+            ),
             patch("zotero_cli.commands.ai_analyze.analyze_item", return_value=expected) as analyze,
             patch("zotero_cli.commands.ai_analyze.ZoteroReader"),
             patch("zotero_cli.commands.ai_analyze.ZoteroWriter") as writer,
