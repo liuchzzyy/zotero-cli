@@ -144,6 +144,15 @@ class ZoteroInboxTests(unittest.TestCase):
             with self.assertRaises(inbox.ZoteroInboxError):
                 inbox.import_doi("10.1000/a", "正极", ABSTRACT_ZH, api, writer, source_abstract=ABSTRACT)
 
+    def test_missing_abstract_note_field_counts_as_empty(self):
+        """An item type without the field must not fail when nothing was translated."""
+        api = api_for_new_item()
+        del api.item.return_value["data"]["abstractNote"]
+        writer = Mock()
+        writer.add_item.return_value = "NEWITEM1"
+        with patch.object(inbox, "resolve_metadata", return_value={"title": "Cathode", "DOI": "10.1000/a"}):
+            self.assertEqual(inbox.import_doi("10.1000/a", "正极", "", api, writer), "NEWITEM1")
+
     def test_verified_extra_mismatch_is_not_marked_success(self):
         api = api_for_new_item()
         api.item.return_value["data"]["extra"] = "funder: ABC"

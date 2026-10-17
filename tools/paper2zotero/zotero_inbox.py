@@ -69,8 +69,9 @@ def _verify(api, key: str, doi: str, title_zh: str, abstract_zh: str, *, must_ha
     if not isinstance(extra, str) or expected not in extra.splitlines():
         raise ZoteroInboxError(f"Zotero 回读条目缺少中文标题：{doi} / {key}")
     # An abstract that was translated must land in abstractNote verbatim; a field
-    # the write dropped looks exactly like a successful import otherwise.
-    if data.get("abstractNote") != abstract_zh:
+    # the write dropped looks exactly like a successful import. A missing field
+    # counts as empty — but then a non-empty translation still fails here.
+    if (data.get("abstractNote") or "") != abstract_zh:
         raise ZoteroInboxError(f"Zotero 回读条目中文摘要不一致：{doi} / {key}")
 
 
