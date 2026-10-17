@@ -18,6 +18,7 @@ INBOX_NAME = "00 | 收件箱"
 FLAGS = ("is_cathode_material", "is_characterization_technique")
 DOI_PATTERN = re.compile(r"^10\.\d{4,9}/\S+$", re.IGNORECASE)
 STATUS_COLUMNS = ("zotero_status", "zotero_key")
+TRANSLATED_TITLE_LABEL = "translated-title:"
 
 
 class ZoteroInboxError(RuntimeError):
@@ -51,7 +52,7 @@ def resolve_metadata(doi: str) -> dict:
     return fields
 
 
-def _verify(api, key: str, doi: str, *, must_have_inbox: bool = True) -> None:
+def _verify(api, key: str, doi: str, title_zh: str, *, must_have_inbox: bool = True) -> None:
     item = api.item(key)
     if not isinstance(item, dict) or not isinstance(item.get("data"), dict):
         raise ZoteroInboxError(f"Zotero 回读条目格式无效：{doi} / {key}")
@@ -60,6 +61,10 @@ def _verify(api, key: str, doi: str, *, must_have_inbox: bool = True) -> None:
         raise ZoteroInboxError(f"Zotero 回读 DOI 与原始值不一致：{doi} / {key}")
     if must_have_inbox and INBOX_KEY not in data.get("collections", []):
         raise ZoteroInboxError(f"Zotero 回读条目未进入收件箱：{doi} / {key}")
+    extra = data.get("extra")
+    expected = f"{TRANSLATED_TITLE_LABEL} {title_zh}"
+    if not isinstance(extra, str) or expected not in extra.splitlines():
+        raise ZoteroInboxError(f"Zotero 回读条目缺少中文标题：{doi} / {key}")
 
 
 def verify_inbox(api) -> None:
@@ -69,13 +74,22 @@ def verify_inbox(api) -> None:
         raise ZoteroInboxError("目标收件箱 key/name 与预期不符，停止导入")
 
 
-def import_doi(doi: str, api, writer) -> str:
-    """Create a fresh DOI item directly in the inbox, without library deduplication."""
+def import_doi(doi: str, title_zh: str, api, writer) -> str:
+    """Create a fresh DOI item with translated title in Extra, without library deduplication."""
+    if not isinstance(title_zh, str) or not title_zh.strip() or "\n" in title_zh or "\r" in title_zh:
+        raise ZoteroInboxError(f"中文标题缺失或含换行，未导入：{doi}")
+    translated_title = title_zh.strip()
     metadata = resolve_metadata(doi)
     if not isinstance(metadata, dict) or not metadata.get("title"):
         raise ZoteroInboxError(f"Crossref 元数据不足，未导入：{doi}")
-    key = writer.add_item(doi=doi, extra_fields={**metadata, "collections": [INBOX_KEY]})
-    _verify(api, key, doi)
+    existing_extra = metadata.get("extra") or ""
+    if not isinstance(existing_extra, str):
+        raise ZoteroInboxError(f"Crossref Extra 格式无效，未导入：{doi}")
+    other_lines = [line for line in existing_extra.splitlines()
+                   if not line.strip().lower().startswith(TRANSLATED_TITLE_LABEL)]
+    extra = "\n".join([*other_lines, f"{TRANSLATED_TITLE_LABEL} {translated_title}"])
+    key = writer.add_item(doi=doi, extra_fields={**metadata, "extra": extra, "collections": [INBOX_KEY]})
+    _verify(api, key, doi, translated_title)
     return key
 
 
@@ -100,6 +114,10 @@ def sync_csv(path: Path, api, writer) -> int:
     """Import each selected row once; preserve verified progress after each item."""
     rows = read_rows(path)
     selected = select_rows(rows)
+    for row in selected:
+        title_zh = row.get("title_zh")
+        if not isinstance(title_zh, str) or not title_zh.strip() or "\n" in title_zh or "\r" in title_zh:
+            raise ZoteroInboxError(f"候选条目没有有效中文标题，未导入：{row['doi']}")
     if not selected:
         return 0
     with path.open(newline="", encoding="utf-8-sig") as handle:
@@ -118,7 +136,7 @@ def sync_csv(path: Path, api, writer) -> int:
             continue
         if row.get("zotero_status") == "added" and row.get("zotero_key"):
             continue  # Only protects a re-run of this CSV; never searches the Zotero library.
-        key = import_doi(row["doi"], api, writer)
+        key = import_doi(row["doi"], row["title_zh"], api, writer)
         row.update(zotero_status="added", zotero_key=key)
         count += 1
         temp = path.with_suffix(path.suffix + ".tmp")

@@ -12,7 +12,8 @@ import zotero_inbox as inbox
 def api_for_new_item(doi="10.1000/a", key="NEWITEM1"):
     api = Mock()
     api.collection.return_value = {"key": inbox.INBOX_KEY, "data": {"name": inbox.INBOX_NAME}}
-    api.item.return_value = {"key": key, "data": {"DOI": doi, "collections": [inbox.INBOX_KEY]}}
+    api.item.return_value = {"key": key, "data": {"DOI": doi, "collections": [inbox.INBOX_KEY],
+                                                "extra": "translated-title: 正极"}}
     return api
 
 
@@ -38,11 +39,63 @@ class ZoteroInboxTests(unittest.TestCase):
         writer = Mock()
         writer.add_item.return_value = "NEWITEM1"
         with patch.object(inbox, "resolve_metadata", return_value={"title": "Cathode", "DOI": "10.1000/a"}):
-            key = inbox.import_doi("10.1000/a", api, writer)
+            key = inbox.import_doi("10.1000/a", "正极", api, writer)
         writer.add_item.assert_called_once_with(
-            doi="10.1000/a", extra_fields={"title": "Cathode", "DOI": "10.1000/a", "collections": [inbox.INBOX_KEY]})
+            doi="10.1000/a", extra_fields={"title": "Cathode", "DOI": "10.1000/a",
+                                             "extra": "translated-title: 正极", "collections": [inbox.INBOX_KEY]})
         api.item.assert_called_once_with("NEWITEM1")
         self.assertEqual(key, "NEWITEM1")
+
+    def test_doi_import_stores_translated_title_and_preserves_other_extra(self):
+        api = api_for_new_item()
+        api.item.return_value["data"]["extra"] = "funder: ABC\ntranslated-title: 水系 Zn–MnO₂ 正极的 operando XAS 研究"
+        writer = Mock()
+        writer.add_item.return_value = "NEWITEM1"
+        with patch.object(inbox, "resolve_metadata", return_value={"title": "Operando XAS of MnO2 cathodes",
+                                                                 "DOI": "10.1000/a", "extra": "funder: ABC"}):
+            key = inbox.import_doi("10.1000/a", "水系 Zn–MnO₂ 正极的 operando XAS 研究", api, writer)
+        self.assertEqual(key, "NEWITEM1")
+        writer.add_item.assert_called_once_with(doi="10.1000/a", extra_fields={
+            "title": "Operando XAS of MnO2 cathodes", "DOI": "10.1000/a",
+            "extra": "funder: ABC\ntranslated-title: 水系 Zn–MnO₂ 正极的 operando XAS 研究",
+            "collections": [inbox.INBOX_KEY],
+        })
+        writer.update_item.assert_not_called()
+
+    def test_verified_extra_mismatch_is_not_marked_success(self):
+        api = api_for_new_item()
+        api.item.return_value["data"]["extra"] = "funder: ABC"
+        writer = Mock()
+        writer.add_item.return_value = "NEWITEM1"
+        with patch.object(inbox, "resolve_metadata", return_value={"title": "Cathode", "DOI": "10.1000/a"}):
+            with self.assertRaises(inbox.ZoteroInboxError):
+                inbox.import_doi("10.1000/a", "正极", api, writer)
+
+    def test_missing_chinese_title_rejected_before_zotero_write(self):
+        api = api_for_new_item()
+        writer = Mock()
+        with patch.object(inbox, "resolve_metadata") as resolve:
+            with self.assertRaises(inbox.ZoteroInboxError):
+                inbox.import_doi("10.1000/a", "", api, writer)
+        writer.add_item.assert_not_called()
+        resolve.assert_not_called()
+
+    def test_csv_requires_translation_for_selected_rows(self):
+        row = {"doi": "10.1000/a", "title": "Cathode", "title_zh": "", "is_cathode_material": "1",
+               "is_characterization_technique": "0"}
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "updates_2026-10-15.csv"
+            with path.open("w", encoding="utf-8-sig", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=list(row))
+                writer.writeheader()
+                writer.writerow(row)
+            before = path.read_bytes()
+            api = Mock()
+            writer = Mock()
+            with self.assertRaises(inbox.ZoteroInboxError):
+                inbox.sync_csv(path, api, writer)
+            self.assertEqual(path.read_bytes(), before)
+            writer.add_item.assert_not_called()
 
     def test_unverified_write_fails_without_falsely_marking_success(self):
         api = api_for_new_item()
@@ -51,14 +104,14 @@ class ZoteroInboxTests(unittest.TestCase):
         writer.add_item.return_value = "NEWITEM1"
         with patch.object(inbox, "resolve_metadata", return_value={"title": "Cathode"}):
             with self.assertRaises(inbox.ZoteroInboxError):
-                inbox.import_doi("10.1000/a", api, writer)
+                inbox.import_doi("10.1000/a", "正极", api, writer)
 
     def test_missing_crossref_metadata_does_not_create_bare_item(self):
         api = api_for_new_item()
         writer = Mock()
         with patch.object(inbox, "resolve_metadata", return_value=None):
             with self.assertRaises(inbox.ZoteroInboxError):
-                inbox.import_doi("10.1000/a", api, writer)
+                inbox.import_doi("10.1000/a", "正极", api, writer)
         writer.add_item.assert_not_called()
 
     def test_invalid_flags_or_doi_fail_before_any_write(self):
@@ -92,7 +145,7 @@ class ZoteroInboxTests(unittest.TestCase):
             writer = Mock()
             with patch.object(inbox, "import_doi", return_value="NEWITEM1") as add:
                 count = inbox.sync_csv(path, api, writer)
-            add.assert_called_once_with("10.1000/a", api, writer)
+            add.assert_called_once_with("10.1000/a", "正极", api, writer)
             self.assertEqual(count, 1)
             with path.open(encoding="utf-8-sig", newline="") as handle:
                 reader = csv.DictReader(handle)
