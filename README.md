@@ -5,7 +5,9 @@
 - **本地读取**：只读 Zotero SQLite 数据库。
 - **远程写入**：通过 Zotero Web API，不直接修改 `zotero.sqlite`。
 - **Agent 接口**：稳定 JSON envelope、类型化退出码、`--dry-run`、幂等键和运行时 schema。
-- **PDF/RAG**：MinerU PDF 解析、结构化缓存、工作区全文检索和可选 embedding/rerank。
+- **PDF 解析**：MinerU 云端解析、内容哈希缓存、结构化 `content_list.json`。
+- **AI 条目笔记**：`ai_analyze` 自动生成带插图的 HTML note 与关键词简记，写回 Zotero。
+- **Workspace RAG**：工作区全文检索（FTS5/BM25）加可选 embedding/rerank。
 
 ## 安装
 
@@ -37,7 +39,23 @@ data_dir = "/Users/your-name/Zotero"
 prefs_js_path = "/Users/your-name/Library/Application Support/Zotero/Profiles/<profile>/prefs.js"
 ```
 
-涉及写入时，还需要 Zotero User ID 和具有写权限的 API key。MinerU PDF 解析需要配置 `mineru_token`。真实配置文件、缓存和本地索引不会提交到 Git。
+涉及写入时，还需要 Zotero User ID 和具有写权限的 API key。MinerU PDF 解析需要配置 `mineru_token`，AI 笔记需要配置 `[ai_notes]`。真实配置文件、缓存和本地索引不会提交到 Git。
+
+AI 笔记相关配置（`[ai_notes]`）：
+
+```toml
+[ai_notes]
+api_key = ""
+base_url = "http://127.0.0.1:8317/v1"
+model = "deepseek-flash"
+fallback_models = ["<备用模型1>", "<备用模型2>"]
+reasoning_effort = "max"
+api_mode = "auto"
+chat_token_param = "auto"
+temperature = 0.7
+```
+
+`fallback_models` 可以是 TOML 数组，也可以是逗号分隔字符串。主模型调用失败或拒绝图片输入时，按顺序回退到后续模型。
 
 常用环境变量：
 
@@ -60,16 +78,24 @@ uv run zot --json read ITEMKEY
 uv run zot cite ITEMKEY --style apa
 uv run zot export ITEMKEY --format bibtex
 
-# 最近条目和统计
+# 浏览与检索辅助
+uv run zot list --collection "00 | 收件箱"
 uv run zot recent
+uv run zot relate ITEMKEY
+uv run zot duplicates
+uv run zot summarize ITEMKEY
 uv run zot stats
+
+# 回收站
+uv run zot trash list
+uv run zot trash restore ITEMKEY
 
 # 查看完整命令契约
 uv run zot schema
 uv run zot schema search
 ```
 
-程序化调用统一使用 `--json`。
+程序化调用统一使用 `--json`。命令按安全等级分组：read / write / destructive，分组结果同时反映在 `zot --help` 和 `zot schema` 中。
 
 ## PDF 阅读
 
@@ -93,7 +119,35 @@ uv run zot --json pdf ITEMKEY --attachment ATTACHMENTKEY --section 2
 
 当一个父条目包含多个 PDF 时，直接运行 `zot pdf ITEMKEY` 会返回校验错误，要求明确指定 `--attachment`。
 
-MinerU 结果按 PDF 内容哈希和模型版本缓存到 `.zot/state/mineru/`。正文 Markdown 可供 `ai_analyze` 使用，`content_list.json` 可供 workspace RAG 使用。
+MinerU 结果按 PDF 内容哈希和模型版本缓存到 `.zot/state/mineru/`。正文 Markdown 可供 `ai_analyze` 使用，`content_list.json` 可供 workspace RAG 使用；图片位于缓存包的 `raw/images/`。
+
+## AI 条目笔记（ai_analyze）
+
+```bash
+# 预览分类结果和将发给模型的输入，不写 note
+uv run zot ai_analyze ITEMKEY --dry-run
+
+# 生成 note，打 ai/noted tag，并写关键词简记
+uv run zot ai_analyze ITEMKEY
+
+# 只生成 note，不打 tag / 不生成简记
+uv run zot ai_analyze ITEMKEY --no-tag
+uv run zot ai_analyze ITEMKEY --no-short-note
+
+# 根据已有 note 回填关键词简记（不重新调模型生成 note）
+uv run zot ai_analyze ITEMKEY --short-note-only
+
+# 已处理过的条目重跑
+uv run zot ai_analyze ITEMKEY --force
+```
+
+行为要点：
+
+- note 按条目类型选择模板（研究论文 / 综述 / 书籍），模板位于 `tools/ainote/templates/`。
+- MinerU Markdown 中的图片引用会被替换为 `【图 N】` 标记并作为多模态输入发送，默认最多 12 张，使图表证据不依赖图注文字。
+- 同一文档的重复附件会被识别并去重，正文保持排在附录之前。
+- 渲染前统一处理上下标与中英文间距（`MnO₂` → `MnO2`，`Zn²⁺` → `Zn2+`，`g⁻¹` → `g^-1`）。
+- 关键词简记写入条目 Extra 的 `short-note` 字段，格式与约束由 `validate_short_note` 校验。
 
 ## 写入与安全操作
 
@@ -111,7 +165,7 @@ uv run zot update ITEMKEY \
   --title "New title" --idempotency-key update-001
 ```
 
-主要写入命令：`add`、`update`、`attach`、`note`、`tag`、`collection`、`delete` 和 `ai_analyze`。
+主要写入命令：`add`、`update`、`attach`、`note`、`tag`、`ai_analyze`。集合管理（`collection`）属于读取分组，不修改条目内容。
 
 ## Workspace RAG
 
@@ -125,6 +179,18 @@ uv run zot --json workspace query \
 ```
 
 普通 `workspace index` 会根据 PDF、条目元数据和笔记内容判断是否需要重新索引。只有在需要强制重建时使用 `workspace reindex`。
+
+持久数据位置：`.workspace/<name>/`（工作区与 SQLite RAG 索引）、`.workspace/_qdrant/`（本地向量）、`.zot/state/mineru/`（共享 MinerU 解析包）。
+
+## 辅助工具
+
+`tools/` 下的脚本不是 `zot` 子命令，用于批量工作流：
+
+- `tools/paperrag/`：`run-rag-workspace.zsh`（inventory、增量索引、embedding 回填）、`run-rag-evidence-search.zsh`（检索）、`zotero-workflow-common.zsh`（共享函数）、`workspace-inventory.py`。生成物写入 `log/`。
+- `tools/paper2zotero/`：`zotero_inbox.py`（PaperCrossref 收件箱导入）、`backfill_titles.py`（全库译名回填）。
+- `tools/ainote/templates/`：`ai_analyze` 的 prompt 模板。
+
+详细用法见 `tools/paperrag/Instructions.md`。
 
 ## 开发与验证
 

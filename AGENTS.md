@@ -56,6 +56,8 @@ This is the central design constraint.
 
 Never write to `zotero.sqlite` directly. That would bypass Zotero's sync model and can corrupt sync state.
 
+`reader.py` uses two read paths. When `<db>.sqlite-wal` exists and is non-empty it copies the DB plus WAL to a temp file and replays it, because `immutable=1` on the live file returns a stale snapshot while Zotero Desktop is running (recently synced attachments look missing and PDF paths look broken). Keep that branch when touching connection setup; a plain `immutable=1` reconnect is a regression.
+
 ### CLI shape
 
 - `src/zotero_cli/cli.py` is the Click root group.
@@ -70,10 +72,10 @@ When adding a command, register it in `cli.py` and place it in the correct safet
 
 ### Core subsystems
 
-- `src/zotero_cli/core/reader.py`: SQLite read layer.
+- `src/zotero_cli/core/reader.py`: SQLite read layer (WAL-aware, see above).
 - `src/zotero_cli/core/writer.py`: Web API write layer (notes, tags, item fields, Extra short-note merge).
-- `src/zotero_cli/core/mineru.py`: MinerU-only cloud parsing and the canonical shared parse package cache.
-- `src/zotero_cli/core/ai_client.py`, `note_analysis.py`, `note_renderer.py`, `note_templates.py`: the `ai_analyze` pipeline — OpenAI-compatible chat, item classification / note generation / short-note keywords, inline-styled HTML rendering, prompt templates under `tools/templates/`.
+- `src/zotero_cli/core/mineru.py`: MinerU-only cloud parsing and the canonical shared parse package cache under `.zot/state/mineru/`.
+- `src/zotero_cli/core/ai_client.py`, `note_analysis.py`, `note_renderer.py`, `note_templates.py`, `note_figures.py`, `note_text.py`: the `ai_analyze` pipeline — OpenAI-compatible chat with a multi-model fallback chain, item classification / note generation / short-note keywords, multimodal figure input, inline-styled HTML rendering, and CJK/Latin plus super/subscript normalisation. Prompt templates live under `tools/ainote/templates/`.
 - `src/zotero_cli/core/rag.py`, `rag_index.py`, `rerank.py`: MinerU structured-JSON chunking, SQLite FTS5 (BM25), reciprocal rank fusion, Gitee embedding/rerank helpers.
 - `src/zotero_cli/core/semantic_search/vector_store.py`: local Qdrant vector store.
 - `src/zotero_cli/core/providers/gitee.py`: Gitee AI embedding / rerank provider.
@@ -81,6 +83,23 @@ When adding a command, register it in `cli.py` and place it in the correct safet
 - `src/zotero_cli/core/idempotency.py`: retry-safe mutation support.
 - `src/zotero_cli/core/semantic_scholar.py`: preprint-to-published lookups for `update-status`.
 - `src/zotero_cli/core/version_check.py`: version notice logic.
+
+### ai_analyze specifics
+
+- Figures: `note_figures.py` rewrites `![](images/<sha>.jpg)` in MinerU Markdown to `【图 N】` markers, filters assets by size, caps the request at `_MAX_FIGURES` (12), and returns data URLs for the chat request. `ai_client.py` attaches them as `image_url` parts and falls back to the next model when a provider rejects image content.
+- Model chain: `model` followed by `fallback_models` (TOML array or comma-separated string). Local `base_url` values (`127.0.0.1` / `localhost`) disable HTTP proxy env handling.
+- Text: `note_text.py` flattens super/subscripts and inserts a half-width space between CJK and Latin before HTML escaping in `note_renderer.py`. The note title is escaped but not re-spaced, because `NOTE_TITLE_PREFIX` matching depends on it.
+- Dedupe: `note_analysis._drop_duplicate_parts` drops a repeated copy of the same document (re-imported items often carry the PDF twice) while preserving main-text-before-appendix order.
+- Templates: `note_templates.template_path` probes `tools/ainote/templates/`, then `tools/ainote/`, then legacy `tools/templates/`.
+
+### Tools and bundled skill
+
+- `tools/paperrag/`: maintained zsh entrypoints `run-rag-workspace.zsh` (inventory, incremental index, embedding backfill) and `run-rag-evidence-search.zsh`, plus `zotero-workflow-common.zsh` and `workspace-inventory.py`. Usage is documented in `tools/paperrag/Instructions.md`; run artifacts go to `log/`.
+- `tools/paper2zotero/`: `zotero_inbox.py` (PaperCrossref inbox import) and `backfill_titles.py` (library-wide translated-title backfill), each with tests beside it.
+- `tools/ainote/templates/`: `ai_analyze` prompt templates (`classify-item`, `research-article`, `review-article`, `book`, `short-note`).
+- `tests/integration/test_tool_scripts.py` resolves the zsh scripts from `tools/paperrag/` when present and falls back to `tools/`.
+
+Do not reintroduce the old flat `tools/*.zsh` layout; the scripts now live in `tools/paperrag/`.
 
 ### Agent Contract and Skill
 
@@ -111,9 +130,19 @@ Relevant env vars include:
 - `ZOT_DATA_DIR`
 - `ZOT_LIBRARY_ID`
 - `ZOT_API_KEY`
+- `ZOT_MINERU_TOKEN`
+- `ZOT_MINERU_MODEL_VERSION`
 - `ZOT_PROFILE`
 
+Relevant sections:
+
+- `[ai_notes]`: `api_key`, `base_url`, `model`, `fallback_models`, `reasoning_effort`, `api_mode`, `chat_token_param`, `temperature`, `max_tokens`, `max_extracted_chars`.
+- `[pdf]`: `mineru_token`, `mineru_model_version`.
+- `[embedding]`, `[rerank]`, `[semantic_search]`: Gitee providers and hybrid retrieval weights.
+
 Zotero data dir auto-detects when not configured, but this checkout now treats repo-local `.zot/config.toml` as the primary persistent source of truth.
+
+`.zot/config.example.toml` is a template: it must stay credential-free (no real `api_key` or `mineru_token` values) and free of machine-specific absolute paths. Use `/Users/your-name/Zotero` and `.../Profiles/<profile>/prefs.js` as the placeholders.
 
 Current local config is expected at:
 
@@ -121,6 +150,15 @@ Current local config is expected at:
 - active default profile `macbook`
 - real local database at `/Users/liuchzzyy/Zotero/zotero.sqlite`
 - working Web API credentials for writes
+
+## Persistent Local State
+
+Never delete these when cleaning up logs:
+
+- `.workspace/<name>/`: workspace manifest and SQLite RAG index
+- `.workspace/_qdrant/`: local Qdrant vectors
+- `.zot/state/mineru/`: shared content-addressed MinerU packages
+- `log/`: per-run artifacts (`run.log`, `progress.jsonl`, `inventory.json`), safe to prune
 
 ## Conventions
 
@@ -166,4 +204,3 @@ uv run pytest -q
 ```
 
 and the full test suite passed during setup.
-
