@@ -133,6 +133,16 @@ Relevant env vars include:
 - `ZOT_MINERU_TOKEN`
 - `ZOT_MINERU_MODEL_VERSION`
 - `ZOT_PROFILE`
+- `ZOT_AI_API_KEY`
+- `ZOT_AI_BASE_URL`
+- `ZOT_AI_MODEL`
+- `ZOT_AI_FALLBACK_MODELS`
+- `ZOT_AI_REASONING_EFFORT`
+- `ZOT_AI_TEMPERATURE`
+- `ZOT_AI_MAX_TOKENS`
+- `ZOT_AI_MAX_EXTRACTED_CHARS`
+
+`load_ai_note_config` applies the `ZOT_AI_*` variables on top of the file (`env > file > defaults`, same shape as `load_pdf_config`). `ZOT_AI_FALLBACK_MODELS` is comma-separated. Pass `apply_env_overrides=False` in a test that needs the raw file values.
 
 Relevant sections:
 
@@ -142,12 +152,12 @@ Relevant sections:
 
 Zotero data dir auto-detects when not configured, but this checkout now treats repo-local `.zot/config.toml` as the primary persistent source of truth.
 
-`.zot/config.example.toml` is a template: it must stay credential-free (no real `api_key` or `mineru_token` values) and free of machine-specific absolute paths. Use `/Users/your-name/Zotero` and `.../Profiles/<profile>/prefs.js` as the placeholders.
+`.zot/config.example.toml` is a template: it must stay credential-free (no real `api_key` or `mineru_token` values), free of machine-specific absolute paths, and use the neutral profile name `main` (`[profile.main]`, README shows the same). Use `/Users/your-name/Zotero` and `.../Profiles/<profile>/prefs.js` as the path placeholders.
 
 Current local config is expected at:
 
 - `/Users/liuchzzyy/CodeSpace/zotero-cli/.zot/config.toml`
-- active default profile `macbook`
+- active default profile `macbook` — intentionally different from the template's `main`; this machine's live profile was not renamed
 - real local database at `/Users/liuchzzyy/Zotero/zotero.sqlite`
 - working Web API credentials for writes
 

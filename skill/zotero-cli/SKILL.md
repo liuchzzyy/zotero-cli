@@ -27,6 +27,8 @@ Use the `zot` command from `/Users/liuchzzyy/CodeSpace/zotero-cli`. Run it as `u
 
 Do not print API keys or service tokens. The actual config and `.zot/state/` are Git-ignored.
 
+`[ai_notes]` accepts `ZOT_AI_*` env overrides (`ZOT_AI_API_KEY`, `ZOT_AI_BASE_URL`, `ZOT_AI_MODEL`, `ZOT_AI_FALLBACK_MODELS` as a comma list, `ZOT_AI_REASONING_EFFORT`, `ZOT_AI_TEMPERATURE`, `ZOT_AI_MAX_TOKENS`, `ZOT_AI_MAX_EXTRACTED_CHARS`) with `env > file > defaults` precedence. Use them to point `ai_analyze` at another endpoint for one run instead of editing the tracked config; pass `apply_env_overrides=False` when a test needs the raw file value.
+
 ## Route by intent
 
 | Intent | Command |

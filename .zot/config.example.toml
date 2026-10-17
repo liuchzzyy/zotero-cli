@@ -1,7 +1,7 @@
 [default]
-profile = "macbook"
+profile = "main"
 
-[profile.macbook]
+[profile.main]
 data_dir = "/Users/your-name/Zotero"
 library_id = ""
 api_key = ""

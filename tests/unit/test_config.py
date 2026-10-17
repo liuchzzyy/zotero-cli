@@ -5,6 +5,7 @@ from zotero_cli.config import (
     AppConfig,
     EmbeddingConfig,
     RerankConfig,
+    _split_models,
     config_file_path,
     detect_zotero_data_dir,
     get_default_profile,
@@ -425,7 +426,7 @@ temperature = 0.3
 max_tokens = 16384
 max_extracted_chars = 1234
 """)
-    cfg = load_ai_note_config(config_file)
+    cfg = load_ai_note_config(config_file, apply_env_overrides=False)
     assert cfg.api_key == "test-key"
     assert cfg.base_url == "https://api.example.com/v1"
     assert cfg.model == "deepseek-v4-pro"
@@ -435,6 +436,47 @@ max_extracted_chars = 1234
     assert cfg.temperature == 0.3
     assert cfg.max_tokens == 16384
     assert cfg.max_extracted_chars == 1234
+
+
+def test_load_ai_note_config_env_override(tmp_path, monkeypatch):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        '[ai_notes]\napi_key = "file-key"\nbase_url = "http://file/v1"\nmodel = "file-model"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ZOT_AI_API_KEY", "env-key")
+    monkeypatch.setenv("ZOT_AI_BASE_URL", "http://env/v1")
+    monkeypatch.setenv("ZOT_AI_MODEL", "env-model")
+    monkeypatch.setenv("ZOT_AI_FALLBACK_MODELS", "a-1, b-2")
+    monkeypatch.setenv("ZOT_AI_REASONING_EFFORT", "low")
+    monkeypatch.setenv("ZOT_AI_MAX_EXTRACTED_CHARS", "500")
+
+    cfg = load_ai_note_config(config_file)
+    assert cfg.api_key == "env-key"
+    assert cfg.base_url == "http://env/v1"
+    assert cfg.model == "env-model"
+    assert cfg.fallback_models == ["a-1", "b-2"]
+    assert cfg.reasoning_effort == "low"
+    assert cfg.max_extracted_chars == 500
+
+
+def test_load_ai_note_config_env_overrides_without_config_file(tmp_path, monkeypatch):
+    """The overrides must work when no `[ai_notes]` block exists at all."""
+    monkeypatch.setenv("ZOT_AI_API_KEY", "env-key")
+    monkeypatch.setenv("ZOT_AI_MODEL", "env-model")
+
+    cfg = load_ai_note_config(tmp_path / "absent.toml")
+    assert cfg.api_key == "env-key"
+    assert cfg.model == "env-model"
+    assert cfg.fallback_models  # defaults survive an unset variable
+
+
+def test_split_models_accepts_array_string_and_junk():
+    assert _split_models(["a", " b "]) == ["a", "b"]
+    assert _split_models("a, b ,,") == ["a", "b"]
+    assert _split_models("") is None
+    assert _split_models(None) is None
+    assert _split_models(42) is None
 
 
 def test_load_pdf_config_is_mineru_only(tmp_path):

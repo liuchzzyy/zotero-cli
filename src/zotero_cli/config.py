@@ -329,30 +329,53 @@ def load_semantic_search_config(path: Path | None = None) -> SemanticSearchConfi
     )
 
 
-def load_ai_note_config(path: Path | None = None) -> AiNoteConfig:
-    defaults = AiNoteConfig()
-    data = _load_toml_data(path)
-    if not data:
-        return defaults
-    ai_notes = data.get("ai_notes", {})
-    fallback = ai_notes.get("fallback_models")
-    if isinstance(fallback, str):
-        fallback = [m.strip() for m in fallback.split(",") if m.strip()]
-    elif not isinstance(fallback, list):
-        fallback = defaults.fallback_models
+def _split_models(value: Any) -> list[str] | None:
+    """Accept a TOML array, or a comma-separated string from a shell variable."""
+    if isinstance(value, str):
+        models = [m.strip() for m in value.split(",") if m.strip()]
+        return models or None
+    if isinstance(value, list):
+        models = [str(m).strip() for m in value if str(m).strip()]
+        return models or None
+    return None
 
-    return AiNoteConfig(
-        api_key=ai_notes.get("api_key", defaults.api_key),
-        base_url=ai_notes.get("base_url", defaults.base_url),
-        model=ai_notes.get("model", defaults.model),
-        fallback_models=fallback,
-        reasoning_effort=ai_notes.get("reasoning_effort", defaults.reasoning_effort),
-        api_mode=ai_notes.get("api_mode", defaults.api_mode),
-        chat_token_param=ai_notes.get("chat_token_param", defaults.chat_token_param),
-        temperature=float(ai_notes.get("temperature", defaults.temperature)),
-        max_tokens=int(ai_notes.get("max_tokens", defaults.max_tokens)),
-        max_extracted_chars=int(ai_notes.get("max_extracted_chars", defaults.max_extracted_chars)),
-    )
+
+def load_ai_note_config(path: Path | None = None, *, apply_env_overrides: bool = True) -> AiNoteConfig:
+    """Load `[ai_notes]`, then layer `ZOT_AI_*` overrides on top.
+
+    Precedence is env > config file > defaults, matching the other loaders, so
+    a run can point `ai_analyze` at another endpoint or model without editing
+    the tracked `.zot/config.toml`.
+    """
+    config = AiNoteConfig()
+    data = _load_toml_data(path)
+    if data:
+        ai_notes = data.get("ai_notes", {})
+        config = AiNoteConfig(
+            api_key=ai_notes.get("api_key", config.api_key),
+            base_url=ai_notes.get("base_url", config.base_url),
+            model=ai_notes.get("model", config.model),
+            fallback_models=_split_models(ai_notes.get("fallback_models")) or config.fallback_models,
+            reasoning_effort=ai_notes.get("reasoning_effort", config.reasoning_effort),
+            api_mode=ai_notes.get("api_mode", config.api_mode),
+            chat_token_param=ai_notes.get("chat_token_param", config.chat_token_param),
+            temperature=float(ai_notes.get("temperature", config.temperature)),
+            max_tokens=int(ai_notes.get("max_tokens", config.max_tokens)),
+            max_extracted_chars=int(ai_notes.get("max_extracted_chars", config.max_extracted_chars)),
+        )
+
+    if apply_env_overrides:
+        config.api_key = os.environ.get("ZOT_AI_API_KEY", config.api_key)
+        config.base_url = os.environ.get("ZOT_AI_BASE_URL", config.base_url)
+        config.model = os.environ.get("ZOT_AI_MODEL", config.model)
+        config.fallback_models = (
+            _split_models(os.environ.get("ZOT_AI_FALLBACK_MODELS", "")) or config.fallback_models
+        )
+        config.reasoning_effort = os.environ.get("ZOT_AI_REASONING_EFFORT", config.reasoning_effort)
+        config.temperature = float(os.environ.get("ZOT_AI_TEMPERATURE", config.temperature))
+        config.max_tokens = int(os.environ.get("ZOT_AI_MAX_TOKENS", config.max_tokens))
+        config.max_extracted_chars = int(os.environ.get("ZOT_AI_MAX_EXTRACTED_CHARS", config.max_extracted_chars))
+    return config
 
 
 def list_profiles(path: Path | None = None) -> list[str]:

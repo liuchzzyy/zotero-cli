@@ -32,9 +32,9 @@ cp .zot/config.example.toml .zot/config.toml
 
 ```toml
 [default]
-profile = "macbook"
+profile = "main"
 
-[profile.macbook]
+[profile.main]
 data_dir = "/Users/your-name/Zotero"
 prefs_js_path = "/Users/your-name/Library/Application Support/Zotero/Profiles/<profile>/prefs.js"
 ```
@@ -57,6 +57,8 @@ temperature = 0.7
 
 `fallback_models` 可以是 TOML 数组，也可以是逗号分隔字符串。主模型调用失败或拒绝图片输入时，按顺序回退到后续模型。
 
+`[ai_notes]` 的每一项都可以用环境变量覆盖（优先级：env > 配置文件 > 默认值），便于在不改动已跟踪的 `.zot/config.toml` 时切换 endpoint 或模型：
+
 常用环境变量：
 
 ```text
@@ -67,6 +69,14 @@ ZOT_MINERU_TOKEN
 ZOT_MINERU_MODEL_VERSION
 ZOT_PROFILE
 ZOT_FORMAT
+ZOT_AI_API_KEY
+ZOT_AI_BASE_URL
+ZOT_AI_MODEL
+ZOT_AI_FALLBACK_MODELS
+ZOT_AI_REASONING_EFFORT
+ZOT_AI_TEMPERATURE
+ZOT_AI_MAX_TOKENS
+ZOT_AI_MAX_EXTRACTED_CHARS
 ```
 
 ## 常用命令
