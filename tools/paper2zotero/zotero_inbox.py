@@ -103,7 +103,7 @@ def read_rows(path: Path) -> list[dict[str, str]]:
         reader = csv.DictReader(handle)
         columns = reader.fieldnames
         if not columns or not {"doi", "title_zh", *FLAGS}.issubset(columns):
-            raise ZoteroInboxError("CSV 缺少 doi、title_zh 或语义筛选列；先完成 03:00 的标注")
+            raise ZoteroInboxError("CSV 缺少 doi、title_zh 或语义筛选列；先完成上游标注")
         rows = list(reader)
     if any(row.get("title_zh") is None for row in rows):
         raise ZoteroInboxError("CSV 中存在无效中文标题列")
