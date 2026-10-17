@@ -41,8 +41,32 @@ class ZoteroInboxTests(unittest.TestCase):
                          ["10.1000/a", "10.1000/b", "10.1000/d"])
 
     def test_repeated_doi_in_csv_is_not_deduplicated(self):
-        row = {"doi": "10.1000/a", "is_cathode_material": "1", "is_characterization_technique": "0"}
-        self.assertEqual(len(inbox.select_rows([row.copy(), row.copy()])), 2)
+        item = {"doi": "10.1000/a", "is_cathode_material": "1", "is_characterization_technique": "0"}
+        self.assertEqual(len(inbox.select_rows([item.copy(), item.copy()])), 2)
+
+    def test_the_selected_column_written_by_screening_is_honoured(self):
+        """The producer owns the policy; the importer must not re-derive it."""
+        rows = [
+            {"doi": "10.1000/a", "is_cathode_material": "1", "is_characterization_technique": "0",
+             "selected": "1"},
+            {"doi": "10.1000/b", "is_cathode_material": "1", "is_characterization_technique": "1",
+             "selected": "0"},  # flags say yes, screening said no
+        ]
+        self.assertEqual([row["doi"] for row in inbox.select_rows(rows)], ["10.1000/a"])
+
+    def test_a_csv_without_the_selected_column_falls_back_to_the_flags(self):
+        """An older annotated CSV predates the three-stage split and has no column."""
+        rows = [
+            {"doi": "10.1000/a", "is_cathode_material": "1", "is_characterization_technique": "0"},
+            {"doi": "10.1000/b", "is_cathode_material": "0", "is_characterization_technique": "0"},
+            {"doi": "10.1000/c", "is_cathode_material": "0", "is_characterization_technique": "uncertain"},
+        ]
+        self.assertEqual([row["doi"] for row in inbox.select_rows(rows)], ["10.1000/a", "10.1000/c"])
+
+    def test_a_blank_selected_cell_falls_back_to_the_flags_for_that_row(self):
+        rows = [{"doi": "10.1000/a", "is_cathode_material": "1", "is_characterization_technique": "0",
+                 "selected": ""}]
+        self.assertEqual([row["doi"] for row in inbox.select_rows(rows)], ["10.1000/a"])
 
     def test_doi_import_creates_full_metadata_in_inbox_without_library_search(self):
         api = api_for_new_item()

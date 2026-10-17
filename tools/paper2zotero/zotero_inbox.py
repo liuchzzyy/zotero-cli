@@ -29,7 +29,13 @@ class ZoteroInboxError(RuntimeError):
 
 
 def select_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
-    """Either topic flag 1/uncertain qualifies; journal priority is unrelated."""
+    """Return the rows the screening stage marked `selected`.
+
+    The producer writes that column, so the selection policy lives in one place
+    (`semantic_enrichment.is_selected`) and the importer does not re-derive it. A
+    CSV without the column — one annotated before the three-stage split — falls
+    back to the flag rule so an older file still imports correctly.
+    """
     chosen = []
     for row in rows:
         doi = row.get("doi")
@@ -37,7 +43,12 @@ def select_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
             raise ZoteroInboxError(f"无效 DOI：{doi!r}")
         if any(row.get(key) not in {"0", "1", "uncertain"} for key in FLAGS):
             raise ZoteroInboxError(f"语义标记缺失或无效：{doi}")
-        if any(row[key] in {"1", "uncertain"} for key in FLAGS):
+        marker = str(row.get("selected", "")).strip()
+        if marker in {"0", "1"}:
+            picked = marker == "1"
+        else:
+            picked = any(row[key] in {"1", "uncertain"} for key in FLAGS)
+        if picked:
             chosen.append(row)
     return chosen
 
