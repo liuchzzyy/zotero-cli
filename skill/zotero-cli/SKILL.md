@@ -174,6 +174,33 @@ encode the old format — are in `references/note-text-formatting.md`.
 3. **Apply conservatively.** Re-read each target key immediately before updating. If an existing `translated-title:` appeared meanwhile, leave it alone; otherwise append one `translated-title: <中文标题>` line to its current Extra, preserving unrelated lines and the original title/DOI. Use the Zotero Web API writer, then read back that exact key and compare title, DOI (when present), and the Extra line. Checkpoint verified successes per key so a partial failure can resume without replacing existing translations. Do not treat an uncertain write response as permission to issue the same write blindly.
 4. **Verify completion.** Compare the preflight missing-key manifest against verified keys and a fresh remote inventory; report updated, newly-already-translated, unresolved, and untitled counts separately. If a background run is still active or stopped partway, report only confirmed progress and retain its checkpoint; never claim that all titles were translated based on a launch or a small probe.
 
+## Collection or item abstract translation backfill
+
+Translate English abstracts into Chinese and write back to `abstractNote` for a target collection or specific items, skipping entries without an abstract:
+
+```bash
+# Preview candidates and counts (dry-run by default)
+uv run python tools/paper2zotero/translate_abstracts.py --collection "00 | 收件箱"
+
+# Apply changes via Zotero Web API and verify readback
+uv run python tools/paper2zotero/translate_abstracts.py --collection "00 | 收件箱" --apply
+
+# Update specific item keys or force re-translation of existing Chinese abstracts
+uv run python tools/paper2zotero/translate_abstracts.py --key ITEMKEY --apply
+uv run python tools/paper2zotero/translate_abstracts.py --collection "00 | 收件箱" --force --apply
+```
+
+1. **Filtering policy**: Non-article items (attachments, notes) and items without `abstractNote` (or empty) are strictly skipped ("没有摘要的不管"). Items whose abstract is already Chinese are skipped unless `--force` is specified.
+2. **Formatting rules (via `zh_text.normalize_abstract`)**:
+   - **No super/subscripts**: Flattened to `MnO2`, `Zn2+`, `mAh g^-1`, keeping `^` only on negative exponents (`g^-1`).
+   - **CJK↔Latin spacing**: Exactly one half-width space at every Chinese/Latin/number boundary.
+   - **Label and stutter cleanup**: Automatically strips leading `Abstract:` / `摘要：` tags and deduplicates repeated opening sentences from Crossref metadata.
+3. **Execution & safety invariants**:
+   - Reads can discover items via collection or keys; mutations **always** use the Zotero Web API. Never write directly to `zotero.sqlite`.
+   - Every write is immediately read back from the Web API to assert that `abstractNote` matches the normalised text.
+   - Resumable: Checkpoints are staged in an atomic JSON state file (`tools/paper2zotero/translate_abstracts_state.json`) so partial interruptions can resume without re-translating completed items.
+   - Requires a Zotero Desktop sync afterwards for changes to reflect in the local SQLite database.
+
 ## Workspaces and RAG
 
 Basic workspace operations are local:

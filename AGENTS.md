@@ -95,7 +95,7 @@ When adding a command, register it in `cli.py` and place it in the correct safet
 ### Tools and bundled skill
 
 - `tools/paperrag/`: maintained zsh entrypoints `run-rag-workspace.zsh` (inventory, incremental index, embedding backfill) and `run-rag-evidence-search.zsh`, plus `zotero-workflow-common.zsh` and `workspace-inventory.py`. Usage is documented in `tools/paperrag/Instructions.md`; run artifacts go to `log/`.
-- `tools/paper2zotero/`: `zotero_inbox.py` (PaperCrossref inbox import, writes the Chinese title into Extra and the Chinese abstract into `abstractNote`), `backfill_titles.py` (library-wide translated-title backfill), and `zh_text.py` (flattening super/subscripts plus CJK/Latin spacing for those fields).
+- `tools/paper2zotero/`: `zotero_inbox.py` (PaperCrossref inbox import, writes the Chinese title into Extra and the Chinese abstract into `abstractNote`), `backfill_titles.py` (library-wide translated-title backfill), `translate_abstracts.py` (collection and item abstract translation backfill), and `zh_text.py` (flattening super/subscripts plus CJK/Latin spacing for those fields).
 - `tools/ainote/templates/`: `ai_analyze` prompt templates (`classify-item`, `research-article`, `review-article`, `book`, `short-note`).
 - `tests/integration/test_tool_scripts.py` resolves the zsh scripts from `tools/paperrag/` when present and falls back to `tools/`.
 

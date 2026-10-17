@@ -199,7 +199,7 @@ uv run zot --json workspace query \
 `tools/` 下的脚本不是 `zot` 子命令，用于批量工作流：
 
 - `tools/paperrag/`：`run-rag-workspace.zsh`（inventory、增量索引、embedding 回填）、`run-rag-evidence-search.zsh`（检索）、`zotero-workflow-common.zsh`（共享函数）、`workspace-inventory.py`。生成物写入 `log/`。
-- `tools/paper2zotero/`：`zotero_inbox.py`（PaperCrossref 收件箱导入，写入中文标题与中文摘要）、`backfill_titles.py`（全库译名回填）、`zh_text.py`（中文标题/摘要的上下标与中英文间距规范化）。
+- `tools/paper2zotero/`：`zotero_inbox.py`（PaperCrossref 收件箱导入，写入中文标题与中文摘要）、`backfill_titles.py`（全库译名回填）、`translate_abstracts.py`（集合与条目中文摘要批量翻译与回填）、`zh_text.py`（中文标题/摘要的上下标与中英文间距规范化）。
 - `tools/ainote/templates/`：`ai_analyze` 的 prompt 模板。
 
 详细用法见 `tools/paperrag/Instructions.md`。
