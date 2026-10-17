@@ -7,10 +7,14 @@ from zotero_cli.config import project_root
 
 def _candidate_template_dirs() -> list[Path]:
     root = project_root()
+    package_dir = Path(__file__).resolve().parents[1]
     return [
         root / "tools" / "ainote" / "templates",
         root / "tools" / "ainote",
         root / "tools" / "templates",
+        # Shipped inside the wheel by hatchling's force-include, so
+        # `ai_analyze` works when the CLI is installed outside a checkout.
+        package_dir / "templates",
     ]
 
 

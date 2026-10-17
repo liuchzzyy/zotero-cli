@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from zotero_cli.core.note_renderer import render_note
 from zotero_cli.core.note_templates import format_template, load_template, template_path
 
@@ -29,6 +31,17 @@ class TestNoteTemplates:
 
     def test_template_path_resolves_alias(self):
         assert template_path("book").name == "book.md"
+
+    def test_package_data_dir_is_a_fallback(self):
+        """An installed CLI has no `tools/`, so the wheel must carry the prompts."""
+        from zotero_cli.core import note_templates
+
+        package_data = Path(note_templates.__file__).resolve().parents[1] / "templates"
+        assert package_data in note_templates._candidate_template_dirs()
+
+    def test_every_prompt_template_resolves(self):
+        for name in ("research-article", "review-article", "book", "classify-item", "short-note"):
+            assert template_path(name).exists(), name
 
     def test_format_template_fills_placeholders(self):
         result = format_template("标题：{title}，作者：{authors}", title="T", authors="A")
