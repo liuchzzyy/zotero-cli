@@ -52,7 +52,16 @@ class ZoteroReader:
                 f"  Run 'zot config show' to check your configuration.\n"
                 f"  Run 'zot config init --data-dir <path>' to set the correct data directory."
             )
-        # immutable=1 skips WAL, avoids lock contention with running Zotero desktop
+        # immutable=1 skips the WAL, so while Zotero Desktop is running it
+        # returns a stale snapshot: recently synced attachments appear missing
+        # and their PDF paths look broken. Only take that fast path when there
+        # is no pending WAL; otherwise replay DB+WAL from a temp copy.
+        wal_path = self._db_path.with_suffix(".sqlite-wal")
+        try:
+            if wal_path.exists() and wal_path.stat().st_size > 0:
+                return self._connect_from_copy()
+        except OSError:
+            pass
         uri_path = self._db_path.as_posix()
         try:
             conn = sqlite3.connect(
