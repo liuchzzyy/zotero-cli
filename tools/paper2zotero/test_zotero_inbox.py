@@ -313,6 +313,31 @@ class ZoteroInboxTests(unittest.TestCase):
             writer.add_item.assert_not_called()
             self.assertEqual(path.read_bytes(), before)
 
+    def test_the_checkpoint_write_uses_a_unique_temp_name(self):
+        """A fixed `path + ".tmp"` lets two runs interleave into one temp file."""
+        seen = []
+        original = Path.replace
+
+        def capture(self, other):
+            seen.append(self.name)
+            return original(self, other)
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "updates_2026-10-15.csv"
+            path.write_text("doi,title\n10.1000/a,A\n", encoding="utf-8")
+            with patch.object(Path, "replace", capture):
+                inbox._replace_csv(path, [{"doi": "10.1000/a", "title": "A"}], ["doi", "title"])
+                inbox._replace_csv(path, [{"doi": "10.1000/b", "title": "B"}], ["doi", "title"])
+        self.assertEqual(len(set(seen)), 2, f"temp names repeat: {seen}")
+        self.assertNotIn("updates_2026-10-15.csv.tmp", seen)
+        self.assertFalse((Path(folder) / "updates_2026-10-15.csv.tmp").exists())
+
+    def test_the_checkpoint_write_leaves_no_temp_behind(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "updates_2026-10-15.csv"
+            inbox._replace_csv(path, [{"doi": "10.1000/a"}], ["doi"])
+            self.assertEqual(list(path.parent.glob("*.tmp")), [])
+
     def test_resume_skips_successful_csv_rows_without_library_deduplication(self):
         rows = [csv_row(zotero_status="added", zotero_key="NEWITEM1")]
         with tempfile.TemporaryDirectory() as folder:

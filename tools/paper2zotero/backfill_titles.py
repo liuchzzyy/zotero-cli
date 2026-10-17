@@ -15,6 +15,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import uuid
 from pathlib import Path
 
 import zh_text
@@ -117,6 +118,23 @@ def merge_extra(extra: str, title_zh: str) -> str:
                       f"translated-title: {zh_text.normalize(title_zh)}"])
 
 
+def _write_state(path: Path, state: list[dict]) -> None:
+    """Persist the checkpoint atomically, with a temp name unique to this process.
+
+    A fixed `path + ".tmp"` is shared by every writer of the same state file, so
+    two concurrent runs would interleave into one temp file and rename the mixture
+    into place. `replace` (rename(2)) makes the switch atomic, so the checkpoint is
+    always either the previous one or a complete new one.
+    """
+    tmp = path.with_name(f"{path.name}.{os.getpid()}-{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
 def update_one(api, writer, row: dict[str, str], title_zh: str) -> str:
     """Read latest item, preserve current Extra, update and verify exact target."""
     key = row["key"]
@@ -158,9 +176,7 @@ def stage_translations(items: list[dict], path: Path, *, batch_size: int = 5) ->
     if len(translations) != len(items):
         raise BackfillError("翻译结果不完整")
     state = [{**row, "title_zh": translations[row["key"]], "status": "pending"} for row in items]
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(path)
+    _write_state(path, state)
     return state
 
 
@@ -184,9 +200,7 @@ def run_backfill(api, writer, path: Path, *, dry_run: bool = False) -> dict[str,
         result = update_one(api, writer, row, row["title_zh"])
         row["status"] = result
         counts[result] += 1
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.replace(path)
+        _write_state(path, state)
         print(f"写入进度：{counts['updated']} 已更新，{counts['already_translated']} 已存在", flush=True)
     return counts
 

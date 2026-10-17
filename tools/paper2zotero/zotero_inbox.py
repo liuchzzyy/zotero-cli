@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 import re
+import uuid
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -155,6 +157,27 @@ def read_rows(path: Path) -> list[dict[str, str]]:
     return rows
 
 
+def _replace_csv(path: Path, rows: list[dict[str, str]], fields: list[str]) -> None:
+    """Rewrite the CSV atomically, checkpointing after each imported item.
+
+    The temp name is unique per process: a fixed `path + ".tmp"` is shared by
+    every writer, so two concurrent runs interleave their rows into one temp file
+    and rename the mixture into place. `replace` (rename(2)) then makes the switch
+    atomic, so the CSV is always either the previous checkpoint or a complete new
+    one.
+    """
+    temp = path.with_name(f"{path.name}.{os.getpid()}-{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        with temp.open("w", newline="", encoding="utf-8-sig") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fields)
+            writer.writeheader()
+            writer.writerows(rows)
+        temp.replace(path)
+    except BaseException:
+        temp.unlink(missing_ok=True)
+        raise
+
+
 def sync_csv(path: Path, api, writer) -> int:
     """Import each selected row once; preserve verified progress after each item."""
     rows = read_rows(path)
@@ -185,16 +208,7 @@ def sync_csv(path: Path, api, writer) -> int:
                          source_abstract=row.get("abstract") or "")
         row.update(zotero_status="added", zotero_key=key)
         count += 1
-        temp = path.with_suffix(path.suffix + ".tmp")
-        try:
-            with temp.open("w", newline="", encoding="utf-8-sig") as handle:
-                writer_csv = csv.DictWriter(handle, fieldnames=fields)
-                writer_csv.writeheader()
-                writer_csv.writerows(rows)
-            temp.replace(path)
-        except BaseException:
-            temp.unlink(missing_ok=True)
-            raise
+        _replace_csv(path, rows, fields)
     return count
 
 
