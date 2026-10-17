@@ -60,6 +60,15 @@ evidence of the wrong repository — do not "restore" a docs tree.
   `tools/paperrag/` and `tools/templates/` → `tools/ainote/templates/` moves
   left old paths in docs, tests, and skill files. After any such move, grep the
   old path across the repo and the skill before declaring the update finished.
+- **`core.fileMode=false` hides lost executable bits until a clone.** In this
+  checkout a plain `git add` records tracked `*.zsh` entrypoints as `100644`
+  regardless of `chmod +x`, and both `git clone` and a `git rebase` checkout
+  then drop the bit — `tests/integration/test_tool_scripts.py` reads the disk,
+  so it reports the regression while the commit looks clean. Record the mode
+  with `git update-index --chmod=+x <script>` and verify with
+  `git ls-tree HEAD tools/paperrag/`; setting `core.fileMode=true` here is not
+  the fix, because the working tree is `755` for nearly every tracked file and
+  that floods `git status` with ~70 mode changes.
 - **Name the risk out loud.** When the doc pass exposes a loose credential or a
   destructive-looking behavior outside the requested scope, name the file and
   the exact change and ask. Do not silently fix it, and do not silently ignore
