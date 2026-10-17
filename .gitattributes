@@ -1,0 +1,13 @@
+# Keep every text file LF in the repository and in the working tree.
+# This checkout produced a mix of CRLF and LF files (58 CRLF, 28 mixed),
+# which turned a three-line edit into a whole-file diff and made the
+# worked-around `core.fileMode=false` masking worse to reason about.
+* text=auto eol=lf
+
+# Binaries: never touched, never diffed as text.
+*.sqlite binary
+*.pdf binary
+
+# Entrypoints must stay executable and LF, or the shell refuses to run them.
+*.zsh text eol=lf
+*.sh text eol=lf
