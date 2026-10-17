@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import uuid
 from pathlib import Path
@@ -9,7 +11,7 @@ from pathlib import Path
 import pytest
 from tests.support import FIXTURES_DIR, REPO_ROOT
 
-TOOLS_DIR = REPO_ROOT / "tools"
+TOOLS_DIR = (REPO_ROOT / "tools" / "paperrag") if (REPO_ROOT / "tools" / "paperrag").exists() else (REPO_ROOT / "tools")
 ZSH_SCRIPTS = [
     TOOLS_DIR / "zotero-workflow-common.zsh",
     TOOLS_DIR / "run-rag-workspace.zsh",
@@ -76,6 +78,48 @@ def test_workspace_zsh_dry_run_is_isolated() -> None:
             shutil.rmtree(run_dir)
         if workspace_dir.exists():
             shutil.rmtree(workspace_dir)
+
+
+def test_workspace_zsh_default_collection_uses_renamed_inbox(tmp_path: Path) -> None:
+    data_dir = tmp_path / "zotero"
+    data_dir.mkdir()
+    db_path = data_dir / "zotero.sqlite"
+    shutil.copy2(FIXTURES_DIR / "zotero.sqlite", db_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE collections SET collectionName = ? WHERE collectionName = ?",
+            ("00 | 收件箱", "Machine Learning"),
+        )
+
+    suffix = uuid.uuid4().hex[:8]
+    workspace_name = f"tool-test-{suffix}"
+    run_dir = REPO_ROOT / "log" / f"tool-test-{suffix}"
+    env = {**os.environ, "ZOT_DATA_DIR": str(data_dir), "ZOT_LIBRARY_ID": "", "ZOT_API_KEY": ""}
+    try:
+        result = subprocess.run(
+            [
+                str(TOOLS_DIR / "run-rag-workspace.zsh"),
+                "--workspace",
+                workspace_name,
+                "--dry-run",
+                "--keep-inventory",
+                "--output-dir",
+                str(run_dir),
+                "--hide-diagnostics",
+            ],
+            cwd=REPO_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        inventory = json.loads((run_dir / "inventory.json").read_text(encoding="utf-8"))
+        assert inventory["collections"] == ["00 | 收件箱"]
+        assert inventory["collection_item_counts"]["00 | 收件箱"] > 0
+        assert not (REPO_ROOT / ".workspace" / workspace_name).exists()
+    finally:
+        if run_dir.exists():
+            shutil.rmtree(run_dir)
 
 
 def test_powershell_workflow_scripts_are_removed() -> None:

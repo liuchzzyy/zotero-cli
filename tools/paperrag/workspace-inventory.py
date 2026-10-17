@@ -21,6 +21,7 @@ def utc_now() -> str:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Inventory Zotero PDFs and workspace index state.")
     parser.add_argument("--workspace", required=True)
+    parser.add_argument("--profile", default=None, help="Configuration profile name")
     parser.add_argument("--scan-limit", type=int, default=100_000)
     parser.add_argument("--progress-every", type=int, default=100)
     parser.add_argument("--output", type=Path, required=True)
@@ -36,7 +37,7 @@ def main() -> None:
     if args.progress_every <= 0:
         raise SystemExit("--progress-every must be greater than 0")
 
-    cfg = load_config()
+    cfg = load_config(profile=args.profile)
     db_path = get_data_dir(cfg) / "zotero.sqlite"
     reader = ZoteroReader(db_path, prefs_js_path=get_prefs_js_path(cfg))
     try:
@@ -45,10 +46,14 @@ def main() -> None:
         if args.collection:
             item_by_key: dict[str, Item] = {}
             for collection in args.collection:
-                result = reader.search("", collection=collection, limit=args.scan_limit)
-                collection_counts[collection] = result.total
-                for item in result.items:
-                    item_by_key.setdefault(item.key, item)
+                try:
+                    result = reader.search("", collection=collection, limit=args.scan_limit)
+                    collection_counts[collection] = result.total
+                    for item in result.items:
+                        item_by_key.setdefault(item.key, item)
+                except ValueError as exc:
+                    print(f"[inventory error] {exc}", flush=True)
+                    raise SystemExit(2)
             items = list(item_by_key.values())
         else:
             items = reader.search("", limit=args.scan_limit).items
@@ -119,11 +124,15 @@ def main() -> None:
         finally:
             rag_index.close()
         vector_cfg = load_vector_store_config()
-        vectors = QdrantVectorStore(resolve_vector_store_path(vector_cfg), f"ws_{args.workspace}")
         try:
-            vector_count = vectors.count()
-        finally:
-            vectors.close()
+            vectors = QdrantVectorStore(resolve_vector_store_path(vector_cfg), f"ws_{args.workspace}")
+            try:
+                vector_count = vectors.count()
+            finally:
+                vectors.close()
+        except Exception as exc:
+            print(f"[inventory] warning: unable to count vectors ({exc}); defaulting to 0", flush=True)
+            vector_count = 0
 
     pdf_keys = {str(row["key"]) for row in pdf_items}
     pending_keys = sorted(pdf_keys - indexed_keys)

@@ -8,7 +8,8 @@ SCRIPT_DIR="${SCRIPT_PATH:h}"
 source "$SCRIPT_DIR/zotero-workflow-common.zsh"
 
 workspace_name="00_收件箱"
-collections_csv="00_收件箱"
+collections_csv="00 | 收件箱"
+profile_name=""
 scan_limit=100000
 progress_every=100
 embed_batch_size=10
@@ -28,13 +29,14 @@ hide_diagnostics=false
 
 usage() {
   cat <<'EOF'
-Usage: tools/run-rag-workspace.zsh [options]
+Usage: tools/paperrag/run-rag-workspace.zsh [options]
 
 Incrementally inventory, index, and embed a Zotero workspace.
 
 Options:
   --workspace NAME             Workspace name (default: 00_收件箱)
-  --collections CSV           Collection names/keys, comma-separated
+  --collections CSV           Collection names/keys, comma-separated (default: 00 | 收件箱)
+  --profile NAME               Configuration profile name
   --scan-limit N               Maximum Zotero items to scan
   --progress-every N           Inventory progress interval
   --embed-batch-size N         Embedding provider batch size
@@ -66,6 +68,7 @@ while (( $# )); do
   case "$1" in
     --workspace) need_value "$@"; workspace_name="$2"; shift 2 ;;
     --collections) need_value "$@"; collections_csv="$2"; shift 2 ;;
+    --profile) need_value "$@"; profile_name="$2"; shift 2 ;;
     --scan-limit) need_value "$@"; scan_limit="$2"; shift 2 ;;
     --progress-every) need_value "$@"; progress_every="$2"; shift 2 ;;
     --embed-batch-size) need_value "$@"; embed_batch_size="$2"; shift 2 ;;
@@ -127,6 +130,7 @@ inventory_cmd=(uv run python -u "$SCRIPT_DIR/workspace-inventory.py"
   --scan-limit "$scan_limit"
   --progress-every "$progress_every"
   --output "$inventory_path")
+[[ -n "$profile_name" ]] && inventory_cmd+=(--profile "$profile_name")
 if [[ "$dry_run" == true ]]; then
   inventory_cmd+=(--dry-run)
 fi
@@ -150,11 +154,11 @@ for key in ("pending_index_items", "local_pdf_items", "indexed_chunk_count", "ch
     print(int(data.get(key, 0) or 0))
 PY
 )}")
-pending_index_items="${inventory_values[1]}"
-local_pdf_items="${inventory_values[2]}"
-indexed_chunk_count="${inventory_values[3]}"
-chunks_with_embeddings="${inventory_values[4]}"
-chunks_missing_embeddings="${inventory_values[5]}"
+pending_index_items="${inventory_values[1]:-0}"
+local_pdf_items="${inventory_values[2]:-0}"
+indexed_chunk_count="${inventory_values[3]:-0}"
+chunks_with_embeddings="${inventory_values[4]:-0}"
+chunks_missing_embeddings="${inventory_values[5]:-0}"
 
 workflow_section "Inventory Summary"
 workflow_setting "local_pdf_items" "$local_pdf_items"
@@ -167,7 +171,9 @@ run_embed() {
   local embed_log="$run_dir/logs/embed.log"
   local previous_batch_size="${ZOT_EMBEDDING_BATCH_SIZE-}"
   local had_previous_batch_size=${+ZOT_EMBEDDING_BATCH_SIZE}
-  local embed_cmd=(uv run zot workspace embed "$workspace_name"
+  local embed_cmd=(uv run zot)
+  [[ -n "$profile_name" ]] && embed_cmd+=(--profile "$profile_name")
+  embed_cmd+=(workspace embed "$workspace_name"
     --batch-size "$embed_batch_size"
     --max-retries "$embed_max_retries"
     --retry-sleep "$embed_retry_sleep"
@@ -203,7 +209,9 @@ else
   if (( pending_index_items == 0 )) && [[ "$force_rebuild" != true ]]; then
     print -r -- "RAG index is already up to date for '$workspace_name'."
   else
-    index_cmd=(uv run zot workspace index "$workspace_name" --progress-lines --item-progress --no-embed)
+    index_cmd=(uv run zot)
+    [[ -n "$profile_name" ]] && index_cmd+=(--profile "$profile_name")
+    index_cmd+=(workspace index "$workspace_name" --progress-lines --item-progress --no-embed)
     [[ "$force_rebuild" == true ]] && index_cmd+=(--force)
     workflow_section "Item Index"
     workflow_run_logged "$run_dir/logs/index.log" "${index_cmd[@]}"

@@ -9,6 +9,7 @@ source "$SCRIPT_DIR/zotero-workflow-common.zsh"
 
 question=""
 workspace_name="rag-workspace"
+profile_name=""
 mode="auto"
 pdf_kind="any"
 top_k=8
@@ -20,13 +21,14 @@ keep_log=false
 
 usage() {
   cat <<'EOF'
-Usage: tools/run-rag-evidence-search.zsh --question TEXT [options]
+Usage: tools/paperrag/run-rag-evidence-search.zsh --question TEXT [options]
 
 Query a zotero-cli RAG workspace and keep structured run logs.
 
 Options:
   --question TEXT          Required evidence-search question
   --workspace NAME        Workspace name (default: rag-workspace)
+  --profile NAME          Configuration profile name
   --mode MODE             auto, bm25, semantic, or hybrid
   --pdf-kind KIND         any, main, or supplementary
   --top-k N               Result count (default: 8)
@@ -50,6 +52,7 @@ while (( $# )); do
   case "$1" in
     --question) need_value "$@"; question="$2"; shift 2 ;;
     --workspace) need_value "$@"; workspace_name="$2"; shift 2 ;;
+    --profile) need_value "$@"; profile_name="$2"; shift 2 ;;
     --mode) need_value "$@"; mode="$2"; shift 2 ;;
     --pdf-kind) need_value "$@"; pdf_kind="$2"; shift 2 ;;
     --top-k) need_value "$@"; top_k="$2"; shift 2 ;;
@@ -85,6 +88,7 @@ workflow_setting "rerank" "$([[ "$no_rerank" == true ]] && print false || print 
 workflow_setting "output" "$run_dir"
 
 query_cmd=(uv run zot)
+[[ -n "$profile_name" ]] && query_cmd+=(--profile "$profile_name")
 if [[ "$json_output" == true ]]; then query_cmd+=(--json); else query_cmd+=(--no-json); fi
 query_cmd+=(workspace query "$question" --workspace "$workspace_name" --mode "$mode" --top-k "$top_k" --pdf-kind "$pdf_kind")
 if [[ "$no_rerank" != true ]]; then query_cmd+=(--rerank --rerank-top-n "$rerank_top_n"); fi

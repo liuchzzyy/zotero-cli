@@ -2,10 +2,10 @@
 
 The maintained workflow entrypoints are native zsh scripts:
 
-- `tools/run-rag-workspace.zsh`: inventory, incremental indexing, and embedding backfill.
-- `tools/run-rag-evidence-search.zsh`: query an existing RAG workspace.
-- `tools/zotero-workflow-common.zsh`: shared repository discovery, safe log paths, and run logging.
-- `tools/workspace-inventory.py`: deterministic inventory helper used by the workspace wrapper.
+- `tools/paperrag/run-rag-workspace.zsh`: inventory, incremental indexing, and embedding backfill.
+- `tools/paperrag/run-rag-evidence-search.zsh`: query an existing RAG workspace.
+- `tools/paperrag/zotero-workflow-common.zsh`: shared repository discovery, safe log paths, and run logging.
+- `tools/paperrag/workspace-inventory.py`: deterministic inventory helper used by the workspace wrapper.
 
 Run them from the repository root on the current MacBook:
 
@@ -33,15 +33,15 @@ Persistent data that must not be removed by routine log cleanup:
 Inspect the full interface:
 
 ```bash
-tools/run-rag-workspace.zsh --help
+tools/paperrag/run-rag-workspace.zsh --help
 ```
 
-For the current `00_收件箱` workspace:
+For the existing `00_收件箱` workspace, source items from the renamed Zotero collection `00 | 收件箱` (collection key `AG7NQ5UW`). The workspace name is local and does not need to match the collection name:
 
 ```bash
-tools/run-rag-workspace.zsh \
+tools/paperrag/run-rag-workspace.zsh \
   --workspace 00_收件箱 \
-  --collections 00_收件箱 \
+  --collections '00 | 收件箱' \
   --dry-run \
   --keep-log
 ```
@@ -49,16 +49,16 @@ tools/run-rag-workspace.zsh \
 Run the actual incremental update after reviewing the dry-run inventory:
 
 ```bash
-tools/run-rag-workspace.zsh \
+tools/paperrag/run-rag-workspace.zsh \
   --workspace 00_收件箱 \
-  --collections 00_收件箱 \
+  --collections '00 | 收件箱' \
   --keep-log
 ```
 
 Only backfill missing embeddings:
 
 ```bash
-tools/run-rag-workspace.zsh \
+tools/paperrag/run-rag-workspace.zsh \
   --workspace 00_收件箱 \
   --embed-only \
   --keep-log
@@ -67,9 +67,9 @@ tools/run-rag-workspace.zsh \
 Build only the FTS5 index and defer embeddings:
 
 ```bash
-tools/run-rag-workspace.zsh \
+tools/paperrag/run-rag-workspace.zsh \
   --workspace 00_收件箱 \
-  --collections 00_收件箱 \
+  --collections '00 | 收件箱' \
   --no-embed \
   --keep-log
 ```
@@ -79,7 +79,7 @@ Use `--force-rebuild` only when the existing index must be discarded and rebuilt
 ## Evidence search
 
 ```bash
-tools/run-rag-evidence-search.zsh \
+tools/paperrag/run-rag-evidence-search.zsh \
   --workspace 00_收件箱 \
   --question 'anionic redox mechanism' \
   --mode auto \
@@ -94,9 +94,9 @@ If the online reranker is unavailable, use `--no-rerank`. Restrict results with 
 ## Validation
 
 ```bash
-zsh -n tools/zotero-workflow-common.zsh
-zsh -n tools/run-rag-workspace.zsh
-zsh -n tools/run-rag-evidence-search.zsh
-uv run python tools/workspace-inventory.py --help
+zsh -n tools/paperrag/zotero-workflow-common.zsh
+zsh -n tools/paperrag/run-rag-workspace.zsh
+zsh -n tools/paperrag/run-rag-evidence-search.zsh
+uv run python tools/paperrag/workspace-inventory.py --help
 uv run pytest -q tests/integration/test_tool_scripts.py
 ```
