@@ -332,12 +332,10 @@ def load_semantic_search_config(path: Path | None = None) -> SemanticSearchConfi
 def _split_models(value: Any) -> list[str] | None:
     """Accept a TOML array, or a comma-separated string from a shell variable."""
     if isinstance(value, str):
-        models = [m.strip() for m in value.split(",") if m.strip()]
-        return models or None
-    if isinstance(value, list):
-        models = [str(m).strip() for m in value if str(m).strip()]
-        return models or None
-    return None
+        value = value.split(",")
+    if not isinstance(value, list):
+        return None
+    return [m.strip() for m in map(str, value) if m.strip()] or None
 
 
 def load_ai_note_config(path: Path | None = None, *, apply_env_overrides: bool = True) -> AiNoteConfig:
@@ -368,9 +366,7 @@ def load_ai_note_config(path: Path | None = None, *, apply_env_overrides: bool =
         config.api_key = os.environ.get("ZOT_AI_API_KEY", config.api_key)
         config.base_url = os.environ.get("ZOT_AI_BASE_URL", config.base_url)
         config.model = os.environ.get("ZOT_AI_MODEL", config.model)
-        config.fallback_models = (
-            _split_models(os.environ.get("ZOT_AI_FALLBACK_MODELS", "")) or config.fallback_models
-        )
+        config.fallback_models = _split_models(os.environ.get("ZOT_AI_FALLBACK_MODELS", "")) or config.fallback_models
         config.reasoning_effort = os.environ.get("ZOT_AI_REASONING_EFFORT", config.reasoning_effort)
         config.temperature = float(os.environ.get("ZOT_AI_TEMPERATURE", config.temperature))
         config.max_tokens = int(os.environ.get("ZOT_AI_MAX_TOKENS", config.max_tokens))
