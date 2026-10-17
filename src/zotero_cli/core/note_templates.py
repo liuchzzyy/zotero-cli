@@ -4,7 +4,18 @@ from pathlib import Path
 
 from zotero_cli.config import project_root
 
-_TEMPLATES_DIR = project_root() / "tools" / "templates"
+
+def _candidate_template_dirs() -> list[Path]:
+    root = project_root()
+    return [
+        root / "tools" / "ainote" / "templates",
+        root / "tools" / "ainote",
+        root / "tools" / "templates",
+    ]
+
+
+_TEMPLATES_DIR = _candidate_template_dirs()[0]
+
 
 # Alias -> template filename. Keys are accepted from the classifier output and
 # from explicit overrides; the classifier emits research_article / review_article / book.
@@ -23,6 +34,10 @@ def template_path(name: str) -> Path:
     filename = _TEMPLATE_ALIASES.get(name, name)
     if not filename.endswith(".md"):
         filename += ".md"
+    for d in _candidate_template_dirs():
+        candidate = d / filename
+        if candidate.exists():
+            return candidate
     return _TEMPLATES_DIR / filename
 
 

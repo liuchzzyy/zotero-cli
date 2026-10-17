@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import html as _html
 
+from zotero_cli.core.note_text import prepare
+
 _PRIMARY = "#EF7060"
 _BACKGROUND = "#fff9f9"
 _CITE = "#2b6cb0"
@@ -12,8 +14,15 @@ def _escape(text: object) -> str:
     return _html.escape(str(text), quote=False)
 
 
+def _text(text: object) -> str:
+    """Prepare note content for HTML: flatten, space, then escape."""
+    return _escape(prepare(str(text)))
+
+
 def render_note(sections: list[dict], *, title: str) -> str:
     """Render a sections-JSON payload to an inline-styled HTML note."""
+    # The title is a fixed label plus the item title, so it is escaped but not
+    # re-spaced: the label must stay byte-identical for prefix matching.
     parts = [
         f"<h1 style='color:{_PRIMARY};border-bottom:2px solid {_PRIMARY};padding-bottom:6px;'>"
         f"{_escape(title)}</h1>"
@@ -26,15 +35,25 @@ def render_note(sections: list[dict], *, title: str) -> str:
 
 
 def _render_block(block: dict) -> str:
+    if not isinstance(block, dict):
+        return ""
     btype = block.get("type")
     if btype == "heading":
-        return _heading(int(block.get("level", 3)), str(block.get("text", "")))
+        lvl = block.get("level", 3)
+        try:
+            level = int(lvl) if lvl is not None else 3
+        except (ValueError, TypeError):
+            level = 3
+        return _heading(level, str(block.get("text", "")))
     if btype == "paragraph":
         return _paragraph(str(block.get("text", "")))
     if btype == "bullet_list":
-        return _bullet_list(block.get("items") or [])
+        items = block.get("items") or []
+        return _bullet_list(items if isinstance(items, list) else [])
     if btype == "table":
-        return _table(block.get("headers") or [], block.get("rows") or [])
+        headers = block.get("headers") or []
+        rows = block.get("rows") or []
+        return _table(headers if isinstance(headers, list) else [], rows if isinstance(rows, list) else [])
     if btype == "hr":
         return f"<hr style='border:none;border-top:1px solid {_PRIMARY};margin:12px 0;'/>"
     return ""
@@ -42,7 +61,7 @@ def _render_block(block: dict) -> str:
 
 def _heading(level: int, text: str) -> str:
     level = max(2, min(level, 4))
-    text = _escape(text)
+    text = _text(text)
     if level == 2:
         return (
             f"<h2 style='background:{_PRIMARY};color:#ffffff;padding:6px 12px;"
@@ -52,39 +71,58 @@ def _heading(level: int, text: str) -> str:
 
 
 def _paragraph(text: str) -> str:
-    return f"<p style='margin:0.4em 0;'>{_escape(text)}</p>"
+    return f"<p style='margin:0.4em 0;'>{_text(text)}</p>"
 
 
-def _bullet_list(items: list[dict]) -> str:
+def _bullet_list(items: list) -> str:
     if not items:
         return ""
     lis: list[str] = []
     for item in items:
-        text = _escape(item.get("text", ""))
-        citations = item.get("citations") or []
-        if citations:
-            cite_html = "".join(
-                f"<div style='margin:2px 0 0 12px;padding:4px 8px;border-left:3px solid {_CITE};"
-                f"background:{_BACKGROUND};color:{_CITE};font-size:0.85em;'>"
-                f"「📍 {_escape(c.get('location', ''))}：{_escape(c.get('content', ''))}」</div>"
-                for c in citations
-            )
+        if isinstance(item, dict):
+            text = _text(item.get("text", ""))
+            citations = item.get("citations") or []
+        else:
+            text = _text(str(item or ""))
+            citations = []
+        if isinstance(citations, list) and citations:
+            cite_divs: list[str] = []
+            for c in citations:
+                if isinstance(c, dict):
+                    loc = _text(c.get("location", ""))
+                    content = _text(c.get("content", ""))
+                    cite_divs.append(
+                        f"<div style='margin:2px 0 0 12px;padding:4px 8px;border-left:3px solid {_CITE};"
+                        f"background:{_BACKGROUND};color:{_CITE};font-size:0.85em;'>"
+                        f"「📍 {loc}：{content}」</div>"
+                    )
+                elif c:
+                    cite_divs.append(
+                        f"<div style='margin:2px 0 0 12px;padding:4px 8px;border-left:3px solid {_CITE};"
+                        f"background:{_BACKGROUND};color:{_CITE};font-size:0.85em;'>"
+                        f"「📍 {_text(c)}」</div>"
+                    )
+            cite_html = "".join(cite_divs)
             lis.append(f"<li style='margin:0.2em 0;'>{text}{cite_html}</li>")
         else:
             lis.append(f"<li style='margin:0.2em 0;'>{text}</li>")
     return f"<ul style='margin:0.4em 0;padding-left:1.5em;'>{''.join(lis)}</ul>"
 
 
-def _table(headers: list[str], rows: list[list]) -> str:
+def _table(headers: list, rows: list) -> str:
     thead = "".join(
         f"<th style='background:{_PRIMARY};color:#ffffff;padding:4px 8px;border:1px solid {_BORDER};'>"
-        f"{_escape(h)}</th>"
+        f"{_text(h)}</th>"
         for h in headers
     )
-    body = "".join(
-        "<tr>" + "".join(f"<td style='padding:4px 8px;border:1px solid {_BORDER};'>{_escape(c)}</td>" for c in row) + "</tr>"
-        for row in rows
-    )
+    row_trs: list[str] = []
+    for row in rows:
+        if isinstance(row, (list, tuple)):
+            cells = "".join(f"<td style='padding:4px 8px;border:1px solid {_BORDER};'>{_text(c)}</td>" for c in row)
+        else:
+            cells = f"<td style='padding:4px 8px;border:1px solid {_BORDER};'>{_text(row)}</td>"
+        row_trs.append(f"<tr>{cells}</tr>")
+    body = "".join(row_trs)
     return (
         f"<table style='border-collapse:collapse;margin:8px 0;max-width:100%;'>"
         f"<thead><tr>{thead}</tr></thead><tbody>{body}</tbody></table>"

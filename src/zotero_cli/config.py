@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -158,8 +158,11 @@ class PdfConfig:
 class AiNoteConfig:
     api_key: str = ""
     base_url: str = ""
-    model: str = "gpt-5.4"
-    reasoning_effort: str = "high"
+    model: str = "deepseek-flash"
+    fallback_models: list[str] = field(
+        default_factory=lambda: ["gemini-3.8-flash-high", "gpt-5.6-sol"]
+    )
+    reasoning_effort: str = "max"
     api_mode: str = "auto"
     chat_token_param: str = "auto"
     temperature: float = 0.7
@@ -332,10 +335,17 @@ def load_ai_note_config(path: Path | None = None) -> AiNoteConfig:
     if not data:
         return defaults
     ai_notes = data.get("ai_notes", {})
+    fallback = ai_notes.get("fallback_models")
+    if isinstance(fallback, str):
+        fallback = [m.strip() for m in fallback.split(",") if m.strip()]
+    elif not isinstance(fallback, list):
+        fallback = defaults.fallback_models
+
     return AiNoteConfig(
         api_key=ai_notes.get("api_key", defaults.api_key),
         base_url=ai_notes.get("base_url", defaults.base_url),
         model=ai_notes.get("model", defaults.model),
+        fallback_models=fallback,
         reasoning_effort=ai_notes.get("reasoning_effort", defaults.reasoning_effort),
         api_mode=ai_notes.get("api_mode", defaults.api_mode),
         chat_token_param=ai_notes.get("chat_token_param", defaults.chat_token_param),

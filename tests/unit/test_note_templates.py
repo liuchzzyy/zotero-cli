@@ -99,7 +99,7 @@ class TestNoteRenderer:
         assert "<ul" in html
         assert "普通条目" in html
         assert "带引用" in html
-        assert "「📍 第3页：原文内容」" in html
+        assert "「📍 第 3 页：原文内容」" in html
         assert "#2b6cb0" in html
 
     def test_render_table(self):
@@ -117,3 +117,17 @@ class TestNoteRenderer:
     def test_render_unknown_block_type_is_ignored(self):
         html = render_note([{"type": "unknown", "text": "ZZZ_UNKNOWN_ZZZ"}], title="T")
         assert "ZZZ_UNKNOWN_ZZZ" not in html
+
+    def test_render_defensive_types(self):
+        # items 为普通字符串列表，citations 为普通字符串，level 为 None，table row 异常
+        sections = [
+            {"type": "heading", "level": None, "text": "标题"},
+            {"type": "bullet_list", "items": ["纯文本项1", {"text": "带字符串引用", "citations": ["p. 5 原文"]}]},
+            {"type": "table", "headers": ["H1"], "rows": ["单列标量值"]},
+            "非法非dict结构",
+        ]
+        html = render_note(sections, title="T")
+        assert "<h3" in html
+        assert "纯文本项 1" in html
+        assert "「📍 p. 5 原文」" in html
+        assert "单列标量值" in html

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
+from pathlib import Path
 
 from zotero_cli.core.ai_client import AiClient
 from zotero_cli.core.mineru import MinerUError, MinerUParseCache, MinerUParseResult
+from zotero_cli.core.note_figures import load_figures, mark_figures
 from zotero_cli.core.note_renderer import render_note
 from zotero_cli.core.note_templates import format_template, load_template
+from zotero_cli.core.note_text import join_spaced_digits, prepare
 from zotero_cli.core.rag import clean_html, infer_pdf_kind
 from zotero_cli.core.reader import ZoteroReader
 from zotero_cli.core.writer import ZoteroWriter
@@ -19,6 +23,9 @@ NO_KEYWORDS_TAG = "ai/no_keywords"
 NOTE_TITLE_PREFIX = "AI条目分析 - "
 
 _CLASSIFY_CHARS = 4000
+# Vision tokens dominate the request; a dozen figures covers the main evidence
+# panels without making every run expensive.
+_MAX_FIGURES = 12
 _BOOK_ITEM_TYPES = {"book", "bookSection"}
 _TEMPLATE_BY_TYPE = {
     "research_article": "research-article",
@@ -74,19 +81,38 @@ def extract_json_object(text: str) -> dict:
     s = "\n".join(lines).strip()
 
     candidates = [s]
+    # 优先提取标准 ```json ... ``` 代码块中的 JSON 字符串
+    fenced_match = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", text, re.IGNORECASE)
+    if fenced_match:
+        candidates.insert(0, fenced_match.group(1).strip())
+
     start = s.find("{")
     end = s.rfind("}")
     if start != -1 and end > start:
         candidates.insert(0, s[start : end + 1])
 
     for candidate in candidates:
-        try:
-            parsed = json.loads(candidate)
-            if isinstance(parsed, dict):
-                return parsed
-        except json.JSONDecodeError:
-            continue
+        for strict in (True, False):
+            try:
+                parsed = json.loads(candidate, strict=strict)
+                if isinstance(parsed, dict):
+                    return parsed
+            except json.JSONDecodeError:
+                continue
     raise NoteAnalysisError("无法从 AI 输出中解析出 JSON")
+
+
+def normalize_short_note(text: str) -> str:
+    """Normalize common model output quirks (leading/trailing pipes, colons, newlines)."""
+    val = (text or "").strip()
+    val = val.strip("|").strip()
+    val = val.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+    parts = [part.strip() for part in val.split("|")]
+    if parts:
+        last = parts[-1]
+        if last.startswith("疑问:") and not last.startswith("疑问："):
+            parts[-1] = "疑问：" + last[3:].lstrip()
+    return " | ".join(parts)
 
 
 def validate_short_note(text: str) -> str | None:
@@ -110,6 +136,35 @@ def validate_short_note(text: str) -> str | None:
     if not parts[-1].startswith("疑问："):
         return "last segment must start with 疑问："
     return None
+
+
+def _drop_duplicate_parts(parts: list[str]) -> list[str]:
+    """Drop repeated copies of one document, keeping the longest copy.
+
+    A re-imported item often carries the same PDF twice, which would put the
+    paper into the prompt twice. Two parts match when at least 90% of one's long
+    lines also occur in the other; the longer part wins, the earlier one breaks
+    a tie. Surviving parts keep their original order, since main text must stay
+    ahead of any appendix.
+    """
+    if len(parts) < 2:
+        return parts
+
+    def lines(text: str) -> set[str]:
+        return {line.strip() for line in text.splitlines() if len(line.strip()) >= 60}
+
+    sigs = [lines(text) for text in parts]
+
+    def repeated(index: int) -> bool:
+        return any(
+            other != index
+            and (len(parts[other]), -other) > (len(parts[index]), -index)
+            and sigs[index]
+            and len(sigs[index] & sigs[other]) >= 0.9 * len(sigs[index])
+            for other in range(len(parts))
+        )
+
+    return [text for index, text in enumerate(parts) if not repeated(index)]
 
 
 def _sections_to_text(sections: list[dict]) -> str:
@@ -143,23 +198,33 @@ def _generate_short_note(
     prompt = format_template(template, fulltext=note_text)
     if progress:
         progress("keywords", "生成关键词（short-note）")
-    answer = _chat(ai_client, prompt, temperature=0.1)
+    answer = _chat(ai_client, prompt, temperature=0.1, progress=progress)
     try:
         data = extract_json_object(answer)
     except NoteAnalysisError:
         if progress:
             progress("retry", "关键词输出无法解析为 JSON，重试一次")
-        data = extract_json_object(_chat(ai_client, prompt + _PARSE_RETRY_SUFFIX, temperature=0.1))
+        data = extract_json_object(_chat(ai_client, prompt + _PARSE_RETRY_SUFFIX, temperature=0.1, progress=progress))
     short_note = str(data.get("short_note") or "").strip()
-    error = validate_short_note(short_note)
+    normalized = normalize_short_note(short_note)
+    error = validate_short_note(normalized)
     if error:
         raise NoteAnalysisError(f"关键词格式不合规：{error}", code="runtime_error")
-    return short_note
+    # Flatten after validation: the length budget must measure the content the
+    # model produced, not the separators this inserts.
+    return prepare(normalized)
 
 
-def _chat(ai_client: AiClient, prompt: str, *, temperature: float | None = None) -> str:
+def _chat(
+    ai_client: AiClient,
+    prompt: str,
+    *,
+    temperature: float | None = None,
+    progress: Callable[[str, str], None] | None = None,
+    figures: list[tuple[int, str]] | None = None,
+) -> str:
     try:
-        return ai_client.chat(prompt, temperature=temperature)
+        return ai_client.chat(prompt, temperature=temperature, progress=progress, figures=figures)
     except NoteAnalysisError:
         raise
     except Exception as e:
@@ -184,9 +249,12 @@ def _classify(
         + f"摘要：{item.abstract or ''}\n"
         + f"正文开头：\n{sample_text}\n"
     )
-    answer = _chat(ai_client, prompt)
-    data = extract_json_object(answer)
-    return str(data.get("paper_type", "")).strip() or "uncertain"
+    try:
+        answer = _chat(ai_client, prompt, progress=progress)
+        data = extract_json_object(answer)
+        return str(data.get("paper_type", "")).strip() or "uncertain"
+    except NoteAnalysisError:
+        return "uncertain"
 
 
 def _analyze_short_note_only(
@@ -208,7 +276,7 @@ def _analyze_short_note_only(
         chosen = ai_notes[-1]
     else:
         chosen = max(notes, key=lambda n: len(n.content or ""))
-    note_text = (chosen.content or "").strip()
+    note_text = clean_html((chosen.content or "").strip())
     if not note_text:
         raise NoteAnalysisError(f"条目 '{key}' 的 AI 笔记内容为空", code="validation_error")
 
@@ -274,6 +342,8 @@ def analyze_item(
 
     main_parts: list[str] = []
     supp_parts: list[str] = []
+    main_figure_refs: list[tuple[int, Path]] = []
+    supp_figure_refs: list[tuple[int, Path]] = []
     for att in attachments:
         if att.path is None or att.path not in pdf_parses:
             continue
@@ -283,13 +353,25 @@ def analyze_item(
         text = parsed.markdown
         if not text.strip():
             continue
-        kind = infer_pdf_kind(text, att.filename or att.key)
+        # Figures are only meaningful where the text is actually sent, so mark
+        # them in the same pass that classifies the document. Numbers stay
+        # continuous across PDFs, so a marker is unique inside the prompt.
+        text, refs = mark_figures(
+            text, parsed.root / "raw", start=len(main_figure_refs) + len(supp_figure_refs) + 1
+        )
+        kind = infer_pdf_kind(parsed.markdown, att.filename or att.key)
+        (supp_figure_refs if kind == "supplementary" else main_figure_refs).extend(refs)
         if kind == "supplementary":
             supp_parts.append(text)
         else:
             main_parts.append(text)
 
+    main_parts = _drop_duplicate_parts(main_parts)
     main_text = "\n\n".join(main_parts)
+    if not main_text.strip() and supp_parts:
+        main_parts, supp_parts = supp_parts, []
+        main_text = "\n\n".join(main_parts)
+
     if not main_text.strip():
         failures = [str(value) for value in pdf_parses.values() if isinstance(value, Exception)]
         detail = f"：{failures[0]}" if failures else ""
@@ -309,7 +391,7 @@ def analyze_item(
     if paper_type not in _TEMPLATE_BY_TYPE:
         paper_type = "research_article"
 
-    cleaned = clean_html(full_text)
+    cleaned = join_spaced_digits(clean_html(full_text))
     max_chars = ai_client.config.max_extracted_chars
     if max_chars > 0 and len(cleaned) > max_chars:
         cleaned = cleaned[:max_chars]
@@ -326,6 +408,14 @@ def analyze_item(
         fulltext=cleaned,
     )
 
+    # Main-text panels are the evidence being judged; only spend leftover slots
+    # on supporting information.
+    figures = load_figures(main_figure_refs, _MAX_FIGURES)
+    figures += load_figures(supp_figure_refs, _MAX_FIGURES - len(figures))
+    total_refs = len(main_figure_refs) + len(supp_figure_refs)
+    if progress and total_refs:
+        progress("figures", f"附图 {len(figures)}/{total_refs} 张随请求发送")
+
     if dry_run:
         return {
             "status": "dry_run",
@@ -335,6 +425,8 @@ def analyze_item(
             "template": template_name,
             "pdf_count": len(pdf_paths),
             "chars": len(cleaned),
+            "figures": len(figures),
+            "figure_refs": total_refs,
             "prompt_preview": prompt[:1200],
         }
 
@@ -342,13 +434,19 @@ def analyze_item(
         progress("analyze", f"paper_type={paper_type}")
     if writer is None:
         raise NoteAnalysisError("写入凭证未配置", code="auth_missing")
-    answer = _chat(ai_client, prompt)
+
+    answer = _chat(ai_client, prompt, progress=progress, figures=figures)
     try:
         sections = extract_json_object(answer).get("sections", [])
     except NoteAnalysisError:
         if progress:
             progress("retry", "AI 输出无法解析为 JSON，追加格式要求重试一次")
-        retry_answer = _chat(ai_client, prompt + _PARSE_RETRY_SUFFIX)
+        # A long answer gets truncated when the context is already full of
+        # figures, so the retry carries half of them.
+        retry_figures = figures[: max(1, len(figures) // 2)] if figures else figures
+        retry_answer = _chat(
+            ai_client, prompt + _PARSE_RETRY_SUFFIX, progress=progress, figures=retry_figures
+        )
         try:
             sections = extract_json_object(retry_answer).get("sections", [])
         except NoteAnalysisError as retry_error:
@@ -363,14 +461,17 @@ def analyze_item(
         if progress:
             progress("retry", f"输出过简略（{len(sections)} 个 block），追加内容充实度要求重试一次")
         try:
-            retry_answer = _chat(ai_client, prompt + _SPARSE_RETRY_SUFFIX)
+            retry_answer = _chat(ai_client, prompt + _SPARSE_RETRY_SUFFIX, progress=progress, figures=figures)
             retried = extract_json_object(retry_answer).get("sections", [])
             if isinstance(retried, list) and len(retried) > len(sections):
                 sections = retried
         except NoteAnalysisError:
             pass
 
-    note_title = NOTE_TITLE_PREFIX + item.title
+    if not sections:
+        raise NoteAnalysisError(f"条目 '{key}' 的 AI 分析未能生成任何有效章节内容", code="runtime_error")
+
+    note_title = NOTE_TITLE_PREFIX + prepare(item.title)
     html_note = render_note(sections, title=note_title)
     note_key = writer.add_note(key, html_note)
     if not no_tag:

@@ -22,6 +22,7 @@ from zotero_cli.core.note_analysis import (
     NoteAnalysisError,
     analyze_item,
     extract_json_object,
+    normalize_short_note,
     validate_short_note,
 )
 from zotero_cli.core.writer import merge_short_note_into_extra
@@ -107,6 +108,25 @@ class TestExtractJsonObject:
         text = '分析结果如下：\n{"sections": []}\n完毕'
         assert extract_json_object(text) == {"sections": []}
 
+    def test_fenced_json_with_trailing_curly_braces(self):
+        fence = chr(96) * 3
+        text = (
+            "前言介绍：\n"
+            + fence
+            + "json\n"
+            + '{"sections": [{"type": "paragraph", "text": "ok"}]}\n'
+            + fence
+            + "\n备注：参考公式 {x + y}"
+        )
+        parsed = extract_json_object(text)
+        assert len(parsed["sections"]) == 1
+
+    def test_json_with_literal_control_characters(self):
+        # 模拟大模型在 JSON 字符串内输出了未转义的真实换行符
+        raw = '{\n  "title": "行一\n行二"\n}'
+        parsed = extract_json_object(raw)
+        assert parsed["title"] == "行一\n行二"
+
     def test_invalid_raises(self):
         with pytest.raises(NoteAnalysisError):
             extract_json_object("没有任何 json")
@@ -142,7 +162,7 @@ class TestAnalyzeItem:
         writer.add_note.assert_called_once()
         writer.add_tags.assert_any_call("ABC123", [ANALYZED_TAG])
         writer.add_tags.assert_any_call("ABC123", [KEYWORDS_TAG])
-        writer.update_short_note.assert_called_once_with("ABC123", "体系A | 机制B | 性能C | 疑问：未解问题")
+        writer.update_short_note.assert_called_once_with("ABC123", "体系 A | 机制 B | 性能 C | 疑问：未解问题")
 
     def test_analyze_book_prejudged_by_item_type(self, tmp_path):
         item = _make_item(item_type="book")
@@ -407,8 +427,73 @@ class TestAnalyzeItem:
         assert result["short_note"] == "ok"
         assert ai_client.chat.call_count == 1
         writer.add_note.assert_not_called()
-        writer.update_short_note.assert_called_once_with("ABC123", "体系A | 机制B | 性能C | 疑问：未解问题")
+        writer.update_short_note.assert_called_once_with("ABC123", "体系 A | 机制 B | 性能 C | 疑问：未解问题")
         writer.add_tags.assert_called_once_with("ABC123", [KEYWORDS_TAG])
+
+    def test_analyze_empty_sections_raises(self, tmp_path):
+        item = _make_item()
+        att = _make_attachment(tmp_path)
+        reader = MagicMock()
+        reader.get_item.return_value = item
+        reader.get_pdf_attachments.return_value = [att]
+        writer = MagicMock()
+        ai_client = MagicMock()
+        ai_client.config = _make_ai_config()
+        ai_client.chat.side_effect = [
+            '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
+            '{"sections": []}',
+            '{"sections": []}',
+        ]
+        with _patch_mineru(att, "Introduction text.", tmp_path):
+            with pytest.raises(NoteAnalysisError) as exc:
+                analyze_item(reader, writer, ai_client, "ABC123")
+        assert "未能生成任何有效章节内容" in str(exc.value)
+        writer.add_note.assert_not_called()
+
+    def test_analyze_classify_json_error_falls_back_to_uncertain(self, tmp_path):
+        item = _make_item()
+        att = _make_attachment(tmp_path)
+        reader = MagicMock()
+        reader.get_item.return_value = item
+        reader.get_pdf_attachments.return_value = [att]
+        writer = MagicMock()
+        ai_client = MagicMock()
+        ai_client.config = _make_ai_config()
+        # 分类输出非 JSON，应降级为 uncertain 而不是抛异常崩溃
+        ai_client.chat.return_value = "非 JSON 描述"
+
+        with _patch_mineru(att, "Some text.", tmp_path):
+            result = analyze_item(reader, writer, ai_client, "ABC123")
+
+        assert result["status"] == "uncertain"
+        writer.add_tags.assert_called_once_with("ABC123", [NOT_ANALYZED_TAG])
+
+    def test_analyze_single_supplementary_pdf_falls_back_to_main(self, tmp_path):
+        item = _make_item()
+        pdf_file = tmp_path / "suppl_info.pdf"
+        pdf_file.write_bytes(b"%PDF-1.4 test")
+        att = Attachment(
+            key="ATT1",
+            parent_key="ABC123",
+            filename="suppl_info.pdf",
+            content_type="application/pdf",
+            path=pdf_file,
+        )
+        reader = MagicMock()
+        reader.get_item.return_value = item
+        reader.get_pdf_attachments.return_value = [att]
+        writer = MagicMock()
+        writer.add_note.return_value = "NOTE1"
+        ai_client = MagicMock()
+        ai_client.config = _make_ai_config()
+        ai_client.chat.side_effect = [
+            '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
+            _sections_json(12),
+            _short_note_json(),
+        ]
+        with _patch_mineru(att, "# Supplementary Material\nDetails here.", tmp_path):
+            result = analyze_item(reader, writer, ai_client, "ABC123")
+        assert result["status"] == "ok"
 
     def test_analyze_short_note_only_without_notes_raises(self):
         item = _make_item()
@@ -454,6 +539,18 @@ class TestValidateShortNote:
 
     def test_leading_pipe_rejected(self):
         assert validate_short_note("| 体系A | 机制B | 疑问：X") == "leading/trailing pipe"
+
+
+class TestNormalizeShortNote:
+    def test_normalizes_leading_trailing_pipes(self):
+        assert normalize_short_note("| 体系A | 机制B | 疑问：X |") == "体系A | 机制B | 疑问：X"
+
+    def test_normalizes_half_width_colon(self):
+        assert normalize_short_note("体系A | 机制B | 疑问:未解问题") == "体系A | 机制B | 疑问：未解问题"
+
+    def test_normalizes_embedded_newlines(self):
+        raw = "体系A |\n 机制B |\n 疑问：未解问题"
+        assert normalize_short_note(raw) == "体系A | 机制B | 疑问：未解问题"
 
 
 class TestMergeShortNote:
@@ -517,6 +614,53 @@ class TestAiClient:
         client.chat("hello")
         kwargs = client._client.chat.completions.create.call_args.kwargs
         assert kwargs["temperature"] == 0.7  # 未覆盖时用 config 默认值
+
+    def test_chat_passes_reasoning_effort(self):
+        config = _make_ai_config()
+        config.reasoning_effort = "max"
+        client = AiClient(config)
+        client._client.chat.completions.create = MagicMock(return_value=self._respond())
+        client.chat("hello")
+        kwargs = client._client.chat.completions.create.call_args.kwargs
+        assert kwargs["reasoning_effort"] == "max"
+
+    def test_chat_fallback_chain(self):
+        config = _make_ai_config()
+        config.model = "deepseek-flash"
+        config.fallback_models = ["gemini-3.8-flash-high", "gpt-5.6-sol"]
+        client = AiClient(config)
+        # 第一次 deepseek 失败，第二次 gemini 成功
+        client._client.chat.completions.create = MagicMock(
+            side_effect=[Exception("deepseek connection error"), self._respond("gemini answer")]
+        )
+        progress_calls = []
+        out = client.chat("hello", progress=lambda ev, msg: progress_calls.append((ev, msg)))
+        assert out == "gemini answer"
+        assert client._client.chat.completions.create.call_count == 2
+        calls = client._client.chat.completions.create.call_args_list
+        assert calls[0].kwargs["model"] == "deepseek-flash"
+        assert calls[1].kwargs["model"] == "gemini-3.8-flash-high"
+        assert len(progress_calls) == 1
+        assert progress_calls[0][0] == "fallback"
+
+    def test_chat_fallback_all_failed_raises(self):
+        config = _make_ai_config()
+        config.model = "deepseek-flash"
+        config.fallback_models = ["gemini-3.8-flash-high"]
+        client = AiClient(config)
+        client._client.chat.completions.create = MagicMock(
+            side_effect=[Exception("err1"), Exception("err2")]
+        )
+        with pytest.raises(Exception) as exc:
+            client.chat("hello")
+        assert "err2" in str(exc.value)
+
+    def test_chat_local_base_url_trust_env_false(self):
+        config = _make_ai_config()
+        config.base_url = "http://127.0.0.1:8317/v1"
+        client = AiClient(config)
+        # 本地地址配置 trust_env=False 绕过系统网络代理
+        assert client._client._client.trust_env is False
 
 
 class TestAiAnalyzeCLI:
