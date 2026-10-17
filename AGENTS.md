@@ -43,7 +43,7 @@ uv run zot schema
 uv build
 ```
 
-The package supports Python 3.10–3.13. Lint/type-check/tests run locally via `uv`; no CI workflow is checked in.
+The package supports Python 3.10–3.13. Lint/type-check/tests run locally via `uv`; no CI workflow is checked in. `testpaths` covers `tests` and `tools`, so the `tools/paper2zotero/` tests run with the rest.
 
 ## Architecture
 
@@ -90,7 +90,7 @@ When adding a command, register it in `cli.py` and place it in the correct safet
 - Model chain: `model` followed by `fallback_models` (TOML array or comma-separated string). Local `base_url` values (`127.0.0.1` / `localhost`) disable HTTP proxy env handling.
 - Text: `note_text.py` flattens super/subscripts and inserts a half-width space between CJK and Latin before HTML escaping in `note_renderer.py`. The note title is escaped but not re-spaced, because `NOTE_TITLE_PREFIX` matching depends on it.
 - Dedupe: `note_analysis._drop_duplicate_parts` drops a repeated copy of the same document (re-imported items often carry the PDF twice) while preserving main-text-before-appendix order.
-- Templates: `note_templates.template_path` probes `tools/ainote/templates/`, then `tools/ainote/`, then legacy `tools/templates/`.
+- Templates: `note_templates.template_path` probes `tools/ainote/templates/`, then `tools/ainote/`, then legacy `tools/templates/`, then the packaged `zotero_cli/templates/` that hatchling force-includes into the wheel — an installed CLI has no `tools/`, so keep that last candidate when editing the lookup.
 
 ### Tools and bundled skill
 

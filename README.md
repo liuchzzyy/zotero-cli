@@ -202,7 +202,7 @@ uv run pytest -q
 uv build
 ```
 
-代码位于 `src/zotero_cli/`，测试位于 `tests/`，Agent Skill 位于 `skill/zotero-cli/`。
+代码位于 `src/zotero_cli/`，测试位于 `tests/`（`tools/*/test_*.py` 也纳入默认测试收集），Agent Skill 位于 `skill/zotero-cli/`。
 
 ## 退出码
 
