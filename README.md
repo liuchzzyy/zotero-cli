@@ -159,6 +159,8 @@ uv run zot ai_analyze ITEMKEY --force
 - 渲染前统一处理上下标与中英文间距（`MnO₂` → `MnO2`，`Zn²⁺` → `Zn2+`，`g⁻¹` → `g^-1`）。
 - 关键词简记写入条目 Extra 的 `short-note` 字段，格式与约束由 `validate_short_note` 校验。
 
+同一条文本规则也适用于导入流程写入的中文标题与中文摘要（见「辅助工具」中的 `zh_text.py`）：不得含上下标，中英文之间加半角空格。
+
 ## 写入与安全操作
 
 所有写入命令都支持 `--dry-run` 预览；会改变 Zotero 数据的命令不要在未确认范围时直接执行。
@@ -197,7 +199,7 @@ uv run zot --json workspace query \
 `tools/` 下的脚本不是 `zot` 子命令，用于批量工作流：
 
 - `tools/paperrag/`：`run-rag-workspace.zsh`（inventory、增量索引、embedding 回填）、`run-rag-evidence-search.zsh`（检索）、`zotero-workflow-common.zsh`（共享函数）、`workspace-inventory.py`。生成物写入 `log/`。
-- `tools/paper2zotero/`：`zotero_inbox.py`（PaperCrossref 收件箱导入）、`backfill_titles.py`（全库译名回填）。
+- `tools/paper2zotero/`：`zotero_inbox.py`（PaperCrossref 收件箱导入，写入中文标题与中文摘要）、`backfill_titles.py`（全库译名回填）、`zh_text.py`（中文标题/摘要的上下标与中英文间距规范化）。
 - `tools/ainote/templates/`：`ai_analyze` 的 prompt 模板。
 
 详细用法见 `tools/paperrag/Instructions.md`。

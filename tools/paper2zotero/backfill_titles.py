@@ -17,6 +17,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import zh_text
+
 from zotero_cli.config import load_config, resolve_write_credentials
 from zotero_cli.core.writer import ZoteroWriter
 
@@ -112,7 +114,7 @@ def merge_extra(extra: str, title_zh: str) -> str:
     if not title_zh.strip() or not CHINESE_RE.search(title_zh) or "\n" in title_zh or "\r" in title_zh:
         raise BackfillError("中文标题无效")
     return "\n".join([*(extra.rstrip().splitlines() if extra.strip() else []),
-                      f"translated-title: {title_zh.strip()}"])
+                      f"translated-title: {zh_text.normalize(title_zh)}"])
 
 
 def update_one(api, writer, row: dict[str, str], title_zh: str) -> str:

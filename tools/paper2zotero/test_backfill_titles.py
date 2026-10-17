@@ -7,6 +7,7 @@ from subprocess import CompletedProcess
 from unittest.mock import Mock, patch
 
 import backfill_titles as backfill
+import zh_text
 
 
 class BackfillTests(unittest.TestCase):
@@ -48,7 +49,12 @@ class BackfillTests(unittest.TestCase):
 
     def test_append_preserves_existing_extra_lines(self):
         self.assertEqual(backfill.merge_extra("funder: ABC\nshort-note: keep", "水系 Zn–MnO₂ 正极"),
-                         "funder: ABC\nshort-note: keep\ntranslated-title: 水系 Zn–MnO₂ 正极")
+                         "funder: ABC\nshort-note: keep\ntranslated-title: 水系 Zn–MnO2 正极")
+
+    def test_backfilled_title_is_flattened_and_spaced_like_imported_titles(self):
+        merged = backfill.merge_extra("", "层状δ-MnO₂正极在5 A g⁻¹下提供300 mAh g⁻¹")
+        self.assertEqual(merged, "translated-title: 层状 δ-MnO2 正极在 5 A g^-1 下提供 300 mAh g^-1")
+        self.assertFalse(zh_text.has_script(merged))
 
     def test_write_only_target_item_and_verify_remote_extra(self):
         api = Mock()

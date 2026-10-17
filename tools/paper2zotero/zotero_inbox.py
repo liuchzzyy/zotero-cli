@@ -12,6 +12,8 @@ import re
 from datetime import date, timedelta
 from pathlib import Path
 
+import zh_text
+
 SCRIPT_DIR = Path("/Users/liuchzzyy/CodeSpace/PaperCrossref")
 INBOX_KEY = "AG7NQ5UW"
 INBOX_NAME = "00 | 收件箱"
@@ -19,6 +21,7 @@ FLAGS = ("is_cathode_material", "is_characterization_technique")
 DOI_PATTERN = re.compile(r"^10\.\d{4,9}/\S+$", re.IGNORECASE)
 STATUS_COLUMNS = ("zotero_status", "zotero_key")
 TRANSLATED_TITLE_LABEL = "translated-title:"
+REQUIRED_COLUMNS = ("doi", "title_zh", "abstract_zh", *FLAGS)
 
 
 class ZoteroInboxError(RuntimeError):
@@ -52,7 +55,7 @@ def resolve_metadata(doi: str) -> dict:
     return fields
 
 
-def _verify(api, key: str, doi: str, title_zh: str, *, must_have_inbox: bool = True) -> None:
+def _verify(api, key: str, doi: str, title_zh: str, abstract_zh: str, *, must_have_inbox: bool = True) -> None:
     item = api.item(key)
     if not isinstance(item, dict) or not isinstance(item.get("data"), dict):
         raise ZoteroInboxError(f"Zotero 回读条目格式无效：{doi} / {key}")
@@ -65,6 +68,10 @@ def _verify(api, key: str, doi: str, title_zh: str, *, must_have_inbox: bool = T
     expected = f"{TRANSLATED_TITLE_LABEL} {title_zh}"
     if not isinstance(extra, str) or expected not in extra.splitlines():
         raise ZoteroInboxError(f"Zotero 回读条目缺少中文标题：{doi} / {key}")
+    # An abstract that was translated must land in abstractNote verbatim; a field
+    # the write dropped looks exactly like a successful import otherwise.
+    if data.get("abstractNote") != abstract_zh:
+        raise ZoteroInboxError(f"Zotero 回读条目中文摘要不一致：{doi} / {key}")
 
 
 def verify_inbox(api) -> None:
@@ -74,11 +81,29 @@ def verify_inbox(api) -> None:
         raise ZoteroInboxError("目标收件箱 key/name 与预期不符，停止导入")
 
 
-def import_doi(doi: str, title_zh: str, api, writer) -> str:
-    """Create a fresh DOI item with translated title in Extra, without library deduplication."""
+def chinese_fields(title_zh: object, abstract_zh: object, source_abstract: str, doi: str) -> tuple[str, str]:
+    """Validate and normalise the Chinese title/abstract before any Zotero write.
+
+    Both fields must be single-line and script-free, with a half-width space at
+    every CJK/Latin boundary; `zh_text.normalize` enforces that whatever the
+    upstream model emitted. An English abstract that exists must come with a
+    Chinese translation — a silently empty field would look like a successful
+    import — while a paper Crossref has no abstract for keeps both fields empty.
+    """
     if not isinstance(title_zh, str) or not title_zh.strip() or "\n" in title_zh or "\r" in title_zh:
         raise ZoteroInboxError(f"中文标题缺失或含换行，未导入：{doi}")
-    translated_title = title_zh.strip()
+    if not isinstance(abstract_zh, str):
+        raise ZoteroInboxError(f"中文摘要列无效，未导入：{doi}")
+    if source_abstract.strip() and not abstract_zh.strip():
+        raise ZoteroInboxError(f"缺少中文摘要，未导入：{doi}")
+    if not source_abstract.strip() and abstract_zh.strip():
+        raise ZoteroInboxError(f"原始摘要为空却提供了中文摘要，未导入：{doi}")
+    return zh_text.normalize(title_zh), zh_text.normalize_abstract(abstract_zh)
+
+
+def import_doi(doi: str, title_zh: str, abstract_zh: str, api, writer, *, source_abstract: str = "") -> str:
+    """Create a DOI item with a translated title in Extra and a translated abstract."""
+    translated_title, translated_abstract = chinese_fields(title_zh, abstract_zh, source_abstract, doi)
     metadata = resolve_metadata(doi)
     if not isinstance(metadata, dict) or not metadata.get("title"):
         raise ZoteroInboxError(f"Crossref 元数据不足，未导入：{doi}")
@@ -88,8 +113,15 @@ def import_doi(doi: str, title_zh: str, api, writer) -> str:
     other_lines = [line for line in existing_extra.splitlines()
                    if not line.strip().lower().startswith(TRANSLATED_TITLE_LABEL)]
     extra = "\n".join([*other_lines, f"{TRANSLATED_TITLE_LABEL} {translated_title}"])
-    key = writer.add_item(doi=doi, extra_fields={**metadata, "extra": extra, "collections": [INBOX_KEY]})
-    _verify(api, key, doi, translated_title)
+    # The Chinese abstract replaces Crossref's English one; the English text stays
+    # available in the CSV and in Crossref itself.
+    fields = {**metadata, "extra": extra, "collections": [INBOX_KEY]}
+    if translated_abstract:
+        fields["abstractNote"] = translated_abstract
+    else:
+        fields.pop("abstractNote", None)
+    key = writer.add_item(doi=doi, extra_fields=fields)
+    _verify(api, key, doi, translated_title, translated_abstract)
     return key
 
 
@@ -102,8 +134,9 @@ def read_rows(path: Path) -> list[dict[str, str]]:
     with path.open(newline="", encoding="utf-8-sig") as handle:
         reader = csv.DictReader(handle)
         columns = reader.fieldnames
-        if not columns or not {"doi", "title_zh", *FLAGS}.issubset(columns):
-            raise ZoteroInboxError("CSV 缺少 doi、title_zh 或语义筛选列；先完成上游标注")
+        if not columns or not set(REQUIRED_COLUMNS).issubset(columns):
+            missing = sorted(set(REQUIRED_COLUMNS) - set(columns or []))
+            raise ZoteroInboxError(f"CSV 缺少列 {missing}；先完成上游标注（含中文摘要）")
         rows = list(reader)
     if any(row.get("title_zh") is None for row in rows):
         raise ZoteroInboxError("CSV 中存在无效中文标题列")
@@ -115,9 +148,9 @@ def sync_csv(path: Path, api, writer) -> int:
     rows = read_rows(path)
     selected = select_rows(rows)
     for row in selected:
-        title_zh = row.get("title_zh")
-        if not isinstance(title_zh, str) or not title_zh.strip() or "\n" in title_zh or "\r" in title_zh:
-            raise ZoteroInboxError(f"候选条目没有有效中文标题，未导入：{row['doi']}")
+        # Validate every row before the first write, so a bad abstract cannot
+        # strand a partially imported CSV.
+        chinese_fields(row.get("title_zh"), row.get("abstract_zh"), row.get("abstract") or "", row["doi"])
     if not selected:
         return 0
     with path.open(newline="", encoding="utf-8-sig") as handle:
@@ -136,7 +169,8 @@ def sync_csv(path: Path, api, writer) -> int:
             continue
         if row.get("zotero_status") == "added" and row.get("zotero_key"):
             continue  # Only protects a re-run of this CSV; never searches the Zotero library.
-        key = import_doi(row["doi"], row["title_zh"], api, writer)
+        key = import_doi(row["doi"], row["title_zh"], row.get("abstract_zh") or "", api, writer,
+                         source_abstract=row.get("abstract") or "")
         row.update(zotero_status="added", zotero_key=key)
         count += 1
         temp = path.with_suffix(path.suffix + ".tmp")
