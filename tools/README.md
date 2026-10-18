@@ -29,6 +29,28 @@ The modes are strictly separated: `--dry-run` previews through the same pipeline
 with no Zotero writes, no checkpoint writes and no LLM calls (it still parses
 PDFs via MinerU, which may be a cloud call when the parse is not cached), while
 `--apply` writes and checkpoints.
+`scheduled_analyze.py` is the conservative scheduler entrypoint (macOS/Linux):
+`--collection KEY --output-dir PATH` requires exactly one of `--apply` or
+`--dry-run`, and processes direct members only. It reconciles live Web API
+membership/tags with the local inventory; `ai/noted`, `ai/uncertain`, completed
+checkpoints and existing AI Notes suppress repeat analysis. Unsynced/missing
+local PDFs are deferred. The inventory-only dry run makes no MinerU/LLM/library
+writes, but saves a local run report. Apply records `in_progress` before each
+analysis, verifies exact-key Web API readback, and refuses blind retries after
+an uncertain write. An advisory lock prevents overlapping scheduler runs;
+empty/all-skipped runs emit no stdout. Reports live in the specified output
+directory, and the collection checkpoint remains under `.zot/state/`.
+
+Because `ai_analyze` now fails closed on input it cannot fit (structured text
+over `max_extracted_chars`, or more main figures than the token budget allows),
+a repeated *non-committed* failure is treated as permanent: after
+`MAX_ATTEMPTS` (3) the item is parked as `unanalyzable`, listed in the run's
+`blocked` array instead of `failed`, and skipped by later runs — otherwise one
+oversized paper would fail the nightly job and re-attempt the same input
+forever. A *committed* failure is never parked, since the note may already
+exist. `--retry-parked` clears parked checkpoints so they are attempted again
+after you fix the cause (raise the cap, split the PDF).
+
 `templates/` holds the prompts `ai_analyze` loads at runtime
 (`classify-item`, `research-article`, `review-article`, `book`,
 `short-note`); `pyproject.toml` force-includes that directory into the wheel as
