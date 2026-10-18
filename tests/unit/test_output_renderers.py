@@ -163,6 +163,9 @@ def test_format_item_detail_full():
 def test_sanitize_text_strips_ansi_and_control_characters():
     assert sanitize_text("a\x1b[31mred\x1b[0m") == "ared"
     assert sanitize_text("a\x00b\x07c") == "abc"
+    # A lone carriage return can overwrite the current terminal line: strip it.
+    assert sanitize_text("safe\rEVIL") == "safeEVIL"
+    assert sanitize_text("a\r\x1b[31mb") == "ab"
     # Layout characters survive so multi-paragraph notes keep their shape.
     assert sanitize_text("line1\nline2\tend") == "line1\nline2\tend"
     assert sanitize_text(None) == ""

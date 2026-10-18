@@ -25,6 +25,7 @@ def block_live_services(monkeypatch: pytest.MonkeyPatch) -> None:
 def isolate_runtime_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Keep default config, retry caches and workspaces away from real research state."""
     from zotero_cli import config
+    from zotero_cli.core import version_check
     from zotero_cli.core import workspace_store as workspace
     from zotero_cli.core.zotero import idempotency
 
@@ -36,6 +37,7 @@ def isolate_runtime_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     monkeypatch.setattr(idempotency, "state_dir", lambda: tmp_path / ".zot" / "state")
     monkeypatch.setattr(workspace, "workspace_root", lambda: tmp_path / ".workspace")
     monkeypatch.setattr(workspace, "state_dir", lambda: tmp_path / ".zot" / "state")
+    monkeypatch.setattr(version_check, "_cache_file", lambda: tmp_path / ".zot" / "state" / "version-check.json")
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:

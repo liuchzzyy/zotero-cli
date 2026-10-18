@@ -12,6 +12,7 @@ from zotero_cli.commands.workspace import workspace_group
 from zotero_cli.commands.workspace._output import (
     emit_progress,
     emit_result,
+    emit_warning,
     load_workspace_or_exit,
     output_json,
 )
@@ -22,31 +23,77 @@ from zotero_cli.core.rag.index import RagIndex
 from zotero_cli.core.workspace_store import workspace_index_path
 from zotero_cli.output.exit_codes import emit_error
 
+_PER_TEXT_PROBE_LIMIT = 2
+_PER_TEXT_RETRY_CAP = 2
+
+
+def _bounded_sleep(seconds: float, deadline: float | None) -> bool:
+    """Sleep up to the deadline; return True when the deadline is exhausted."""
+    if seconds <= 0:
+        return bool(deadline is not None and time.monotonic() >= deadline)
+    if deadline is None:
+        time.sleep(seconds)
+        return False
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        return True
+    time.sleep(min(seconds, remaining))
+    return time.monotonic() >= deadline
+
 
 def _embed_batch_with_retries(
     texts: list[str],
     emb_cfg: EmbeddingConfig,
     max_retries: int,
     retry_sleep: float,
-) -> list[list[float]]:
-    for _attempt in range(max_retries + 1):
+    deadline: float | None = None,
+) -> tuple[list[list[float]], bool]:
+    """Embed a batch with bounded retries; return (vectors, deadline_exhausted).
+
+    The batch is retried at most max_retries+1 times. If it keeps failing, only
+    the first two chunks are probed individually (capped retries); when both
+    probes fail the provider is treated as systemically failing (for example a
+    permanent 4xx such as an unsupported model or exhausted account) and the
+    remaining chunks are skipped instead of retried one by one. The global
+    deadline stops all retrying regardless.
+    """
+    for attempt in range(max_retries + 1):
+        if deadline is not None and time.monotonic() >= deadline:
+            return [], True
         vectors = embed_texts(texts, emb_cfg)
         if vectors is not None and len(vectors) == len(texts):
-            return vectors
-        if retry_sleep > 0:
-            time.sleep(retry_sleep)
+            return vectors, False
+        if attempt < max_retries and retry_sleep > 0 and _bounded_sleep(retry_sleep, deadline):
+            return [], True
 
     result: list[list[float]] = []
-    for text in texts:
-        single: list[list[float]] | None = None
-        for _attempt in range(max_retries + 1):
+    failures = 0
+    per_text_attempts = min(max_retries, _PER_TEXT_RETRY_CAP)
+    for index, text in enumerate(texts):
+        if deadline is not None and time.monotonic() >= deadline:
+            result.extend([] for _ in texts[index:])
+            return result, True
+        if index >= _PER_TEXT_PROBE_LIMIT and failures >= _PER_TEXT_PROBE_LIMIT:
+            result.extend([] for _ in texts[index:])
+            break
+        vector: list[float] | None = None
+        for attempt in range(per_text_attempts + 1):
+            if deadline is not None and time.monotonic() >= deadline:
+                result.extend([] for _ in texts[index:])
+                return result, True
             single = embed_texts([text], emb_cfg)
-            if single is not None and single and single[0]:
+            if single and single[0]:
+                vector = single[0]
                 break
-            if retry_sleep > 0:
-                time.sleep(retry_sleep)
-        result.append(single[0] if single and single[0] else [])
-    return result
+            if attempt < per_text_attempts and retry_sleep > 0 and _bounded_sleep(retry_sleep, deadline):
+                result.extend([] for _ in texts[index:])
+                return result, True
+        if vector is not None:
+            result.append(vector)
+        else:
+            result.append([])
+            failures += 1
+    return result, False
 
 
 @workspace_group.command("embed")
@@ -62,6 +109,12 @@ def _embed_batch_with_retries(
 )
 @click.option("--max-retries", default=5, show_default=True, help="Retry a failed provider batch this many times.")
 @click.option("--retry-sleep", default=10.0, show_default=True, help="Seconds to sleep between batch retries.")
+@click.option(
+    "--deadline-seconds",
+    default=120.0,
+    show_default=True,
+    help="Global wall-clock budget for retries; 0 disables the deadline.",
+)
 @click.option(
     "--heartbeat-seconds",
     default=15.0,
@@ -81,6 +134,7 @@ def workspace_embed(
     max_retries: int,
     retry_sleep: float,
     heartbeat_seconds: float,
+    deadline_seconds: float,
     progress_lines: bool,
     dry_run: bool,
 ) -> None:
@@ -117,6 +171,13 @@ def workspace_embed(
             output_json=json_out,
             context="workspace embed",
         )
+    if deadline_seconds < 0:
+        emit_error(
+            "validation_error",
+            "--deadline-seconds must be 0 or greater",
+            output_json=json_out,
+            context="workspace embed",
+        )
 
     emb_cfg = load_embedding_config(apply_env_overrides=True)
     if dry_run:
@@ -133,6 +194,7 @@ def workspace_embed(
                 "max_retries": max_retries,
                 "retry_sleep": retry_sleep,
                 "heartbeat_seconds": heartbeat_seconds,
+                "deadline_seconds": deadline_seconds,
                 **stats,
             },
             human_text=f"[dry-run] Would backfill embeddings for '{name}' from the existing index",
@@ -161,6 +223,8 @@ def workspace_embed(
     skipped = 0
     remaining = 0
     elapsed = 0.0
+    deadline_hit = False
+    deadline = t0 + deadline_seconds if deadline_seconds > 0 else None
     if progress_lines and heartbeat_seconds > 0:
 
         def heartbeat_writer() -> None:
@@ -192,10 +256,22 @@ def workspace_embed(
             )
 
             for i in range(0, len(missing), batch_size):
+                if deadline is not None and time.monotonic() >= deadline:
+                    deadline_hit = True
+                    skipped += len(missing) - i
+                    emit_warning(
+                        f"embedding stopped after reaching the {deadline_seconds:.0f}s deadline; "
+                        f"rerun 'zot workspace embed {name}' to continue"
+                    )
+                    break
                 batch_ids = missing[i : i + batch_size]
                 chunks = idx.get_chunks_by_ids(batch_ids)
                 texts = [chunks[cid]["content"] for cid in batch_ids if cid in chunks]
-                vectors = _embed_batch_with_retries(texts, emb_cfg, max_retries, retry_sleep)
+                vectors, batch_deadline_hit = _embed_batch_with_retries(
+                    texts, emb_cfg, max_retries, retry_sleep, deadline
+                )
+                if batch_deadline_hit:
+                    deadline_hit = True
 
                 valid_ids: list[int] = []
                 valid_vectors: list[list[float]] = []
@@ -221,6 +297,15 @@ def workspace_embed(
                 else:
                     sys.stderr.write(f"\r{' ' * 100}\r{status}")
                     sys.stderr.flush()
+                if deadline_hit:
+                    remaining_count = len(missing) - i - len(batch_ids)
+                    if remaining_count > 0:
+                        skipped += remaining_count
+                    emit_warning(
+                        f"embedding stopped after reaching the {deadline_seconds:.0f}s deadline; "
+                        f"rerun 'zot workspace embed {name}' to continue"
+                    )
+                    break
 
             if not progress_lines:
                 sys.stderr.write(f"\r{' ' * 100}\r")
@@ -242,13 +327,26 @@ def workspace_embed(
             meta={"count": 0},
         )
         return
-    if attempted > 0 and stored == 0 and skipped > 0:
+    failed_chunks = max(len(missing) - stored, skipped)
+    if stored == 0 and failed_chunks > 0 and deadline_hit:
         emit_error(
             "network_error",
-            f"Embedding failed for all {skipped} chunk(s) in workspace '{name}'",
+            f"Embedding stopped at the {deadline_seconds:.0f}s deadline without storing any vectors "
+            f"for workspace '{name}' ({failed_chunks} chunk(s) pending)",
             output_json=json_out,
             retryable=True,
-            hint="Check the embedding provider configuration/network, then retry 'zot workspace embed'",
+            hint="Check the embedding provider configuration/network/model/quota (permanent 4xx errors "
+            "are not retryable), reduce --limit/--batch-size, or retry 'zot workspace embed'",
+            context="workspace embed",
+        )
+    if stored == 0 and failed_chunks > 0:
+        emit_error(
+            "network_error",
+            f"Embedding failed for all {failed_chunks} chunk(s) in workspace '{name}'",
+            output_json=json_out,
+            retryable=True,
+            hint="Check the embedding provider configuration/network/model/quota; permanent 4xx "
+            "errors (unsupported model, exhausted account) are not retried further",
             context="workspace embed",
         )
     data = {
@@ -258,13 +356,13 @@ def workspace_embed(
         "skipped": skipped,
         "remaining_missing": remaining,
         "elapsed_s": round(elapsed, 1),
+        "deadline_hit": deadline_hit,
+        "deadline_seconds": deadline_seconds,
     }
-    emit_result(
-        ctx,
-        data,
-        human_text=(
-            f"Backfilled embeddings for '{name}': attempted={attempted}, stored={stored}, "
-            f"skipped={skipped}, remaining_missing={remaining}, elapsed={elapsed:.1f}s"
-        ),
-        meta={"count": stored},
+    human = (
+        f"Backfilled embeddings for '{name}': attempted={attempted}, stored={stored}, "
+        f"skipped={skipped}, remaining_missing={remaining}, elapsed={elapsed:.1f}s"
     )
+    if deadline_hit:
+        human += " (stopped at deadline)"
+    emit_result(ctx, data, human_text=human, meta={"count": stored})

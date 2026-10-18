@@ -74,6 +74,9 @@ class SearchResult:
     items: list[Item]
     total: int
     query: str
+    # True when a bounded full-text scan could not cover every indexed
+    # attachment (legacy/v130); metadata search is always complete.
+    fulltext_limited: bool = False
 
 
 @dataclass

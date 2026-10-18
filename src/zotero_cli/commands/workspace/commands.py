@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import sys
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import click
 
@@ -19,16 +20,19 @@ from zotero_cli.commands.workspace._output import (
     workspace_directory_or_exit,
     workspace_exists_or_error,
 )
-from zotero_cli.commands.workspace.indexing import drop_workspace_vector_collection
+from zotero_cli.commands.workspace.indexing import (
+    drop_workspace_vector_collection,
+    prune_workspace_items,
+)
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id
 from zotero_cli.core.workspace_store import (
     Workspace,
+    cleanup_empty_workspace_root,
     delete_workspace,
     list_workspaces,
     save_workspace,
     validate_name,
     workspace_file_path,
-    workspace_index_path,
 )
 from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.models import Collection, Item
@@ -86,7 +90,7 @@ def workspace_new(ctx: click.Context, name: str, description: str, dry_run: bool
             hint=f"Use 'zot workspace show {name}' to view it",
             context="workspace new",
         )
-    created = datetime.now(timezone.utc).isoformat()
+    created = datetime.now(UTC).isoformat()
     data = {"name": name, "description": description, "created": created, "items": 0}
     if dry_run:
         emit_result(
@@ -136,11 +140,11 @@ def workspace_delete(ctx: click.Context, name: str, yes: bool, dry_run: bool) ->
             emit_result(ctx, {"name": name, "cancelled": True}, human_text="Cancelled.")
             return
     try:
-        if workspace_index_path(name).exists():
-            drop_workspace_vector_collection(name)
+        drop_workspace_vector_collection(name)
     except (OSError, RuntimeError, ValueError) as exc:
         emit_warning(f"could not remove vector data for workspace '{name}': {exc}")
     delete_workspace(name)
+    cleanup_empty_workspace_root()
     if workspace is None:
         emit_warning(f"workspace manifest for '{name}' was unreadable; removed the directory anyway")
     emit_result(ctx, data, human_text=f"Workspace deleted: {name}")
@@ -220,9 +224,23 @@ def workspace_remove(ctx: click.Context, name: str, keys: tuple[str, ...], dry_r
         )
         return
     save_workspace(workspace)
-    emit_result(
-        ctx, data, human_text=f"Removed {len(removed)} item(s) from workspace '{name}'", meta={"count": len(removed)}
-    )
+    index_refresh_required = False
+    pruned_index_items = 0
+    if removed:
+        try:
+            pruned_index_items = prune_workspace_items(name, removed)
+        except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
+            index_refresh_required = True
+            emit_warning(
+                f"could not prune the workspace index ({exc}); it may still return removed items until "
+                f"you run 'zot workspace index {name}'"
+            )
+    data["pruned_index_items"] = pruned_index_items
+    data["index_refresh_required"] = index_refresh_required
+    human = f"Removed {len(removed)} item(s) from workspace '{name}'"
+    if pruned_index_items:
+        human += f"; pruned {pruned_index_items} item(s) from the index"
+    emit_result(ctx, data, human_text=human, meta={"count": len(removed)})
 
 
 @workspace_group.command("list")
@@ -439,7 +457,6 @@ def workspace_import_cmd(
             "name": name,
             "resolved": len(unique_items),
             "imported": len(added),
-            "would_add": added,
             "skipped": skipped,
             "sources": sources,
             "items": len(workspace.items),
@@ -447,7 +464,7 @@ def workspace_import_cmd(
         if dry_run:
             emit_result(
                 ctx,
-                data,
+                {**data, "would_add": added},
                 human_text=f"[dry-run] Would import {len(added)} item(s) into workspace '{name}'"
                 + (f" ({skipped} already present)" if skipped else ""),
                 dry_run=True,

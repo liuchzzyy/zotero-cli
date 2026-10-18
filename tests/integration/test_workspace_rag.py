@@ -375,39 +375,95 @@ class TestWorkspaceSearch:
 
 
 class TestWorkspaceIndexPruning:
-    def test_index_prunes_items_removed_from_manifest(self, tmp_path):
+    def test_remove_immediately_prunes_index(self, tmp_path):
         with _patch_workspace(tmp_path):
             _invoke(["workspace", "new", "test-prune"])
             _invoke(["workspace", "add", "test-prune", "ATTN001", "BERT002"])
             first = _invoke(["workspace", "index", "test-prune", "--no-embed"])
             assert first.exit_code == 0, first.output
-            _invoke(["workspace", "remove", "test-prune", "ATTN001"])
-            result = _invoke(["workspace", "index", "test-prune", "--no-embed"], json_output=True)
-        assert result.exit_code == 0, result.output
-        data = json.loads(result.stdout)["data"]
-        assert data["pruned"] == 1
+            removed = _invoke(["workspace", "remove", "test-prune", "ATTN001"], json_output=True)
+            result = _invoke(["workspace", "query", "attention", "--workspace", "test-prune"], json_output=True)
+        assert removed.exit_code == 0, removed.output
+        data = json.loads(removed.stdout)["data"]
+        assert data["pruned_index_items"] == 1
+        assert data["index_refresh_required"] is False
+        payload = json.loads(result.stdout)
+        keys = [row["item_key"] for row in payload["data"]["results"]]
+        assert "ATTN001" not in keys
         idx = RagIndex(tmp_path / "test-prune" / "rag.idx.sqlite")
         try:
-            keys = {chunk["item_key"] for chunk in idx.get_all_chunks()}
-            assert "ATTN001" not in keys
-            assert "BERT002" in keys
+            chunk_keys = {chunk["item_key"] for chunk in idx.get_all_chunks()}
+            assert "ATTN001" not in chunk_keys
+            assert "BERT002" in chunk_keys
             assert idx.get_meta("pdf_hash:ATTN001") is None
             assert idx.get_meta("content_hash:ATTN001") is None
         finally:
             idx.close()
 
-    def test_query_does_not_return_pruned_item(self, tmp_path):
+    def test_remove_warns_when_index_prune_fails(self, tmp_path):
         with _patch_workspace(tmp_path):
-            _invoke(["workspace", "new", "test-prune-q"])
-            _invoke(["workspace", "add", "test-prune-q", "ATTN001", "BERT002"])
-            _invoke(["workspace", "index", "test-prune-q", "--no-embed"])
-            _invoke(["workspace", "remove", "test-prune-q", "ATTN001"])
-            _invoke(["workspace", "index", "test-prune-q", "--no-embed"])
-            result = _invoke(["workspace", "query", "attention", "--workspace", "test-prune-q"], json_output=True)
-        payload = json.loads(result.stdout)
+            _invoke(["workspace", "new", "prune-warn"])
+            _invoke(["workspace", "add", "prune-warn", "ATTN001"])
+            _invoke(["workspace", "index", "prune-warn", "--no-embed"])
+            with patch(
+                "zotero_cli.commands.workspace.commands.prune_workspace_items",
+                side_effect=OSError("index busy"),
+            ):
+                removed = _invoke(["workspace", "remove", "prune-warn", "ATTN001"], json_output=True)
+        payload = json.loads(removed.stdout)
         assert payload["ok"] is True
-        keys = [row["item_key"] for row in payload["data"]["results"]]
-        assert "ATTN001" not in keys
+        assert payload["data"]["index_refresh_required"] is True
+        assert "could not prune the workspace index" in removed.stderr
+
+    def test_index_prunes_stale_manifest_entries_without_remove(self, tmp_path):
+        from zotero_cli.core import workspace_store as workspace_module
+
+        with _patch_workspace(tmp_path):
+            _invoke(["workspace", "new", "test-stale"])
+            _invoke(["workspace", "add", "test-stale", "ATTN001", "BERT002"])
+            _invoke(["workspace", "index", "test-stale", "--no-embed"])
+            stored = workspace_module.load_workspace("test-stale")
+            stored.items = [item for item in stored.items if item.key != "ATTN001"]
+            workspace_module.save_workspace(stored)
+            result = _invoke(["workspace", "index", "test-stale", "--no-embed"], json_output=True)
+        payload = json.loads(result.stdout)
+        assert result.exit_code == 0, result.output
+        assert payload["data"]["pruned"] == 1
+        idx = RagIndex(tmp_path / "test-stale" / "rag.idx.sqlite")
+        try:
+            assert "ATTN001" not in {chunk["item_key"] for chunk in idx.get_all_chunks()}
+        finally:
+            idx.close()
+
+    def test_empty_workspace_index_prunes_stale_chunks(self, tmp_path):
+        from zotero_cli.core import workspace_store as workspace_module
+
+        for force in (False, True):
+            with _patch_workspace(tmp_path):
+                name = f"empty-prune-{int(force)}"
+                _invoke(["workspace", "new", name])
+                _invoke(["workspace", "add", name, "ATTN001"])
+                _invoke(["workspace", "index", name, "--no-embed"])
+                stored = workspace_module.load_workspace(name)
+                stored.items = []
+                workspace_module.save_workspace(stored)
+                args = ["workspace", "index", name, "--no-embed", "--json"]
+                if force:
+                    args.insert(-1, "--force")
+                result = _invoke(args)
+                payload = json.loads(result.stdout)
+                assert result.exit_code == 0, result.output
+                assert payload["data"]["items"] == 0
+                assert payload["data"]["pruned"] == 1
+                assert payload["data"]["chunks"] == 0
+                idx = RagIndex(tmp_path / name / "rag.idx.sqlite")
+                try:
+                    assert idx.get_all_chunks() == []
+                finally:
+                    idx.close()
+                assert not (tmp_path / "_qdrant").exists()
+                _invoke(["workspace", "delete", name, "--yes"])
+                _invoke(["workspace", "new", name])
 
 
 class TestWorkspaceIndexDryRun:
@@ -547,3 +603,211 @@ class TestWorkspaceImportCounts:
         assert payload["data"]["resolved"] == 0
         assert payload["data"]["imported"] == 0
         assert "Warning" in result.output
+
+    def test_import_success_envelope_has_no_would_add(self, tmp_path):
+        with _patch_workspace(tmp_path):
+            _invoke(["workspace", "new", "imp-clean"])
+            dry = _invoke(["workspace", "import", "imp-clean", "--search", "attention", "--dry-run"], json_output=True)
+            result = _invoke(["workspace", "import", "imp-clean", "--search", "attention"], json_output=True)
+        payload = json.loads(result.stdout)
+        assert payload["ok"] is True
+        assert "would_add" not in payload["data"]
+        dry_payload = json.loads(dry.stdout)
+        assert dry_payload["dry_run"] is True
+        assert dry_payload["data"]["would_add"]
+
+
+class TestWorkspaceQueryReadSafety:
+    def test_query_does_not_recreate_missing_vector_store(self, tmp_path):
+        import shutil
+
+        with _patch_workspace(tmp_path):
+            _invoke(["workspace", "new", "q-nostore"])
+            _invoke(["workspace", "add", "q-nostore", "ATTN001"])
+            _invoke(["workspace", "index", "q-nostore", "--no-embed"])
+            assert (tmp_path / "_qdrant").exists()
+            shutil.rmtree(tmp_path / "_qdrant")
+            result = _invoke(["workspace", "query", "attention", "--workspace", "q-nostore"], json_output=True)
+            created = (tmp_path / "_qdrant").exists()
+        assert result.exit_code == 0, result.output
+        assert created is False, "read-only query must not create the Qdrant store"
+        payload = json.loads(result.stdout)
+        assert payload["data"]["results"]
+
+    def test_semantic_query_without_store_reports_degradation(self, tmp_path):
+        import shutil
+
+        with _patch_workspace(tmp_path):
+            _invoke(["workspace", "new", "q-nostore2"])
+            _invoke(["workspace", "add", "q-nostore2", "ATTN001"])
+            _invoke(["workspace", "index", "q-nostore2", "--no-embed"])
+            shutil.rmtree(tmp_path / "_qdrant")
+            result = _invoke(
+                ["workspace", "query", "attention", "--workspace", "q-nostore2", "--mode", "semantic"],
+                json_output=True,
+            )
+            created = (tmp_path / "_qdrant").exists()
+        payload = json.loads(result.stdout)
+        assert result.exit_code == 0, result.output
+        assert created is False
+        assert payload["meta"]["degraded"] is True
+        assert any("no vectors" in note for note in payload["meta"]["degradation"])
+
+
+class TestWorkspaceQueryRerankDegradation:
+    def test_rerank_failure_is_reported_in_meta(self, tmp_path):
+        with _patch_workspace(tmp_path):
+            _invoke(["workspace", "new", "rr-meta"])
+            _invoke(["workspace", "add", "rr-meta", "ATTN001"])
+            _invoke(["workspace", "index", "rr-meta", "--no-embed"])
+            with patch("zotero_cli.commands.workspace.query.rerank_chunks", return_value=None):
+                result = _invoke(
+                    ["workspace", "query", "attention", "--workspace", "rr-meta", "--rerank"],
+                    json_output=True,
+                    env={
+                        "ZOT_RERANK_PROVIDER": "gitee",
+                        "ZOT_RERANK_URL": "https://example.invalid/v1/rerank",
+                        "ZOT_RERANK_KEY": "fake",
+                        "ZOT_RERANK_MODEL": "fake-reranker",
+                    },
+                )
+        payload = json.loads(result.stdout)
+        assert result.exit_code == 0, result.output
+        assert payload["meta"]["rerank_requested"] is True
+        assert payload["meta"]["rerank_applied"] is False
+        assert payload["meta"]["degraded"] is True
+        assert any("reranker" in note for note in payload["meta"]["degradation"])
+
+
+class TestWorkspaceEmbedBounds:
+    def _indexed_workspace(self, name):
+        _invoke(["workspace", "new", name])
+        _invoke(["workspace", "add", name, "ATTN001", "BERT002"])
+        _invoke(["workspace", "index", name, "--no-embed"])
+
+    _EMBED_ENV = {
+        "ZOT_EMBEDDING_URL": "https://example.invalid/v1",
+        "ZOT_EMBEDDING_KEY": "fake",
+        "ZOT_EMBEDDING_MODEL": "bge-m3",
+    }
+
+    def test_permanent_provider_failure_fast_fails(self, tmp_path):
+        import time
+
+        with _patch_workspace(tmp_path):
+            self._indexed_workspace("emb-fast")
+            calls = {"count": 0}
+
+            def failing(*_args: object, **_kwargs: object) -> None:
+                calls["count"] += 1
+                return None
+
+            with patch("zotero_cli.commands.workspace.embedding.embed_texts", side_effect=failing):
+                started = time.monotonic()
+                result = _invoke(
+                    ["workspace", "embed", "emb-fast", "--max-retries", "9", "--retry-sleep", "0", "--limit", "10"],
+                    json_output=True,
+                    env=self._EMBED_ENV,
+                )
+                duration = time.monotonic() - started
+        assert result.exit_code == 5, result.output
+        assert duration < 5.0, f"permanent failure retried too long: {duration:.1f}s"
+        assert calls["count"] <= 20, f"too many provider calls: {calls['count']}"
+        assert json.loads(result.stdout)["error"]["code"] == "network_error"
+
+    def test_global_deadline_bounds_retrying(self, tmp_path):
+        import time
+
+        with _patch_workspace(tmp_path):
+            self._indexed_workspace("emb-deadline")
+
+            def slow_failure(*_args: object, **_kwargs: object) -> None:
+                time.sleep(0.15)
+                return None
+
+            with patch("zotero_cli.commands.workspace.embedding.embed_texts", side_effect=slow_failure):
+                started = time.monotonic()
+                result = _invoke(
+                    [
+                        "workspace",
+                        "embed",
+                        "emb-deadline",
+                        "--max-retries",
+                        "50",
+                        "--retry-sleep",
+                        "0.2",
+                        "--deadline-seconds",
+                        "0.4",
+                        "--limit",
+                        "10",
+                    ],
+                    json_output=True,
+                    env=self._EMBED_ENV,
+                )
+                duration = time.monotonic() - started
+        assert result.exit_code == 5, result.output
+        assert duration < 8.0, f"deadline did not bound retrying: {duration:.1f}s"
+        combined = result.stdout + result.stderr
+        assert "deadline" in combined.lower()
+
+
+class TestWorkspaceIndexStatsPathEscaping:
+    def test_stats_read_handles_special_chars_in_path(self, tmp_path):
+        from zotero_cli.commands.workspace.indexing import _read_index_stats
+
+        index_path = tmp_path / "legacy ?name" / "rag.idx.sqlite"
+        index_path.parent.mkdir()
+        idx = RagIndex(index_path)
+        try:
+            idx.insert_chunk("KEY1", "metadata", "sentinel text", 2)
+            idx.commit()
+        finally:
+            idx.close()
+        stats = _read_index_stats(index_path)
+        assert stats["index_exists"] is True
+        assert stats["chunks"] == 1
+
+
+class TestWorkspaceDeleteVectorCleanupWithoutIndex:
+    def test_delete_drops_collection_even_when_index_file_is_missing(self, tmp_path):
+        from zotero_cli.core.rag.vector_store import QdrantVectorStore
+
+        with _patch_workspace(tmp_path):
+            _invoke(["workspace", "new", "vec-noindex"])
+            store = QdrantVectorStore(tmp_path / "_qdrant", "ws_vec-noindex")
+            try:
+                store.upsert([1], [[0.1, 0.2, 0.3]], [{"item_key": "ATTN001", "source": "metadata"}])
+            finally:
+                store.close()
+            assert (tmp_path / "_qdrant").exists()
+            assert not (tmp_path / "vec-noindex" / "rag.idx.sqlite").exists()
+            result = _invoke(["workspace", "delete", "vec-noindex", "--yes"], json_output=True)
+        assert result.exit_code == 0, result.output
+        assert not (tmp_path / "vec-noindex").exists()
+        assert not (tmp_path / "_qdrant").exists()
+
+    def test_delete_leaves_foreign_directory_untouched(self, tmp_path):
+        with _patch_workspace(tmp_path):
+            _invoke(["workspace", "new", "vec-foreign"])
+            foreign = tmp_path / "_qdrant"
+            foreign.mkdir()
+            user_file = foreign / "user-notes.txt"
+            user_file.write_text("keep me", encoding="utf-8")
+            result = _invoke(["workspace", "delete", "vec-foreign", "--yes"], json_output=True)
+            kept = user_file.exists()
+        assert result.exit_code == 0, result.output
+        assert kept is True, "workspace delete must not prune an unowned directory"
+
+    def test_delete_warns_but_proceeds_when_vector_cleanup_fails(self, tmp_path):
+        with _patch_workspace(tmp_path):
+            _invoke(["workspace", "new", "vec-warn"])
+            with patch(
+                "zotero_cli.commands.workspace.commands.drop_workspace_vector_collection",
+                side_effect=RuntimeError("store locked"),
+            ):
+                result = _invoke(["workspace", "delete", "vec-warn", "--yes"], json_output=True)
+            exists = (tmp_path / "vec-warn").exists()
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["data"]["deleted"] is True
+        assert exists is False
+        assert "could not remove vector data" in result.stderr

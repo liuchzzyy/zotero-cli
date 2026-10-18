@@ -6,8 +6,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-import httpx
-from openai import OpenAI
+from openai import DefaultHttpx2Client, OpenAI
 
 from zotero_cli.config import AiNoteConfig
 
@@ -27,9 +26,6 @@ _IMAGE_REJECTION_HINTS = (
     "unsupported image input",
     "vision is not supported",
     "multimodal is not supported",
-    "unsupported content type",
-    "invalid content type",
-    "content type not supported",
 )
 
 
@@ -45,7 +41,9 @@ class AiClient:
         self.max_retries = max_retries
         base_url = (config.base_url or "").strip()
         is_local = "127.0.0.1" in base_url or "localhost" in base_url
-        http_client = httpx.Client(trust_env=False, timeout=timeout_seconds) if is_local else None
+        # OpenAI 3.x uses httpx2 internally; DefaultHttpx2Client is its public
+        # client class, so the http_client type matches the SDK signature.
+        http_client = DefaultHttpx2Client(trust_env=False, timeout=timeout_seconds) if is_local else None
         self._client = OpenAI(
             base_url=config.base_url,
             api_key=config.api_key,

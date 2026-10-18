@@ -68,7 +68,8 @@ def _command_to_dict(cmd: click.Command, path: list[str]) -> dict:
     # module is part of that tree, so a module-level import would cycle.
     from zotero_cli.cli.safety import safety_tier_for_path
 
-    name = " ".join(path) if path else cmd.name or ""
+    # The root node is the CLI binary, not the Python function name ("main").
+    name = " ".join(path) if path else "zot"
     data: dict[str, Any] = {
         "name": name,
         "help": (cmd.help or "").strip().splitlines()[0] if cmd.help else "",
@@ -168,8 +169,12 @@ def _validate_cached_tree(tree: object, path: str = "(root)") -> None:
                 raise ValueError(f"{path}.subcommands[{name!r}] must be a JSON object")
             _validate_cached_tree(child, f"{path}.subcommands[{name!r}]")
     params = tree.get("params")
-    if params is not None and not isinstance(params, list):
-        raise ValueError(f"{path}.params must be a JSON array")
+    if params is not None:
+        if not isinstance(params, list):
+            raise ValueError(f"{path}.params must be a JSON array")
+        for index, param in enumerate(params):
+            if not isinstance(param, dict):
+                raise ValueError(f"{path}.params[{index}] must be a JSON object")
 
 
 def _load_cached_schema(path: str) -> tuple[dict, dict[str, str]]:
@@ -183,6 +188,8 @@ def _load_cached_schema(path: str) -> tuple[dict, dict[str, str]]:
         if not isinstance(data, dict):
             raise ValueError("cached schema envelope 'data' must be a JSON object")
         meta = loaded.get("meta") or {}
+        if not isinstance(meta, dict):
+            raise ValueError("cached schema envelope 'meta' must be a JSON object")
         version_info = {
             "schema_version": meta.get("schema_version", "unknown"),
             "cli_version": meta.get("cli_version", "unknown"),

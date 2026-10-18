@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
+from threading import Lock
 from typing import Any
 
-import requests  # type: ignore[import-untyped]
+import requests
 
 from zotero_cli.core.rag.embeddings import EmbeddingProvider
 
@@ -14,6 +15,28 @@ FAILOVER_HEADER = "X-Failover-Enabled"
 _VALID_INPUT_TYPES = {"document", "query"}
 # Some OpenAI-compatible deployments reject unknown request fields with 400.
 _INPUT_TYPE_REJECTED_STATUS = {400, 422}
+
+# Process-wide negative cache: once a (base_url, model) pair rejects the advisory
+# input_type field, later queries skip it instead of paying a double request on
+# every call. Keyed by the endpoint/model because rejection is a server property.
+_rejected_input_type_endpoints: set[tuple[str, str]] = set()
+_rejected_input_type_lock = Lock()
+
+
+def _input_type_supported(base_url: str, model: str) -> bool:
+    with _rejected_input_type_lock:
+        return (base_url, model) not in _rejected_input_type_endpoints
+
+
+def _mark_input_type_unsupported(base_url: str, model: str) -> None:
+    with _rejected_input_type_lock:
+        _rejected_input_type_endpoints.add((base_url, model))
+
+
+def _reset_input_type_cache() -> None:
+    """Clear the process-wide input_type rejection cache (used by tests)."""
+    with _rejected_input_type_lock:
+        _rejected_input_type_endpoints.clear()
 
 
 def _auth_headers(api_key: str) -> dict[str, str]:
@@ -79,8 +102,10 @@ class GiteeEmbeddingProvider(EmbeddingProvider):
         return all_embeddings
 
     def _embed_batch(self, batch: list[str], *, input_type: str = "document") -> list[list[float]]:
+        endpoint = (self.base_url, self.model)
         payload: dict[str, Any] = {"model": self.model, "input": batch}
-        if input_type != "document":
+        send_input_type = input_type != "document" and _input_type_supported(*endpoint)
+        if send_input_type:
             # Advisory hint for asymmetric models; sent only for non-default
             # input types so document embedding requests stay unchanged.
             payload["input_type"] = input_type
@@ -90,14 +115,17 @@ class GiteeEmbeddingProvider(EmbeddingProvider):
             json=payload,
             timeout=self.timeout,
         )
-        if not response.ok and "input_type" in payload and response.status_code in _INPUT_TYPE_REJECTED_STATUS:
-            # The deployment does not understand the advisory field; retry the
-            # same batch without it instead of failing the whole embedding run.
-            payload.pop("input_type")
+        if send_input_type and not response.ok and response.status_code in _INPUT_TYPE_REJECTED_STATUS:
+            # The deployment does not understand the advisory field; remember
+            # that for this endpoint and retry the same batch without it instead
+            # of failing the whole embedding run (and without paying a second
+            # request on every subsequent call).
+            _mark_input_type_unsupported(*endpoint)
+            retry_payload = {key: value for key, value in payload.items() if key != "input_type"}
             response = requests.post(
                 f"{self.base_url}/embeddings",
                 headers=_auth_headers(self.api_key),
-                json=payload,
+                json=retry_payload,
                 timeout=self.timeout,
             )
         if not response.ok:

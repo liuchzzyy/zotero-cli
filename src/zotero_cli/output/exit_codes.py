@@ -7,7 +7,9 @@ Exit code contract (documented in AGENTS.md / the bundled skill):
 
 from __future__ import annotations
 
+import contextvars
 import json
+import os
 import sqlite3
 import sys
 import traceback
@@ -49,6 +51,26 @@ CODE_TO_EXIT = {
 }
 
 
+_verbose_mode: contextvars.ContextVar[bool] = contextvars.ContextVar("_verbose_mode", default=False)
+_TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
+
+
+def set_verbose(enabled: bool) -> None:
+    """Record the parsed --verbose flag for the current invocation/context."""
+    _verbose_mode.set(enabled)
+
+
+def verbose_enabled() -> bool:
+    """Return True when tracebacks were requested.
+
+    --verbose is recorded from the parsed root flags (never from raw argv), and
+    the ZOT_DEBUG environment variable is its scripting equivalent.
+    """
+    if _verbose_mode.get():
+        return True
+    return os.environ.get("ZOT_DEBUG", "").strip().lower() in _TRUTHY_ENV_VALUES
+
+
 def exit_code_for(error_code: str) -> int:
     return CODE_TO_EXIT.get(error_code, EXIT_RUNTIME)
 
@@ -61,10 +83,23 @@ def report_error(
     retryable: bool = False,
     hint: str = "",
     context: str = "",
+    committed: bool = False,
 ) -> None:
-    """Emit an error without exiting. JSON -> stdout envelope; text -> stderr human line."""
+    """Emit an error without exiting. JSON -> stdout envelope; text -> stderr human line.
+
+    committed=True marks a write that may have reached the server, so callers
+    must reconcile instead of blindly retrying.
+    """
+    extra = {"committed": True} if committed else None
     if output_json:
-        env = envelope_error(code=code, message=message, retryable=retryable, hint=hint, context=context)
+        env = envelope_error(
+            code=code,
+            message=message,
+            retryable=retryable,
+            hint=hint,
+            context=context,
+            **(extra or {}),
+        )
         click.echo(json.dumps(env, indent=2, ensure_ascii=False))
     else:
         click.echo(f"Error: {message}", err=True)
@@ -72,6 +107,8 @@ def report_error(
             click.echo(f"Hint: {hint}", err=True)
         if context:
             click.echo(f"Context: {context}", err=True)
+        if committed:
+            click.echo("Committed: the write may have reached the server; reconcile before retrying.", err=True)
 
 
 def emit_error(
@@ -82,10 +119,22 @@ def emit_error(
     retryable: bool = False,
     hint: str = "",
     context: str = "",
+    committed: bool = False,
     exit_code: int | None = None,
 ) -> NoReturn:
-    """Emit an error and exit with a code mapped from code."""
-    report_error(code, message, output_json=output_json, retryable=retryable, hint=hint, context=context)
+    """Emit an error and exit with a code mapped from code.
+
+    committed=True marks a write that may have reached the server.
+    """
+    report_error(
+        code,
+        message,
+        output_json=output_json,
+        retryable=retryable,
+        hint=hint,
+        context=context,
+        committed=committed,
+    )
     raise SystemExit(exit_code if exit_code is not None else exit_code_for(code))
 
 
@@ -98,6 +147,7 @@ class ErrorSpec:
     retryable: bool = False
     hint: str = ""
     context: str = "cli"
+    committed: bool = False
 
 
 def _split_message(message: str) -> tuple[str, str]:
@@ -134,6 +184,17 @@ def _class_name_is(exc: BaseException, name: str) -> bool:
     return type(exc).__name__ == name
 
 
+def _is_zotero_schema_error(exc: BaseException) -> bool:
+    """Detect the reader's unsupported-userdata-schema error without an import cycle."""
+    if _class_name_is(exc, "ZoteroSchemaError"):
+        return True
+    try:
+        from zotero_cli.core.zotero.reader import ZoteroSchemaError
+    except Exception:
+        return False
+    return isinstance(exc, ZoteroSchemaError)
+
+
 def _typed_config_exception(exc: BaseException, class_name: str) -> bool:
     if _class_name_is(exc, class_name):
         return True
@@ -161,6 +222,7 @@ def classify_exception(exc: BaseException, *, context: str = "cli") -> ErrorSpec
             retryable=bool(getattr(exc, "retryable", False)),
             hint=str(getattr(exc, "hint", "") or ""),
             context=context,
+            committed=bool(getattr(exc, "committed", False)),
         )
 
     if _typed_config_exception(exc, "LibraryResolutionError"):
@@ -173,6 +235,14 @@ def classify_exception(exc: BaseException, *, context: str = "cli") -> ErrorSpec
     if _typed_config_exception(exc, "ConfigError"):
         message, hint = _split_message(str(exc))
         return ErrorSpec(code="configuration_error", message=message, hint=hint, context=context)
+
+    if _is_zotero_schema_error(exc):
+        return ErrorSpec(
+            code="configuration_error",
+            message=f"Unsupported Zotero database schema: {exc}",
+            hint="Update zotero-cli or use a supported Zotero version",
+            context=context,
+        )
 
     if isinstance(exc, (FileNotFoundError, PermissionError, IsADirectoryError)):
         message, hint = _split_message(str(exc))
@@ -244,12 +314,15 @@ def emit_exception(
         retryable=spec.retryable,
         hint=spec.hint,
         context=spec.context,
+        committed=spec.committed,
     )
     raise SystemExit(exit_code_for(spec.code))
 
 
 __all__ = [
     "CODE_TO_EXIT",
+    "verbose_enabled",
+    "set_verbose",
     "EXIT_AUTH",
     "EXIT_CONFLICT",
     "EXIT_NETWORK",

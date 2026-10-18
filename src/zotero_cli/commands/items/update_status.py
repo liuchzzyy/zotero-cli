@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import click
 
@@ -22,8 +23,18 @@ from zotero_cli.core.zotero.publication_status import (
 from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.core.zotero.writer import SYNC_REMINDER, ZoteroWriter
 from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
-from zotero_cli.output.envelope import envelope_ok
-from zotero_cli.output.exit_codes import emit_error
+from zotero_cli.output.envelope import envelope_ok, envelope_partial_data
+from zotero_cli.output.exit_codes import EXIT_NETWORK, EXIT_RUNTIME, emit_error
+from zotero_cli.output.renderers import sanitize_text
+
+_NETWORK_FAMILY_CODES = frozenset({"network_error", "rate_limited"})
+
+
+def _write_failure_exit_code(failure_codes: list[str]) -> int:
+    """Exit 5 when every write failure is network/rate, otherwise runtime (1)."""
+    if failure_codes and all(code in _NETWORK_FAMILY_CODES for code in failure_codes):
+        return EXIT_NETWORK
+    return EXIT_RUNTIME
 
 
 @click.command("update-status")
@@ -119,12 +130,11 @@ def update_status_cmd(
     finally:
         reader.close()
 
-    preview_extra = {} if apply else {"dry_run": True}
     if not items:
         if json_out:
             data = {"results": [], "published": 0, "checked": 0, "updated": 0, "sync_required": False}
             click.echo(
-                json.dumps(envelope_ok(data, meta={"count": 0}, extra=preview_extra), indent=2, ensure_ascii=False)
+                json.dumps(envelope_ok(data, meta={"count": 0}, dry_run=not apply), indent=2, ensure_ascii=False)
             )
         else:
             click.echo("No preprints found.")
@@ -145,7 +155,7 @@ def update_status_cmd(
         if json_out:
             data = {"results": [], "published": 0, "checked": 0, "updated": 0, "sync_required": False}
             click.echo(
-                json.dumps(envelope_ok(data, meta={"count": 0}, extra=preview_extra), indent=2, ensure_ascii=False)
+                json.dumps(envelope_ok(data, meta={"count": 0}, dry_run=not apply), indent=2, ensure_ascii=False)
             )
         else:
             click.echo("No items with preprint IDs found.")
@@ -176,7 +186,8 @@ def update_status_cmd(
         for i, (item_key, info, title) in enumerate(preprint_items):
             if not json_out:
                 label = f"[{i + 1}/{len(preprint_items)}]"
-                short_title = title[:60] + ("..." if len(title) > 60 else "")
+                safe_title = sanitize_text(title)
+                short_title = safe_title[:60] + ("..." if len(safe_title) > 60 else "")
                 click.echo(f"{label} {short_title}", nl=False)
 
             try:
@@ -207,7 +218,7 @@ def update_status_cmd(
                 results.append(result)
                 if not json_out:
                     venue = status.venue or status.journal_name or "Unknown venue"
-                    click.echo(f" → Published in {venue}")
+                    click.echo(f" → Published in {sanitize_text(venue)}")
             else:
                 result = {
                     "key": item_key,
@@ -226,7 +237,7 @@ def update_status_cmd(
         client.close()
 
     updated = 0
-    update_failed: list[dict[str, object]] = []
+    update_failed: list[dict[str, Any]] = []
 
     if not json_out:
         click.echo()
@@ -267,7 +278,7 @@ def update_status_cmd(
                 r["updated"] = True
                 updated += 1
                 if not json_out:
-                    click.echo(f"  Updated {r['key']}: {r['title'][:50]}...")
+                    click.echo(f"  Updated {r['key']}: {sanitize_text(r['title'])[:50]}...")
             except ZoteroWriteError as e:
                 error = {"code": e.code, "message": str(e), "retryable": e.retryable}
                 r["updated"] = False
@@ -284,14 +295,16 @@ def update_status_cmd(
         "update_failed": update_failed,
         "sync_required": updated > 0,
     }
+    failure_codes = [str(failure["error"].get("code", "")) for failure in update_failed]
     if json_out:
-        click.echo(
-            json.dumps(
-                envelope_ok(data, meta={"count": len(results)}, extra=preview_extra),
-                indent=2,
-                ensure_ascii=False,
-            )
-        )
+        if apply and update_failed:
+            # Partial success: some writes may have failed; never ok=True then.
+            env = envelope_partial_data(data, meta={"count": len(results)})
+        else:
+            env = envelope_ok(data, meta={"count": len(results)}, dry_run=not apply)
+        click.echo(json.dumps(env, indent=2, ensure_ascii=False))
+        if apply and update_failed:
+            raise SystemExit(_write_failure_exit_code(failure_codes))
         return
 
     if published_count == 0:
@@ -304,3 +317,6 @@ def update_status_cmd(
     click.echo(f"\nUpdated {updated} item(s).")
     if updated > 0:
         click.echo(SYNC_REMINDER)
+    if update_failed:
+        click.echo(f"{len(update_failed)} item(s) failed to update.", err=True)
+        raise SystemExit(_write_failure_exit_code(failure_codes))

@@ -49,9 +49,14 @@ MAX_SCHEMA_VERSION = 200
 # a bounded number of those caches so full-text search keeps working without
 # loading the whole corpus into memory.
 _FULLTEXT_CACHE_FILENAME = ".zotero-ft-cache"
-_FULLTEXT_CACHE_MAX_FILES = 1000
-_FULLTEXT_CACHE_MAX_BYTES_PER_FILE = 2 * 1024 * 1024
-_FULLTEXT_CACHE_MAX_TOTAL_BYTES = 16 * 1024 * 1024
+# Bounds are sized from observed real libraries (1,510 caches on the reference
+# library) so a normal library gets a complete scan while pathological
+# collections stay finite. Scan truncation is reported via
+# SearchResult.fulltext_limited instead of failing or silently pretending the
+# corpus was fully searched.
+_FULLTEXT_CACHE_MAX_FILES = 4000
+_FULLTEXT_CACHE_MAX_BYTES_PER_FILE = 8 * 1024 * 1024
+_FULLTEXT_CACHE_MAX_TOTAL_BYTES = 256 * 1024 * 1024
 
 
 class ZoteroSchemaError(RuntimeError):
@@ -308,6 +313,7 @@ class ZoteroReader(CitationExportMixin):
         """Search items by title, abstract, creator, tag, or full text; trash excluded."""
         conn = self._connect()
         item_ids: set[int] = set()
+        fulltext_limited = False
         excl_sql, excl_params = self._excluded_filter()
         lib_sql, lib_params = self._library_filter()
 
@@ -348,7 +354,10 @@ class ZoteroReader(CitationExportMixin):
             item_ids.update(r["itemID"] for r in rows)
 
             # Search fulltext (legacy word tables or v130 per-attachment caches).
-            item_ids.update(self._search_fulltext(conn, query, excl_sql, excl_params, lib_sql, lib_params))
+            fulltext_ids, fulltext_limited = self._search_fulltext(
+                conn, query, excl_sql, excl_params, lib_sql, lib_params
+            )
+            item_ids.update(fulltext_ids)
         else:
             rows = conn.execute(
                 f"SELECT itemID FROM items i WHERE itemTypeID {excl_sql} {lib_sql} "
@@ -404,7 +413,7 @@ class ZoteroReader(CitationExportMixin):
 
         items = self._get_items_batch(conn, target_ids) if target_ids else []
 
-        return SearchResult(items=items, total=total, query=query)
+        return SearchResult(items=items, total=total, query=query, fulltext_limited=fulltext_limited)
 
     # --- Search helpers ---
 
@@ -445,7 +454,7 @@ class ZoteroReader(CitationExportMixin):
         excl_params: tuple[int, ...],
         lib_sql: str,
         lib_params: tuple[int, ...],
-    ) -> set[int]:
+    ) -> tuple[set[int], bool]:
         """Resolve item IDs whose attachment full text matches the query.
 
         Zotero 6 databases store tokenised full text in fulltextWords /
@@ -468,11 +477,11 @@ class ZoteroReader(CitationExportMixin):
                     (self._like_pattern(query), *excl_params, *lib_params),
                 ).fetchall()
             except sqlite3.Error:
-                return set()
-            return {row["parentItemID"] for row in rows}
+                return set(), False
+            return {row["parentItemID"] for row in rows}, False
         if mode == "v130":
             return self._cached_fulltext_ids(conn, query, excl_sql, excl_params, lib_sql, lib_params)
-        return set()
+        return set(), False
 
     def _cached_fulltext_ids(
         self,
@@ -482,30 +491,37 @@ class ZoteroReader(CitationExportMixin):
         excl_params: tuple[int, ...],
         lib_sql: str,
         lib_params: tuple[int, ...],
-    ) -> set[int]:
+    ) -> tuple[set[int], bool]:
         """Scan a bounded number of .zotero-ft-cache files for the query text."""
         needle = query.casefold()
         if not needle:
-            return set()
+            return set(), False
+        base_join = (
+            "FROM fulltextItems ft "
+            "JOIN itemAttachments ia ON ia.itemID = ft.itemID "
+            "JOIN items att ON att.itemID = ft.itemID "
+            "JOIN items i ON ia.parentItemID = i.itemID "
+            "WHERE ia.parentItemID IS NOT NULL "
+            f"AND i.itemTypeID {excl_sql} {lib_sql} "
+            "AND i.itemID NOT IN (SELECT itemID FROM deletedItems)"
+        )
         try:
+            total_indexed = conn.execute(
+                f"SELECT COUNT(*) AS count {base_join}",
+                (*excl_params, *lib_params),
+            ).fetchone()["count"]
             rows = conn.execute(
                 "SELECT ia.parentItemID AS parent_id, att.key AS attachment_key "
-                "FROM fulltextItems ft "
-                "JOIN itemAttachments ia ON ia.itemID = ft.itemID "
-                "JOIN items att ON att.itemID = ft.itemID "
-                "JOIN items i ON ia.parentItemID = i.itemID "
-                "WHERE ia.parentItemID IS NOT NULL "
-                f"AND i.itemTypeID {excl_sql} {lib_sql} "
-                "AND i.itemID NOT IN (SELECT itemID FROM deletedItems) "
-                "ORDER BY ft.itemID LIMIT ?",
+                f"{base_join} ORDER BY ft.itemID LIMIT ?",
                 (*excl_params, *lib_params, _FULLTEXT_CACHE_MAX_FILES),
             ).fetchall()
         except sqlite3.Error:
-            return set()
+            return set(), False
+        limited = total_indexed > len(rows)
         storage_dir = self._resolver.storage_dir
         matched: set[int] = set()
         scanned_bytes = 0
-        for row in rows:
+        for position, row in enumerate(rows):
             cache_path = storage_dir / row["attachment_key"] / _FULLTEXT_CACHE_FILENAME
             try:
                 if not cache_path.is_file():
@@ -518,8 +534,9 @@ class ZoteroReader(CitationExportMixin):
             if needle in data.decode("utf-8", errors="ignore").casefold():
                 matched.add(row["parent_id"])
             if scanned_bytes >= _FULLTEXT_CACHE_MAX_TOTAL_BYTES:
+                limited = limited or position + 1 < len(rows)
                 break
-        return matched
+        return matched, limited
 
     @staticmethod
     def _chunks(values: list[int], size: int | None = None) -> Iterator[list[int]]:

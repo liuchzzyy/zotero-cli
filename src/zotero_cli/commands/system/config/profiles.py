@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import click
 
@@ -12,6 +13,7 @@ from zotero_cli.config import (
     get_default_profile,
     list_profiles,
     read_config_data,
+    resolve_active_profile,
     resolve_config_path,
     write_config_data,
 )
@@ -36,7 +38,7 @@ def profile_list(ctx: click.Context, config_path: str | None) -> None:
     try:
         path = resolve_config_path(config_path, must_exist=config_path is not None)
         profiles = list_profiles(path)
-        default = get_default_profile(path)
+        default = resolve_active_profile({name: {} for name in profiles}, get_default_profile(path)) or ""
     except ConfigError as exc:
         _emit_config_error(ctx, exc)
         return
@@ -83,18 +85,17 @@ def profile_set(ctx: click.Context, name: str, config_path: str | None, dry_run:
             default_table = {}
         if not isinstance(default_table, dict):
             raise ConfigError("Invalid config: [default] must be a table")
-        backup_path = ""
+        backup: Path | None = None
         if default_table.get("profile") != name:
             default_table["profile"] = name
             data["default"] = default_table
             if not dry_run:
-                write_config_data(path, data)
-                backup_path = str(path.with_name(path.name + ".bak"))
+                backup = write_config_data(path, data)
     except ConfigError as exc:
         _emit_config_error(ctx, exc)
         return
 
-    payload = {"profile": name, "config_path": str(path), "backup_path": backup_path}
+    payload = {"profile": name, "config_path": str(path), "backup_path": str(backup) if backup else ""}
     if json_out:
         extra = {"dry_run": True} if dry_run else None
         click.echo(json.dumps(envelope_ok(payload, extra=extra), indent=2, ensure_ascii=False))

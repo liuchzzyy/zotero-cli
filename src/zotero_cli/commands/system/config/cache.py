@@ -9,6 +9,7 @@ import click
 from zotero_cli.commands.system.config.commands import _json_out
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
+from zotero_cli.output.renderers import sanitize_text
 
 
 @click.group("cache", invoke_without_command=True)
@@ -44,7 +45,7 @@ def cache_clear(ctx: click.Context, yes: bool, dry_run: bool) -> None:
     if dry_run:
         payload = {"entries": entries, "total_bytes": total_bytes, "would_remove": entries}
         if json_out:
-            click.echo(json.dumps(envelope_ok(payload, extra={"dry_run": True}), indent=2, ensure_ascii=False))
+            click.echo(json.dumps(envelope_ok(payload, dry_run=True), indent=2, ensure_ascii=False))
         else:
             click.echo(f"Would remove {entries} cached MinerU package(s) ({total_bytes:,} bytes).")
         return
@@ -67,7 +68,7 @@ def cache_clear(ctx: click.Context, yes: bool, dry_run: bool) -> None:
             output_json=json_out,
             context="config",
         )
-    payload = {"entries": entries, "total_bytes": total_bytes, "would_remove": entries, "removed": removed}
+    payload = {"entries": entries, "total_bytes": total_bytes, "removed": removed}
     if json_out:
         click.echo(json.dumps(envelope_ok(payload), indent=2, ensure_ascii=False))
         return
@@ -99,9 +100,10 @@ def cache_stats(ctx: click.Context) -> None:
 
 
 @cache_group.command("list")
+@click.option("--limit", type=click.IntRange(min=0), default=100, show_default=True, help="Entries to show (0 = all)")
 @click.pass_context
-def cache_list(ctx: click.Context) -> None:
-    """List cached MinerU parse packages."""
+def cache_list(ctx: click.Context, limit: int) -> None:
+    """List cached MinerU parse packages (bounded by --limit; 0 shows all)."""
     from zotero_cli.core.mineru import MinerUParseCache
 
     json_out = _json_out(ctx)
@@ -114,14 +116,22 @@ def cache_list(ctx: click.Context) -> None:
             output_json=json_out,
             context="config",
         )
+    total = len(entries)
+    visible = entries if limit == 0 else entries[:limit]
     if json_out:
-        click.echo(json.dumps(envelope_ok(entries, meta={"count": len(entries)}), ensure_ascii=False, indent=2))
+        meta = {"count": len(visible), "total": total, "limit": limit}
+        click.echo(json.dumps(envelope_ok(visible, meta=meta), ensure_ascii=False, indent=2))
         return
-    if not entries:
+    if not visible:
         click.echo("Cache is empty.")
         return
-    for entry in entries:
+    if len(visible) < total:
+        click.echo(f"Showing {len(visible)} of {total} cached package(s); use --limit N or --limit 0 to list all.")
+    for entry in visible:
+        # Cache metadata comes from local PDF filenames: sanitize before echoing.
         click.echo(
-            f"{entry.get('source_name', '?')}  {entry.get('source_sha256', '')[:12]}  "
-            f"{entry.get('mineru_model_version', '?')}  {entry.get('parsed_at', '?')}"
+            f"{sanitize_text(entry.get('source_name', '?'))}  "
+            f"{sanitize_text(entry.get('source_sha256', ''))[:12]}  "
+            f"{sanitize_text(entry.get('mineru_model_version', '?'))}  "
+            f"{sanitize_text(entry.get('parsed_at', '?'))}"
         )

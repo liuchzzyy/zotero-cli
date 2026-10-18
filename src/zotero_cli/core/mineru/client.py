@@ -17,7 +17,7 @@ from threading import Lock
 from typing import Any
 from urllib.parse import urljoin
 
-from requests import Session  # type: ignore[import-untyped]
+from requests import Session
 
 from zotero_cli.core.mineru.models import (
     _MAX_ARCHIVE_BYTES,
@@ -28,7 +28,13 @@ from zotero_cli.core.mineru.models import (
     MinerUError,
     ProgressCallback,
 )
-from zotero_cli.core.mineru.utils import _as_mineru_error, _retry, _url_origin, _validated_model_version
+from zotero_cli.core.mineru.utils import (
+    _RETRYABLE_EXCEPTIONS,
+    _as_mineru_error,
+    _retry,
+    _url_origin,
+    _validated_model_version,
+)
 
 
 @dataclass(frozen=True)
@@ -151,10 +157,8 @@ class MinerUClient:
         files: list[tuple[Path, str, str]],
         progress_callback: Callable[[int], None] | None = None,
     ) -> str:
-        payload = {
-            "files": [{"name": name, "data_id": data_id} for _path, name, data_id in files],
-            "model_version": self.model_version,
-        }
+        file_entries: list[dict[str, str]] = [{"name": name, "data_id": data_id} for _path, name, data_id in files]
+        payload: dict[str, Any] = {"files": file_entries, "model_version": self.model_version}
         self._rate_limiter.acquire()
         # Batch creation is not idempotent: retrying after a lost response would
         # create a second server-side batch and duplicate MinerU work. Let
@@ -232,7 +236,11 @@ class MinerUClient:
             # session/netrc/URL credentials, including on presigned downloads.
             response = _retry(
                 lambda: self._session.get(
-                    zip_url, headers=headers, auth=lambda request: request, timeout=300, allow_redirects=False
+                    zip_url,
+                    headers=headers,  # type: ignore[arg-type]  # None removes inherited headers
+                    auth=lambda request: request,
+                    timeout=300,
+                    allow_redirects=False,
                 )
             )
             # requests preserves auth on some cross-origin redirects (notably
@@ -245,8 +253,36 @@ class MinerUClient:
                 raise MinerUError(
                     f"Failed to download MinerU result: HTTP {response.status_code} {_error_text(response)}"
                 )
-            return _read_limited_body(response)
+            try:
+                return _read_limited_body(response)
+            except _RETRYABLE_EXCEPTIONS:
+                # A connection can drop while streaming a large body, after the
+                # request-level retry above has already succeeded. Downloads are
+                # idempotent, so re-issue exactly one fresh GET and use its body.
+                retried = _retry(
+                    lambda: self._session.get(
+                        zip_url,
+                        headers=headers,  # type: ignore[arg-type]  # None removes inherited headers
+                        auth=lambda request: request,
+                        timeout=300,
+                        allow_redirects=False,
+                    )
+                )
+                if retried.status_code != 200:
+                    raise MinerUError(
+                        f"Failed to download MinerU result: HTTP {retried.status_code} {_error_text(retried)}"
+                    )
+                return _read_limited_body(retried)
         raise MinerUError("Too many redirects while downloading MinerU result")
+
+
+def _format_byte_limit(limit: int) -> str:
+    """Format a byte cap precisely (e.g. 100 B, 1.5 KB, 200 MB, 1 GB)."""
+    for unit, size in (("GB", 1024**3), ("MB", 1024**2), ("KB", 1024)):
+        if limit >= size:
+            amount = limit / size
+            return f"{int(amount)} {unit}" if amount.is_integer() else f"{amount:.1f} {unit}"
+    return f"{limit} B"
 
 
 def _error_text(response: Any) -> str:
@@ -264,12 +300,12 @@ def _read_limited_body(response: Any) -> bytes:
         except (TypeError, ValueError):
             declared = None
         if declared is not None and declared > _MAX_ARCHIVE_BYTES:
-            raise MinerUError(f"MinerU result archive exceeds the {_MAX_ARCHIVE_BYTES // (1024 * 1024)} MB limit")
+            raise MinerUError(f"MinerU result archive exceeds the {_format_byte_limit(_MAX_ARCHIVE_BYTES)} limit")
     iter_content = getattr(response, "iter_content", None)
     if iter_content is None:
         data = bytes(response.content)
         if len(data) > _MAX_ARCHIVE_BYTES:
-            raise MinerUError(f"MinerU result archive exceeds the {_MAX_ARCHIVE_BYTES // (1024 * 1024)} MB limit")
+            raise MinerUError(f"MinerU result archive exceeds the {_format_byte_limit(_MAX_ARCHIVE_BYTES)} limit")
         return data
     chunks: list[bytes] = []
     total = 0
@@ -278,7 +314,7 @@ def _read_limited_body(response: Any) -> bytes:
             continue
         total += len(chunk)
         if total > _MAX_ARCHIVE_BYTES:
-            raise MinerUError(f"MinerU result archive exceeds the {_MAX_ARCHIVE_BYTES // (1024 * 1024)} MB limit")
+            raise MinerUError(f"MinerU result archive exceeds the {_format_byte_limit(_MAX_ARCHIVE_BYTES)} limit")
         chunks.append(chunk)
     return b"".join(chunks)
 
@@ -315,12 +351,12 @@ def _validate_archive_members(archive: zipfile.ZipFile) -> None:
             continue
         if info.file_size > _MAX_ARCHIVE_MEMBER_BYTES:
             raise MinerUError(
-                f"MinerU ZIP member size exceeds the {_MAX_ARCHIVE_MEMBER_BYTES // (1024 * 1024)} MB limit"
+                f"MinerU ZIP member size exceeds the {_format_byte_limit(_MAX_ARCHIVE_MEMBER_BYTES)} limit"
             )
         total += info.file_size
         if total > _MAX_ARCHIVE_TOTAL_BYTES:
             raise MinerUError(
-                f"MinerU ZIP uncompressed size exceeds the {_MAX_ARCHIVE_TOTAL_BYTES // (1024 * 1024)} MB limit"
+                f"MinerU ZIP uncompressed size exceeds the {_format_byte_limit(_MAX_ARCHIVE_TOTAL_BYTES)} limit"
             )
 
 
@@ -367,12 +403,12 @@ def _safe_extract_zip(archive: zipfile.ZipFile, output_dir: Path) -> None:
             continue
         if member.file_size > _MAX_ARCHIVE_MEMBER_BYTES:
             raise MinerUError(
-                f"MinerU ZIP member size exceeds the {_MAX_ARCHIVE_MEMBER_BYTES // (1024 * 1024)} MB limit"
+                f"MinerU ZIP member size exceeds the {_format_byte_limit(_MAX_ARCHIVE_MEMBER_BYTES)} limit"
             )
         total += member.file_size
         if total > _MAX_ARCHIVE_TOTAL_BYTES:
             raise MinerUError(
-                f"MinerU ZIP uncompressed size exceeds the {_MAX_ARCHIVE_TOTAL_BYTES // (1024 * 1024)} MB limit"
+                f"MinerU ZIP uncompressed size exceeds the {_format_byte_limit(_MAX_ARCHIVE_TOTAL_BYTES)} limit"
             )
         extracted += 1
         if extracted > _MAX_ARCHIVE_ENTRIES:

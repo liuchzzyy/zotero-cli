@@ -96,3 +96,24 @@ class TestSortOrder:
             assert dates == sorted(dates, reverse=True)
         finally:
             reader.close()
+
+
+class TestFulltextBudgetMeta:
+    def test_search_json_reports_limited_fulltext_scan(self, monkeypatch):
+        from zotero_cli.core.zotero import reader as reader_module
+
+        monkeypatch.setattr(
+            reader_module.ZoteroReader,
+            "_search_fulltext",
+            lambda self, *args, **kwargs: (set(), True),
+        )
+        result = _invoke(["search", "attention"], json_output=True)
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["meta"]["fulltext_limited"] is True
+
+    def test_search_json_reports_complete_scan(self):
+        result = _invoke(["search", "attention"], json_output=True)
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["meta"]["fulltext_limited"] is False

@@ -1,8 +1,10 @@
-"""zot open: open an item's PDF or URL in the default application."""
+"""zot open: open an item's PDF/URL or a web URL in the default application."""
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import subprocess
 import sys
 
@@ -10,7 +12,13 @@ import click
 
 from zotero_cli.config import get_data_dir, get_prefs_js_path, load_config, resolve_library_id
 from zotero_cli.core.zotero.reader import ZoteroReader
+from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
+from zotero_cli.output.renderers import sanitize_text
+
+_HTTP_URL_RE = re.compile(r"^https?://", re.IGNORECASE)
+_ANY_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
+_DOI_RE = re.compile(r"^doi:", re.IGNORECASE)
 
 
 def _open_path(path: str) -> None:
@@ -29,24 +37,63 @@ def _open_path(path: str) -> None:
         subprocess.run(["xdg-open", path], check=True)
 
 
+def _emit_and_open(target: str, *, kind: str, output_json: bool) -> None:
+    """Report the target (envelope or human line) and launch the default app."""
+    if output_json:
+        click.echo(json.dumps(envelope_ok({"target": target, "kind": kind, "gui": True}), indent=2, ensure_ascii=False))
+    else:
+        click.echo(f"Opening {sanitize_text(target)}")
+    _open_path(target)
+
+
 @click.command("open")
 @click.argument("key")
-@click.option("--url", "open_url", is_flag=True, help="Open the item URL in browser instead of PDF")
+@click.option(
+    "--url",
+    "open_url",
+    is_flag=True,
+    help="Open the item URL (or a web URL passed as KEY) in the browser instead of the PDF",
+)
 @click.pass_context
 def open_cmd(ctx: click.Context, key: str, open_url: bool) -> None:
     """Open the PDF or URL of a Zotero item in the default app.
 
+    KEY may also be an http(s) URL, which is opened directly
+    (e.g. zot open --url https://example.com). This command launches the system
+    default application, i.e. it has a GUI side effect; JSON mode returns one
+    envelope {target, kind, gui} describing what was opened.
+
     \b
     Examples:
-      zot open ABC123          Open PDF in default viewer
-      zot open ABC123 --url    Open DOI/URL in browser
+      zot open ABC123                    Open PDF in default viewer
+      zot open ABC123 --url              Open DOI/URL in browser
+      zot open --url https://example.com Open a web URL directly
+      zot --json open ABC123             Envelope + open (GUI side effect)
     """
+    json_out = ctx.obj.get("json", False)
+
+    # Direct web URL support: "zot open --url https://example.com" used to treat
+    # the URL as an item key. Only http(s) is accepted here.
+    if _HTTP_URL_RE.match(key):
+        _emit_and_open(key, kind="url", output_json=json_out)
+        return
+    if _ANY_SCHEME_RE.match(key):
+        emit_error(
+            "validation_error",
+            f"Unsupported URL scheme in '{key}'; only http(s) URLs are supported",
+            output_json=json_out,
+            hint="Use 'zot open <item-key>' for library items",
+            context="open",
+        )
+    if _DOI_RE.match(key):
+        _emit_and_open(f"https://doi.org/{key[4:]}", kind="url", output_json=json_out)
+        return
+
     cfg = load_config(profile=ctx.obj.get("profile"))
     data_dir = get_data_dir(cfg)
     db_path = data_dir / "zotero.sqlite"
     library_id = resolve_library_id(db_path, ctx.obj)
     reader = ZoteroReader(db_path, library_id=library_id, prefs_js_path=get_prefs_js_path(cfg))
-    json_out = ctx.obj.get("json", False)
     try:
         item = reader.get_item(key)
         if item is None:
@@ -69,8 +116,7 @@ def open_cmd(ctx: click.Context, key: str, open_url: bool) -> None:
                     output_json=json_out,
                     context="open",
                 )
-            click.echo(f"Opening {target}")
-            _open_path(target)
+            _emit_and_open(target, kind="url", output_json=json_out)
             return
 
         # Default: open PDF
@@ -91,7 +137,6 @@ def open_cmd(ctx: click.Context, key: str, open_url: bool) -> None:
                 output_json=json_out,
                 context="open",
             )
-        click.echo(f"Opening {pdf_path}")
-        _open_path(str(pdf_path))
+        _emit_and_open(str(pdf_path), kind="pdf", output_json=json_out)
     finally:
         reader.close()

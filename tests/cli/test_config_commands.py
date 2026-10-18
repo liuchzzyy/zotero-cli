@@ -451,3 +451,280 @@ def test_config_init_handles_preexisting_foreign_parent(tmp_path):
     assert dry_run.exit_code == 0, dry_run.output
     assert json.loads(dry_run.output)["dry_run"] is True
     assert config_path.read_text(encoding="utf-8") == before_dry_run
+
+
+# --- H-07: invalid default profile fails closed ------------------------------
+
+INVALID_DEFAULT_PROFILE_CONFIG = """
+[default]
+profile = "typo"
+
+[zotero]
+library_id = "legacy-999"
+api_key = "legacy-secret"
+"""
+
+
+def test_config_show_invalid_default_profile_is_typed_error(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(INVALID_DEFAULT_PROFILE_CONFIG, encoding="utf-8")
+    result = _invoke(["--json", "config", "show", "--config-path", str(config_path)])
+    assert result.exit_code == 3, result.output
+    envelope = json.loads(result.output)
+    assert envelope["error"]["code"] == "configuration_error"
+    assert "Unknown config profile 'typo'" in envelope["error"]["message"]
+
+
+def test_profile_list_invalid_default_profile_is_typed_error(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(INVALID_DEFAULT_PROFILE_CONFIG, encoding="utf-8")
+    result = _invoke(["--json", "config", "profile", "list", "--config-path", str(config_path)])
+    assert result.exit_code == 3, result.output
+    assert json.loads(result.output)["error"]["code"] == "configuration_error"
+
+
+def test_config_init_invalid_default_profile_fails_closed_without_profile(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text('[default]\nprofile = "typo"\n\n[profile.main]\nlibrary_id = "1"\n', encoding="utf-8")
+    result = _invoke(
+        ["--json", "--no-interaction", "config", "init", "--config-path", str(config_path), "--library-id", "5"]
+    )
+    assert result.exit_code == 3, result.output
+    assert json.loads(result.output)["error"]["code"] == "configuration_error"
+
+
+def test_config_init_explicit_profile_repairs_invalid_default(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text('[default]\nprofile = "typo"\n\n[profile.main]\nlibrary_id = "1"\n', encoding="utf-8")
+    result = _invoke(
+        [
+            "--json",
+            "--no-interaction",
+            "--profile",
+            "main",
+            "config",
+            "init",
+            "--config-path",
+            str(config_path),
+            "--library-id",
+            "9",
+        ]
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["data"]["profile"] == "main"
+    data = read_config_data(config_path)
+    assert data["default"]["profile"] == "main"
+    assert data["profile"]["main"]["library_id"] == "9"
+
+
+def test_profile_set_repairs_invalid_default_profile(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text('[default]\nprofile = "typo"\n\n[profile.main]\nlibrary_id = "1"\n', encoding="utf-8")
+    result = _invoke(["--json", "config", "profile", "set", "main", "--config-path", str(config_path)])
+    assert result.exit_code == 0, result.output
+    assert read_config_data(config_path)["default"]["profile"] == "main"
+    show = _invoke(["--json", "config", "show", "--config-path", str(config_path)])
+    assert show.exit_code == 0, show.output
+    assert json.loads(show.output)["data"]["library_id"] == "1"
+
+
+def test_write_command_blocked_before_writer_when_profile_config_invalid(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(INVALID_DEFAULT_PROFILE_CONFIG, encoding="utf-8")
+    monkeypatch.setattr("zotero_cli.config.paths.config_file_path", lambda start=None: config_path)
+
+    with patch("zotero_cli.commands.items.update.ZoteroWriter") as writer_cls:
+        result = _invoke(
+            ["--json", "update", "ATTN001", "--title", "X"],
+            env={"ZOT_LIBRARY_ID": "123", "ZOT_API_KEY": "fake-key"},
+        )
+
+    assert result.exit_code == 3, result.output
+    assert json.loads(result.output)["error"]["code"] == "configuration_error"
+    writer_cls.assert_not_called()
+
+
+# --- M-20: invalid UTF-8 config is a typed configuration error ---------------
+
+
+def test_config_show_invalid_utf8_is_typed_error(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_bytes(b'[zotero]\nlibrary_id = "\xff\xfe"\n')
+    result = _invoke(["--json", "config", "show", "--config-path", str(config_path)])
+    assert result.exit_code == 3, result.output
+    envelope = json.loads(result.output)
+    assert envelope["error"]["code"] == "configuration_error"
+    assert "not valid UTF-8" in envelope["error"]["message"]
+
+
+# --- M-18/M-24: symlink write-through and no-op init -------------------------
+
+
+def test_config_init_writes_through_symlink(tmp_path):
+    real_dir = tmp_path / "dotfiles"
+    real_dir.mkdir()
+    target = real_dir / "config.toml"
+    target.write_text(RICH_CONFIG, encoding="utf-8")
+    link = tmp_path / "config.toml"
+    link.symlink_to(target)
+
+    result = _invoke(
+        ["--json", "--no-interaction", "config", "init", "--config-path", str(link), "--library-id", "333"]
+    )
+    assert result.exit_code == 0, result.output
+    envelope = json.loads(result.output)
+    assert link.is_symlink()
+    assert read_config_data(link)["profile"]["lab"]["library_id"] == "333"
+    backup = real_dir / "config.toml.bak"
+    assert backup.exists()
+    assert envelope["data"]["backup_path"] == str(backup)
+
+
+def test_config_init_noop_second_run_skips_rewrite(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(RICH_CONFIG, encoding="utf-8")
+
+    first = _invoke(
+        ["--json", "--no-interaction", "config", "init", "--config-path", str(config_path), "--library-id", "222"]
+    )
+    assert first.exit_code == 0, first.output
+    backup = tmp_path / "config.toml.bak"
+    assert backup.exists()
+    first_mtimes = (config_path.stat().st_mtime_ns, backup.stat().st_mtime_ns)
+
+    second = _invoke(
+        ["--json", "--no-interaction", "config", "init", "--config-path", str(config_path), "--library-id", "222"]
+    )
+    assert second.exit_code == 0, second.output
+    assert json.loads(second.output)["data"]["backup_path"] == ""
+    assert (config_path.stat().st_mtime_ns, backup.stat().st_mtime_ns) == first_mtimes
+
+
+# --- M-14: config init JSON reports the effective profile --------------------
+
+
+def test_config_init_json_reports_effective_profile(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(RICH_CONFIG, encoding="utf-8")
+    result = _invoke(
+        ["--json", "--no-interaction", "config", "init", "--config-path", str(config_path), "--library-id", "333"]
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["data"]["profile"] == "lab"
+
+
+def test_config_init_json_reports_created_profile(tmp_path):
+    config_path = tmp_path / "new.toml"
+    result = _invoke(
+        [
+            "--json",
+            "--no-interaction",
+            "--profile",
+            "lab",
+            "config",
+            "init",
+            "--config-path",
+            str(config_path),
+            "--library-id",
+            "7",
+            "--api-key",
+            "fake-key",
+        ]
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["data"]["profile"] == "lab"
+    data = read_config_data(config_path)
+    assert data["default"]["profile"] == "lab"
+    assert data["profile"]["lab"]["library_id"] == "7"
+
+
+def test_config_init_dry_run_json_reports_profile_without_backup(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(RICH_CONFIG, encoding="utf-8")
+    result = _invoke(["--json", "config", "init", "--dry-run", "--config-path", str(config_path), "--library-id", "7"])
+    assert result.exit_code == 0, result.output
+    envelope = json.loads(result.output)
+    assert envelope["dry_run"] is True
+    assert envelope["data"]["profile"] == "lab"
+    assert envelope["data"]["backup_path"] == ""
+
+
+# --- M-21/M-23: cache list limits and cache clear envelope -------------------
+
+
+def _cache_entries(count: int) -> list[dict[str, str]]:
+    return [
+        {
+            "source_name": f"paper{index}.pdf",
+            "source_sha256": f"{index:064d}",
+            "mineru_model_version": "vlm",
+            "parsed_at": "2024-06-01T08:00:00+00:00",
+        }
+        for index in range(count)
+    ]
+
+
+class TestCacheListLimits:
+    def test_default_limit_bounds_json_output(self):
+        cache = MagicMock()
+        cache.entries.return_value = _cache_entries(250)
+        with patch("zotero_cli.core.mineru.MinerUParseCache", return_value=cache):
+            result = _invoke(["--json", "config", "cache", "list"])
+        assert result.exit_code == 0, result.output
+        envelope = json.loads(result.output)
+        assert len(envelope["data"]) == 100
+        assert envelope["meta"]["count"] == 100
+        assert envelope["meta"]["total"] == 250
+        assert envelope["meta"]["limit"] == 100
+        assert len(result.output) < 200_000
+
+    def test_limit_zero_lists_all(self):
+        cache = MagicMock()
+        cache.entries.return_value = _cache_entries(250)
+        with patch("zotero_cli.core.mineru.MinerUParseCache", return_value=cache):
+            result = _invoke(["--json", "config", "cache", "list", "--limit", "0"])
+        assert result.exit_code == 0, result.output
+        envelope = json.loads(result.output)
+        assert len(envelope["data"]) == 250
+        assert envelope["meta"]["limit"] == 0
+
+    def test_custom_limit(self):
+        cache = MagicMock()
+        cache.entries.return_value = _cache_entries(250)
+        with patch("zotero_cli.core.mineru.MinerUParseCache", return_value=cache):
+            result = _invoke(["--json", "config", "cache", "list", "--limit", "7"])
+        assert result.exit_code == 0, result.output
+        envelope = json.loads(result.output)
+        assert len(envelope["data"]) == 7
+
+    def test_human_output_announces_truncation(self):
+        cache = MagicMock()
+        cache.entries.return_value = _cache_entries(250)
+        with patch("zotero_cli.core.mineru.MinerUParseCache", return_value=cache):
+            result = _invoke(["--no-json", "config", "cache", "list"])
+        assert result.exit_code == 0, result.output
+        assert "Showing 100 of 250" in result.output
+
+
+class TestCacheClearEnvelope:
+    def test_success_payload_has_no_would_remove(self):
+        cache = MagicMock()
+        cache.stats.return_value = {"entries": 3, "total_bytes": 1234}
+        cache.clear.return_value = 3
+        with patch("zotero_cli.core.mineru.MinerUParseCache", return_value=cache):
+            result = _invoke(["--json", "config", "cache", "clear", "--yes"])
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)["data"]
+        assert data == {"entries": 3, "total_bytes": 1234, "removed": 3}
+        assert "would_remove" not in data
+
+    def test_dry_run_keeps_would_remove_marker(self):
+        cache = MagicMock()
+        cache.stats.return_value = {"entries": 3, "total_bytes": 1234}
+        with patch("zotero_cli.core.mineru.MinerUParseCache", return_value=cache):
+            result = _invoke(["--json", "config", "cache", "clear", "--dry-run"])
+        assert result.exit_code == 0, result.output
+        envelope = json.loads(result.output)
+        assert envelope["dry_run"] is True
+        assert envelope["data"]["would_remove"] == 3
+        cache.clear.assert_not_called()

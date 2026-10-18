@@ -212,10 +212,14 @@ class TranslateAbstractsTests(unittest.TestCase):
         good = CompletedProcess(
             [], 0, stdout='[{"key": "K1", "title": "T1", "abstract_zh": "有效中文摘要"}]', stderr=""
         )
-        with patch.object(trans.subprocess, "run", side_effect=[bad, good]) as mock_run:
-            res = trans.translate_batch(batch)
-            self.assertEqual(res, {"K1": "有效中文摘要"})
-            self.assertEqual(mock_run.call_count, 2)
+        with tempfile.TemporaryDirectory() as scratch:
+            with (
+                patch.object(trans, "SCIENTIST_HOME", Path(scratch)),
+                patch.object(trans.subprocess, "run", side_effect=[bad, good]) as mock_run,
+            ):
+                res = trans.translate_batch(batch)
+                self.assertEqual(res, {"K1": "有效中文摘要"})
+                self.assertEqual(mock_run.call_count, 2)
 
 
 if __name__ == "__main__":

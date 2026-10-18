@@ -317,6 +317,14 @@ class TestMetadataCleaning:
 
 
 class TestEmbeddingInputType:
+    @pytest.fixture(autouse=True)
+    def _clear_input_type_rejection_cache(self):
+        from zotero_cli.core.rag.providers.gitee import _reset_input_type_cache
+
+        _reset_input_type_cache()
+        yield
+        _reset_input_type_cache()
+
     def _response(self, embeddings, *, ok=True, status_code=200, text=""):
         resp = MagicMock()
         resp.ok = ok
@@ -371,6 +379,37 @@ class TestEmbeddingInputType:
 
         with pytest.raises(ValueError, match="input_type"):
             GiteeEmbeddingProvider(api_key="key").embed(["text"], input_type="other")
+
+    def test_input_type_rejection_is_remembered_across_calls(self):
+        cfg = EmbeddingConfig(url="https://ai.gitee.com/v1", api_key="key", model="strict-model")
+        rejected = MagicMock(ok=False, status_code=400, text="unknown field input_type")
+        accepted = self._response([[0.5]])
+        with patch(
+            "zotero_cli.core.rag.providers.gitee.requests.post",
+            side_effect=[rejected, accepted, accepted],
+        ) as mock_post:
+            assert embed_texts(["q1"], cfg, input_type="query") == [[0.5]]
+            assert embed_texts(["q2"], cfg, input_type="query") == [[0.5]]
+
+        assert mock_post.call_count == 3
+        assert mock_post.call_args_list[0].kwargs["json"]["input_type"] == "query"
+        assert "input_type" not in mock_post.call_args_list[1].kwargs["json"]
+        assert "input_type" not in mock_post.call_args_list[2].kwargs["json"]
+
+    def test_input_type_rejection_cache_is_scoped_to_endpoint_and_model(self):
+        rejected = MagicMock(ok=False, status_code=422, text="")
+        accepted = self._response([[1.0]])
+        strict = EmbeddingConfig(url="https://ai.gitee.com/v1", api_key="key", model="strict-model-a")
+        lenient = EmbeddingConfig(url="https://ai.gitee.com/v1", api_key="key", model="lenient-model-b")
+        with patch(
+            "zotero_cli.core.rag.providers.gitee.requests.post",
+            side_effect=[rejected, accepted, accepted],
+        ) as mock_post:
+            assert embed_texts(["q"], strict, input_type="query") == [[1.0]]
+            assert embed_texts(["q"], lenient, input_type="query") == [[1.0]]
+
+        assert mock_post.call_count == 3
+        assert mock_post.call_args_list[2].kwargs["json"]["input_type"] == "query"
 
 
 class TestRRFValidation:

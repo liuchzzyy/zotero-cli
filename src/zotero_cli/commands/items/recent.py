@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import click
 
@@ -36,7 +36,7 @@ def recent_cmd(ctx: click.Context, days: int, modified: bool, limit: int | None,
     try:
         limit = limit if limit is not None else ctx.obj.get("limit", cfg.default_limit)
         sort_field = "dateModified" if modified else "dateAdded"
-        since = datetime.now(timezone.utc) - timedelta(days=days)
+        since = datetime.now(UTC) - timedelta(days=days)
         since_str = since.strftime("%Y-%m-%d %H:%M:%S")
 
         # Fetch one extra row so --stream can report has_more without loading all matches.

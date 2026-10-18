@@ -114,6 +114,14 @@ def test_bibtex_escapes_braces_and_backslashes() -> None:
     assert "\\{" in bibtex and "\\}" in bibtex
 
 
+def test_bibtex_backslash_is_escaped_without_double_escaping() -> None:
+    bibtex = _reader(title=r"back\slash with {braces}").export_citation("ATTN001", "bibtex") or ""
+    # Single-pass escaping: the braces introduced by the backslash escape stay
+    # unescaped, so one token is emitted instead of a nested double escape.
+    assert r"\textbackslash{}" in bibtex
+    assert r"\textbackslash\{\}" not in bibtex
+
+
 def test_unknown_format_and_missing_key_return_none() -> None:
     assert _reader().export_citation("ATTN001", "xml") is None
     assert _reader().export_citation("NONEXIST", "bibtex") is None

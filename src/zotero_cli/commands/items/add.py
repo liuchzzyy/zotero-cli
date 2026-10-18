@@ -12,8 +12,8 @@ from zotero_cli.config import load_config, resolve_write_credentials
 from zotero_cli.core.zotero.metadata import MetadataResolveError, resolve_doi
 from zotero_cli.core.zotero.writer import SYNC_REMINDER, ZoteroWriter
 from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
-from zotero_cli.output.envelope import envelope_ok, envelope_partial
-from zotero_cli.output.exit_codes import emit_error
+from zotero_cli.output.envelope import envelope_ok, envelope_partial, envelope_partial_data
+from zotero_cli.output.exit_codes import emit_error, exit_code_for
 from zotero_cli.output.streaming import emit_progress
 
 
@@ -105,13 +105,12 @@ def add_cmd(
       zot add --pdf paper.pdf --doi "10.1234/override"
     """
     json_out = ctx.obj.get("json", False)
-    if idempotency_key is not None and (pdf_file or from_file):
-        source = "--pdf" if pdf_file else "--from-file"
+    if idempotency_key is not None and from_file:
         emit_error(
             "validation_error",
-            f"--idempotency-key is not supported with {source}",
+            "--idempotency-key is not supported with --from-file",
             output_json=json_out,
-            hint="Idempotent retries are currently supported only for single --doi or --url inputs",
+            hint="Idempotent retries are supported for single --doi, --url, and --pdf inputs",
             context="add",
         )
     cfg = load_config(profile=ctx.obj.get("profile"))
@@ -135,7 +134,7 @@ def add_cmd(
                 context="add",
             )
         if json_out:
-            click.echo(json.dumps(envelope_ok({"would": would}, extra={"dry_run": True}), indent=2, ensure_ascii=False))
+            click.echo(json.dumps(envelope_ok({"would": would}, dry_run=True), indent=2, ensure_ascii=False))
         else:
             click.echo(f"[dry-run] Would add: {would}")
         return
@@ -154,7 +153,14 @@ def add_cmd(
 
     if pdf_file:
         _add_from_pdf(
-            Path(pdf_file), doi, library_id, api_key, json_out, library_type=library_type, resolve=not no_resolve
+            Path(pdf_file),
+            doi,
+            library_id,
+            api_key,
+            json_out,
+            library_type=library_type,
+            resolve=not no_resolve,
+            idempotency_key=idempotency_key,
         )
         return
 
@@ -249,7 +255,12 @@ def add_cmd(
     except ZoteroWriteError as e:
         rejected = False
         if idempotency_key:
-            rejected = failure_definitely_rejected(response=writer._zot.request, code=e.code, retryable=e.retryable)
+            rejected = failure_definitely_rejected(
+                response=writer._zot.request,
+                code=e.code,
+                retryable=e.retryable,
+                committed=e.committed,
+            )
             if rejected:
                 try:
                     release_rejected_mutation(cache_scope, idempotency_key)
@@ -259,10 +270,11 @@ def add_cmd(
             e.code,
             str(e),
             output_json=json_out,
-            retryable=False if idempotency_key and not rejected else e.retryable,
+            retryable=False if (e.committed or (idempotency_key and not rejected)) else e.retryable,
+            committed=e.committed,
             hint=(
                 "The write outcome is unknown. Reconcile the library before retrying; do not reuse this key blindly"
-                if idempotency_key and not rejected
+                if e.committed or (idempotency_key and not rejected)
                 else "Check API credentials and network"
             ),
             context="add",
@@ -275,7 +287,7 @@ def add_cmd(
         data["resolve_warning"] = resolve_warning
     env = envelope_ok(
         data,
-        extra={"next": [f"zot read {key}", f"zot attach {key} --file <path>"]},
+        next=[f"zot attach {key} --file <path>"],
     )
     if idempotency_key:
         try:
@@ -289,6 +301,18 @@ def add_cmd(
         click.echo(SYNC_REMINDER, err=True)
 
 
+def _pdf_scope_payload(pdf_path: Path, doi_override: str | None, resolve: bool) -> dict:
+    """Stable request identity for --pdf idempotency (path, size, mtime, overrides)."""
+    try:
+        stat = pdf_path.stat()
+        size = stat.st_size
+        mtime_ns = stat.st_mtime_ns
+    except OSError:
+        size = None
+        mtime_ns = None
+    return {"pdf": str(pdf_path.resolve()), "size": size, "mtime_ns": mtime_ns, "doi": doi_override, "resolve": resolve}
+
+
 def _add_from_pdf(
     pdf_path: Path,
     doi_override: str | None,
@@ -297,15 +321,75 @@ def _add_from_pdf(
     json_out: bool,
     library_type: str = "user",
     resolve: bool = True,
+    idempotency_key: str | None = None,
 ) -> None:
-    """Add item from PDF: parse with MinerU, extract DOI, create item, upload attachment."""
+    """Add item from PDF: parse with MinerU, extract DOI, create item, upload attachment.
+
+    If the item is created but the attachment upload fails, a partial envelope
+    (ok="partial", data + next retry hint) is emitted and the process exits with
+    the attachment error's typed exit code. With --idempotency-key the key stays
+    reserved in that case (a blind retry could duplicate the item).
+    """
+    import sqlite3 as _sqlite3
+
     from zotero_cli.config import load_pdf_config
     from zotero_cli.core.mineru import MinerUError, MinerUParseCache, extract_doi_from_markdown
+    from zotero_cli.core.zotero.idempotency import (
+        PendingMutationError,
+        begin_mutation,
+        failure_definitely_rejected,
+        release_rejected_mutation,
+        request_scope,
+        store_cached,
+    )
+
+    cache_scope = request_scope(
+        "add-pdf",
+        library_type,
+        str(library_id),
+        _pdf_scope_payload(pdf_path, doi_override, resolve),
+    )
+    if idempotency_key:
+        try:
+            cached = begin_mutation(cache_scope, idempotency_key)
+        except PendingMutationError as exc:
+            emit_error(
+                "conflict",
+                str(exc),
+                output_json=json_out,
+                retryable=False,
+                hint="Reconcile the remote library before retrying; do not bypass this with a new key",
+                context="add",
+            )
+        except (OSError, _sqlite3.Error):
+            emit_error(
+                "configuration_error",
+                "Could not durably reserve item creation; no write attempted",
+                output_json=json_out,
+                retryable=False,
+                hint="Check the idempotency state directory and database",
+                context="add",
+            )
+        if cached is not None:
+            if json_out:
+                click.echo(json.dumps(cached, indent=2, ensure_ascii=False))
+            else:
+                click.echo(f"Item added: {cached.get('data', {}).get('key', '?')} (cached).")
+            return
+
+    def _release() -> None:
+        if not idempotency_key:
+            return
+        try:
+            release_rejected_mutation(cache_scope, idempotency_key)
+        except (OSError, _sqlite3.Error):
+            pass
 
     doi = doi_override
     if not doi:
         cache = MinerUParseCache()
         if cache.get(pdf_path) is None and not load_pdf_config().mineru_token:
+            _release()
             emit_error(
                 "configuration_error",
                 "MinerU API token is not configured",
@@ -316,6 +400,7 @@ def _add_from_pdf(
         try:
             parsed = cache.ensure(pdf_path)
         except MinerUError as exc:
+            _release()
             emit_error(
                 "network_error",
                 str(exc),
@@ -325,6 +410,7 @@ def _add_from_pdf(
             )
         doi = extract_doi_from_markdown(parsed.markdown)
     if not doi:
+        _release()
         emit_error(
             "validation_error",
             "No DOI found in PDF",
@@ -345,28 +431,73 @@ def _add_from_pdf(
     try:
         key = writer.add_item(doi=doi, extra_fields=extra_fields)
     except ZoteroWriteError as e:
-        emit_error(e.code, str(e), output_json=json_out, retryable=e.retryable, context="add")
+        rejected = False
+        if idempotency_key:
+            rejected = failure_definitely_rejected(
+                response=writer._zot.request,
+                code=e.code,
+                retryable=e.retryable,
+                committed=e.committed,
+            )
+            if rejected:
+                _release()
+        emit_error(
+            e.code,
+            str(e),
+            output_json=json_out,
+            retryable=False if (e.committed or (idempotency_key and not rejected)) else e.retryable,
+            committed=e.committed,
+            hint=(
+                "The write outcome is unknown. Reconcile the library before retrying; do not reuse this key blindly"
+                if e.committed or (idempotency_key and not rejected)
+                else "Check API credentials and network"
+            ),
+            context="add",
+        )
 
-    att_key = None
-    attach_error: str | None = None
+    att_key: str | None = None
+    attach_error: ZoteroWriteError | None = None
     try:
         att_key = writer.upload_attachment(key, pdf_path)
     except ZoteroWriteError as e:
-        attach_error = str(e)
+        attach_error = e
 
+    data: dict = {"key": key, "doi": doi, "sync_required": True}
+    if resolved_summary is not None:
+        data["resolved"] = resolved_summary
+    elif resolve:
+        data["resolved"] = None
+        data["resolve_warning"] = resolve_warning
+    if att_key:
+        data["attachment_key"] = att_key
+    if attach_error is not None:
+        data["attachment_error"] = str(attach_error)
+        data["attachment_error_code"] = attach_error.code
+        data["attachment_committed"] = attach_error.committed
+        env = envelope_partial_data(data, next=[f"zot attach {key} --file {pdf_path}"])
+        if json_out:
+            click.echo(json.dumps(env, indent=2, ensure_ascii=False))
+        else:
+            click.echo(f"Item created: {key} (DOI: {doi})")
+            click.echo(f"Attachment upload failed: {attach_error}", err=True)
+            if idempotency_key:
+                click.echo(
+                    "The idempotency key stays reserved because the item already exists; retry the attachment "
+                    f"with: zot attach {key} --file {pdf_path}",
+                    err=True,
+                )
+            else:
+                click.echo(f"Retry with: zot attach {key} --file {pdf_path}", err=True)
+        raise SystemExit(exit_code_for(attach_error.code))
+
+    env = envelope_ok(data)
+    if idempotency_key:
+        try:
+            store_cached(cache_scope, idempotency_key, env)
+        except (OSError, _sqlite3.Error) as exc:
+            click.echo(f"Warning: item was added but the retry result could not be cached: {exc}", err=True)
     if json_out:
-        data: dict = {"key": key, "doi": doi, "sync_required": True}
-        if resolved_summary is not None:
-            data["resolved"] = resolved_summary
-        elif resolve:
-            data["resolved"] = None
-            data["resolve_warning"] = resolve_warning
-        if att_key:
-            data["attachment_key"] = att_key
-        if attach_error:
-            data["attachment_error"] = attach_error
-            data["next"] = [f"zot attach {key} --file {pdf_path}"]
-        click.echo(json.dumps({**envelope_ok(data), "ok": not bool(attach_error)}, indent=2, ensure_ascii=False))
+        click.echo(json.dumps(env, indent=2, ensure_ascii=False))
     else:
         click.echo(f"Item created: {key} (DOI: {doi})")
         if resolved_summary:
@@ -383,14 +514,8 @@ def _add_from_pdf(
                 click.echo("Crossref has no record for this DOI — item created without metadata.", err=True)
             else:
                 click.echo(f"Crossref lookup failed ({resolve_warning}); item created without metadata.", err=True)
-        if att_key:
-            click.echo(f"Attachment uploaded: {att_key}")
-            click.echo(SYNC_REMINDER, err=True)
-        else:
-            click.echo(f"Item created ({key}) but attachment upload failed: {attach_error}", err=True)
-            click.echo(f"Retry with: zot attach {key} --file {pdf_path}", err=True)
-    if attach_error:
-        raise SystemExit(5)
+        click.echo(f"Attachment uploaded: {att_key}")
+        click.echo(SYNC_REMINDER, err=True)
 
 
 def _add_from_file(
@@ -447,7 +572,12 @@ def _add_from_file(
             failed.append(
                 {
                     "entry": entry,
-                    "error": {"code": e.code, "message": str(e), "retryable": e.retryable},
+                    "error": {
+                        "code": e.code,
+                        "message": str(e),
+                        "retryable": e.retryable,
+                        "committed": e.committed,
+                    },
                 }
             )
             if not json_out:
@@ -457,13 +587,19 @@ def _add_from_file(
         "complete", phase="batch_add", done=len(lines), total=len(lines), succeeded=len(succeeded), failed=len(failed)
     )
     if json_out:
-        env = envelope_partial(succeeded, failed, meta={"total": len(lines), "sync_required": bool(succeeded)})
-        if not failed:
-            env["ok"] = True
-            env["data"] = {"succeeded": succeeded, "failed": []}
+        if failed:
+            env = envelope_partial(succeeded, failed, meta={"total": len(lines), "sync_required": bool(succeeded)})
+            click.echo(json.dumps(env, indent=2, ensure_ascii=False))
+            raise SystemExit(exit_code_for(failed[0]["error"]["code"]))
+        env = envelope_ok(
+            {"succeeded": succeeded, "failed": []},
+            meta={"total": len(lines), "sync_required": bool(succeeded)},
+        )
         click.echo(json.dumps(env, indent=2, ensure_ascii=False))
         return
 
     click.echo(f"\nDone: {len(succeeded)} added, {len(failed)} failed", err=True)
     if succeeded:
         click.echo(SYNC_REMINDER, err=True)
+    if failed:
+        raise SystemExit(exit_code_for(failed[0]["error"]["code"]))

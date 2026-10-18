@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import Mock
 
-import httpx
+import httpx2 as httpx
 import pytest
 from pyzotero import zotero
 from pyzotero.zotero_errors import (
@@ -27,7 +27,11 @@ from pyzotero.zotero_errors import (
 from zotero_cli.core.zotero import writer as writer_module
 from zotero_cli.core.zotero.short_note_merge import merge_short_note_into_extra
 from zotero_cli.core.zotero.writer import ZoteroWriter
-from zotero_cli.core.zotero.writer_errors import ZoteroWriteError, _friendly_api_error
+from zotero_cli.core.zotero.writer_errors import (
+    ZoteroWriteError,
+    _friendly_api_error,
+    error_for_http_status,
+)
 
 ITEM_KEY = "ITEM0001"
 COLLECTION_KEY = "COLL0001"
@@ -206,6 +210,9 @@ def test_add_item_posts_identifiers_and_metadata(
     expected = {"itemType": item_type, "tags": [], "collections": [], "relations": {}}
     expected["DOI" if doi else "url"] = doi or url
     expected.update(metadata or {})
+    if url and not (metadata or {}).get("title"):
+        # M-04: URL-only items get the URL as a sensible title.
+        expected["title"] = url
     assert payload == [expected]
     assert metadata == original_metadata
 
@@ -275,7 +282,11 @@ def test_item_updates_preserve_other_metadata_and_version(
     invoke_write(writer, operation, attachment_file)
     [request] = api.writes("PATCH")
     assert request.headers["If-Unmodified-Since-Version"] == "17"
-    assert json.loads(request.content) == {**original_data, changed_field: expected}
+    if operation == "restore_from_trash":
+        # Raw PATCH deleted=0; pyzotero update_item rejects the deleted field.
+        assert json.loads(request.content) == {"deleted": 0}
+    else:
+        assert json.loads(request.content) == {**original_data, changed_field: expected}
     assert api.item["data"] == original_data
 
 
@@ -395,7 +406,9 @@ def test_upload_existing_attachment_runs_real_file_registration(
     registration, authorization = api.writes("POST")
     payload = json.loads(registration.content)[0]
     assert payload["parentItem"] == ITEM_KEY
-    assert payload["filename"] == str(attachment_file)
+    # pyzotero 1.16 sends the basename; the API rejects stored-file filenames
+    # that contain a directory path.
+    assert payload["filename"] == attachment_file.name
     assert payload["title"] == attachment_file.name
     assert payload["contentType"] == "application/pdf"
     form = httpx.QueryParams(authorization.content.decode())
@@ -574,3 +587,42 @@ def test_server_errors_are_retryable(offline_writer: tuple[ZoteroWriter, Offline
         writer.update_item(ITEM_KEY, {"title": "New title"})
     assert caught.value.code == "api_error"
     assert caught.value.retryable is True
+
+
+@pytest.mark.parametrize(
+    ("status", "code", "retryable", "committed"),
+    [
+        (401, "auth_invalid", False, False),
+        (403, "auth_invalid", False, False),
+        (404, "not_found", False, False),
+        (409, "conflict", False, False),
+        (412, "conflict", False, False),
+        (422, "validation_error", False, False),
+        (429, "rate_limited", True, False),
+        (500, "api_error", True, True),
+        (503, "api_error", True, True),
+    ],
+)
+def test_raw_http_status_to_typed_write_error(status, code, retryable, committed) -> None:
+    error = error_for_http_status(status, "upstream said no")
+    assert error.code == code
+    assert error.retryable is retryable
+    assert error.committed is committed
+
+
+def test_failed_create_response_is_not_committed() -> None:
+    writer = ZoteroWriter("123", "key")
+    with pytest.raises(ZoteroWriteError) as caught:
+        writer._check_response({"success": {}, "failed": {"0": {"message": "bad payload"}}})
+    assert caught.value.code == "api_error"
+    assert caught.value.retryable is False
+    assert caught.value.committed is False
+
+
+def test_conflicting_create_response_is_unknown_committed() -> None:
+    writer = ZoteroWriter("123", "key")
+    with pytest.raises(ZoteroWriteError) as caught:
+        writer._check_response({"success": {"0": CREATED_KEY}, "failed": {"0": {"message": "write failed"}}})
+    assert caught.value.code == "api_error"
+    assert caught.value.retryable is True
+    assert caught.value.committed is True

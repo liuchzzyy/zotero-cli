@@ -10,23 +10,16 @@ because the file may hold API keys.
 from __future__ import annotations
 
 import copy
+import datetime
 import json
 import math
 import os
 import re
 import shutil
-import sys
 import tempfile
+import tomllib
 from pathlib import Path
 from typing import Any
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    try:
-        import tomllib
-    except ModuleNotFoundError:
-        import tomli as tomllib  # type: ignore[no-redef]
 
 from . import paths
 from .errors import ConfigError
@@ -57,6 +50,8 @@ def read_config_data(path: Path | None = None) -> dict[str, Any]:
             loaded = tomllib.load(handle)
     except tomllib.TOMLDecodeError as exc:
         raise ConfigError(f"Malformed TOML in {resolved}: {exc}") from exc
+    except UnicodeDecodeError as exc:
+        raise ConfigError(f"Malformed TOML in {resolved}: file is not valid UTF-8 ({exc})") from exc
     except OSError as exc:
         raise ConfigError(f"Could not read config file {resolved}: {exc}") from exc
     if not isinstance(loaded, dict):
@@ -129,14 +124,77 @@ def _env_value(name: str) -> Any:
     return value if value is not None else None
 
 
+def _section_for_profile(data: dict[str, Any], section: str, profile: str | None) -> dict[str, Any]:
+    """Return a config section, overlaying [profile.<name>.<section>] when requested.
+
+    Without an explicit profile only the top-level section is used (historical
+    behavior). With a profile, keys from the profile-scoped section win and
+    missing keys fall back to the top-level section.
+    """
+    top_value = data.get(section, {})
+    if not isinstance(top_value, dict):
+        raise ConfigError(f"Invalid config: [{section}] must be a table")
+    top: dict[str, Any] = top_value
+    if profile is None:
+        return top
+    profiles_value = data.get("profile", {})
+    if not isinstance(profiles_value, dict):
+        raise ConfigError("Invalid config: [profile] must be a table")
+    profile_data = profiles_value.get(profile)
+    if not isinstance(profile_data, dict):
+        raise ConfigError(f"Unknown config profile '{profile}'")
+    nested_value = profile_data.get(section, {})
+    if not isinstance(nested_value, dict):
+        raise ConfigError(f"Invalid config: [profile.{profile}.{section}] must be a table")
+    if not nested_value:
+        return top
+    return {**top, **nested_value}
+
+
 # --- section loaders ---------------------------------------------------------
 
 
+def _normalize_profile(value: str | None) -> str | None:
+    """Strip a profile name; blank names mean "unset"."""
+    if value is None:
+        return None
+    return value.strip() or None
+
+
+def resolve_active_profile(
+    profiles: dict[str, Any], default_profile: str | None, *, explicit: str | None = None
+) -> str | None:
+    """Resolve the active profile name, failing closed on invalid configuration.
+
+    A config that defines [profile.*] tables must name one of them in
+    [default].profile (or receive an explicit --profile); it never silently falls
+    back to the legacy flat [zotero] section, which could point at a different
+    library or credentials.
+    """
+    explicit_name = _normalize_profile(explicit)
+    default_name = _normalize_profile(default_profile)
+    if explicit_name is not None:
+        if explicit_name not in profiles:
+            raise ConfigError(f"Unknown config profile '{explicit_name}'")
+        return explicit_name
+    if profiles:
+        if default_name is None:
+            raise ConfigError(
+                "Invalid config: profiles are defined but no default profile is set; "
+                "set [default].profile or pass --profile"
+            )
+        if default_name not in profiles:
+            raise ConfigError(f"Unknown config profile '{default_name}' (set in [default].profile)")
+        return default_name
+    if default_name is not None:
+        raise ConfigError(f"Unknown config profile '{default_name}' (no [profile.*] tables are defined)")
+    return None
+
+
 def load_config(path: Path | None = None, profile: str | None = None) -> AppConfig:
-    profile = profile or None
     data = read_config_data(path)
     if not data:
-        if profile is not None:
+        if _normalize_profile(profile) is not None:
             raise ConfigError(f"Unknown config profile '{profile}'")
         return AppConfig()
 
@@ -148,12 +206,10 @@ def load_config(path: Path | None = None, profile: str | None = None) -> AppConf
     if default_value is not None and not isinstance(default_value, dict):
         raise ConfigError("Invalid config: [default] must be a table")
     default_table: dict[str, Any] = default_value if isinstance(default_value, dict) else {}
+    default_profile = _parse_string(default_table.get("profile"), "[default] profile", "")
 
-    if profile is not None and profile not in profiles:
-        raise ConfigError(f"Unknown config profile '{profile}'")
-
-    profile_name = profile or _parse_string(default_table.get("profile"), "[default] profile", "")
-    if profile_name and profile_name in profiles:
+    profile_name = resolve_active_profile(profiles, default_profile, explicit=profile)
+    if profile_name is not None:
         profile_data = profiles[profile_name]
         if not isinstance(profile_data, dict):
             raise ConfigError(f"Invalid config: [profile.{profile_name}] must be a table")
@@ -198,12 +254,12 @@ def load_config(path: Path | None = None, profile: str | None = None) -> AppConf
     )
 
 
-def load_embedding_config(path: Path | None = None, *, apply_env_overrides: bool = False) -> EmbeddingConfig:
+def load_embedding_config(
+    path: Path | None = None, *, apply_env_overrides: bool = False, profile: str | None = None
+) -> EmbeddingConfig:
     defaults = EmbeddingConfig()
     data = read_config_data(path)
-    section_value = data.get("embedding", {})
-    if not isinstance(section_value, dict):
-        raise ConfigError("Invalid config: [embedding] must be a table")
+    section_value = _section_for_profile(data, "embedding", profile)
     emb = _select_provider_config(
         section_value,
         env_active="ZOT_EMBEDDING_ACTIVE" if apply_env_overrides else "",
@@ -231,12 +287,12 @@ def load_embedding_config(path: Path | None = None, *, apply_env_overrides: bool
     return config
 
 
-def load_rerank_config(path: Path | None = None, *, apply_env_overrides: bool = False) -> RerankConfig:
+def load_rerank_config(
+    path: Path | None = None, *, apply_env_overrides: bool = False, profile: str | None = None
+) -> RerankConfig:
     defaults = RerankConfig()
     data = read_config_data(path)
-    section_value = data.get("rerank", {})
-    if not isinstance(section_value, dict):
-        raise ConfigError("Invalid config: [rerank] must be a table")
+    section_value = _section_for_profile(data, "rerank", profile)
     rerank = _select_provider_config(
         section_value,
         env_active="ZOT_RERANK_ACTIVE" if apply_env_overrides else "",
@@ -309,20 +365,20 @@ def load_pdf_config(path: Path | None = None, *, apply_env_overrides: bool = Tru
     return config
 
 
-def load_vector_store_config(path: Path | None = None) -> VectorStoreConfig:
+def load_vector_store_config(path: Path | None = None, *, profile: str | None = None) -> VectorStoreConfig:
     defaults = VectorStoreConfig()
     data = read_config_data(path)
-    vector_store = _require_table(data, "vector_store")
+    vector_store = _section_for_profile(data, "vector_store", profile)
     return VectorStoreConfig(
         provider=_parse_string(vector_store.get("provider"), "vector_store.provider", defaults.provider),
         path=_parse_string(vector_store.get("path"), "vector_store.path", defaults.path),
     )
 
 
-def load_semantic_search_config(path: Path | None = None) -> SemanticSearchConfig:
+def load_semantic_search_config(path: Path | None = None, *, profile: str | None = None) -> SemanticSearchConfig:
     defaults = SemanticSearchConfig()
     data = read_config_data(path)
-    semantic_search = _require_table(data, "semantic_search")
+    semantic_search = _section_for_profile(data, "semantic_search", profile)
     return SemanticSearchConfig(
         candidate_k=_parse_int(
             semantic_search.get("candidate_k"), "semantic_search.candidate_k", defaults.candidate_k, minimum=1
@@ -413,12 +469,12 @@ def list_profiles(path: Path | None = None) -> list[str]:
 
 
 def get_default_profile(path: Path | None = None) -> str:
-    """Get the active/default profile name from config."""
+    """Get the active/default profile name from config (blank when unset)."""
     data = read_config_data(path)
     default = data.get("default", {})
     if not isinstance(default, dict):
         raise ConfigError("Invalid config: [default] must be a table")
-    return _parse_string(default.get("profile"), "[default] profile", "")
+    return _parse_string(default.get("profile"), "[default] profile", "").strip()
 
 
 # --- merge-preserving save ---------------------------------------------------
@@ -438,7 +494,7 @@ def merge_config_data(
     defaults never clobber user-set values, so credentials and unrelated
     sections survive config-init reruns on profile-based configs.
     """
-    profile = profile or None
+    profile = _normalize_profile(profile)
     data = copy.deepcopy(existing) if existing else {}
     changed: list[str] = []
     defaults = AppConfig()
@@ -451,22 +507,25 @@ def merge_config_data(
     if default_value is not None and not isinstance(default_value, dict):
         raise ConfigError("Invalid config: [default] must be a table")
     default_table: dict[str, Any] = default_value if isinstance(default_value, dict) else {}
+    default_profile = _parse_string(default_table.get("profile"), "[default] profile", "")
 
     if profile is not None and profile not in profiles:
         if not allow_new_profile:
             raise ConfigError(f"Unknown config profile '{profile}'")
         profiles[profile] = {}
         data["profile"] = profiles
-        if not _parse_string(default_table.get("profile"), "[default] profile", ""):
+    if profile is not None:
+        current_default = _normalize_profile(default_profile)
+        # Point [default].profile at the explicit profile when it is unset or names a
+        # profile that no longer exists, so an init can repair a broken default.
+        if current_default is None or current_default not in profiles:
             default_table["profile"] = profile
             data["default"] = default_table
+            changed.append("default.profile")
+            default_profile = profile
 
-    active_profile = profile or _parse_string(default_table.get("profile"), "[default] profile", "")
-    if profile is not None and not _parse_string(default_table.get("profile"), "[default] profile", ""):
-        default_table["profile"] = profile
-        data["default"] = default_table
-        changed.append("default.profile")
-    if active_profile:
+    active_profile = resolve_active_profile(profiles, default_profile, explicit=profile)
+    if active_profile is not None:
         profile_data = profiles.get(active_profile)
         if not isinstance(profile_data, dict):
             raise ConfigError(f"Unknown config profile '{active_profile}'")
@@ -614,22 +673,48 @@ def _toml_key(key: str) -> str:
     return key if _BARE_TOML_KEY.match(key) else json.dumps(key, ensure_ascii=False)
 
 
-def _toml_value(value: Any) -> str:
+def _toml_datetime(value: datetime.datetime | datetime.date | datetime.time) -> str:
+    # timespec="microseconds" always includes the seconds component TOML requires.
+    if isinstance(value, (datetime.datetime, datetime.time)):
+        return value.isoformat(timespec="microseconds")
+    return value.isoformat()
+
+
+def _toml_value(value: Any, *, path: str) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, int):
         return str(value)
     if isinstance(value, float):
-        if not math.isfinite(value):
-            raise ConfigError("Invalid config: numbers must be finite")
+        if math.isnan(value):
+            return "nan"
+        if math.isinf(value):
+            return "inf" if value > 0 else "-inf"
         return repr(value)
     if isinstance(value, str):
         # JSON string literals are valid TOML basic strings and escape quotes,
         # backslashes, control characters and Unicode correctly.
         return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, (datetime.datetime, datetime.date, datetime.time)):
+        return _toml_datetime(value)
     if isinstance(value, list):
-        return "[" + ", ".join(_toml_value(item) for item in value) + "]"
-    raise ConfigError(f"Invalid config: unsupported value type {type(value).__name__}")
+        rendered = [_toml_value(item, path=f"{path}[{index}]") for index, item in enumerate(value)]
+        return "[" + ", ".join(rendered) + "]"
+    if isinstance(value, dict):
+        return _toml_inline_table(value, path=path)
+    raise ConfigError(
+        f"Invalid config: value at {path} has unsupported type {type(value).__name__}; "
+        "edit the file manually to remove it before running this command"
+    )
+
+
+def _toml_inline_table(table: dict[str, Any], *, path: str) -> str:
+    items = [
+        f"{_toml_key(key)} = {_toml_value(value, path=f'{path}.{key}')}"
+        for key, value in table.items()
+        if value is not None
+    ]
+    return "{ " + ", ".join(items) + " }" if items else "{}"
 
 
 def _dump_toml(data: dict[str, Any]) -> str:
@@ -643,12 +728,14 @@ def _dump_toml(data: dict[str, Any]) -> str:
         scalars = [(key, value) for key, value in table.items() if value is not None and not isinstance(value, dict)]
         tables = [(key, value) for key, value in table.items() if isinstance(value, dict)]
         for key, value in scalars:
-            lines.append(f"{_toml_key(key)} = {_toml_value(value)}")
+            dotted = ".".join([*prefix, key])
+            lines.append(f"{_toml_key(key)} = {_toml_value(value, path=dotted)}")
         for key, value in tables:
             emit_table(value, [*prefix, key])
 
     emit_table(data, [])
-    return "\n".join(lines) + ("\n" if lines else "")
+    lines.append("")
+    return "\n".join(lines)
 
 
 def _fsync_directory(directory: Path) -> None:
@@ -696,23 +783,47 @@ def _prepare_config_directory(directory: Path) -> None:
             pass
 
 
-def write_config_data(path: Path, data: dict[str, Any]) -> None:
-    """Write TOML data atomically with a .bak backup and restrictive permissions."""
-    directory = path.parent
-    _prepare_config_directory(directory)
+def _config_write_target(path: Path) -> Path:
+    """Follow a symlinked config path so a save updates the target, not the link."""
+    return path.resolve() if path.is_symlink() else path
 
-    if path.exists():
-        backup = path.with_name(path.name + _BACKUP_SUFFIX)
+
+def write_config_data(path: Path, data: dict[str, Any]) -> Path | None:
+    """Write TOML data atomically with a .bak backup and restrictive permissions.
+
+    Symlinked config paths write through to their target. Returns the .bak path
+    created by this write, or None when the file already had identical content
+    (no-op saves never rewrite the file or churn the backup).
+    """
+    target = _config_write_target(path)
+    text = _dump_toml(data)
+    encoded = text.encode("utf-8")
+    if target.exists():
         try:
-            shutil.copy2(path, backup)
+            current = target.read_bytes()
+        except OSError as exc:
+            raise ConfigError(f"Could not read config file {target}: {exc}") from exc
+        if current == encoded:
+            try:
+                os.chmod(target, 0o600)
+            except OSError:
+                pass
+            return None
+
+    directory = target.parent
+    _prepare_config_directory(directory)
+    backup: Path | None = None
+    if target.exists():
+        backup = target.with_name(target.name + _BACKUP_SUFFIX)
+        try:
+            shutil.copy2(target, backup)
             os.chmod(backup, 0o600)
         except OSError as exc:
-            raise ConfigError(f"Could not back up config file {path}: {exc}") from exc
+            raise ConfigError(f"Could not back up config file {target}: {exc}") from exc
 
-    text = _dump_toml(data)
     temp_path: Path | None = None
     try:
-        descriptor, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(directory))
+        descriptor, temp_name = tempfile.mkstemp(prefix=f".{target.name}.", dir=str(directory))
         temp_path = Path(temp_name)
         try:
             with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
@@ -720,7 +831,7 @@ def write_config_data(path: Path, data: dict[str, Any]) -> None:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.chmod(temp_path, 0o600)
-            os.replace(temp_path, path)
+            os.replace(temp_path, target)
             temp_path = None
             _fsync_directory(directory)
         finally:
@@ -732,7 +843,8 @@ def write_config_data(path: Path, data: dict[str, Any]) -> None:
     except ConfigError:
         raise
     except OSError as exc:
-        raise ConfigError(f"Could not write config file {path}: {exc}") from exc
+        raise ConfigError(f"Could not write config file {target}: {exc}") from exc
+    return backup
 
 
 def save_config(

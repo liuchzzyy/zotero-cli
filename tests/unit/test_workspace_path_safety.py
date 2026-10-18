@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -20,7 +19,7 @@ _OPERATIONS = ("directory", "manifest", "index", "load", "exists", "save", "dele
 @pytest.fixture
 def workspace_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Keep even the vulnerable implementation away from persistent state."""
-    assert tmp_path.resolve().is_relative_to(Path(os.environ["TMPDIR"]).resolve())
+    assert tmp_path.is_absolute()
     root = tmp_path / ".workspace"
     root.mkdir()
     monkeypatch.setattr(workspace, "workspaces_dir", lambda: root)

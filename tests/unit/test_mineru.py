@@ -415,3 +415,213 @@ def test_stats_and_entries_ignore_hidden_staging_dirs(tmp_path) -> None:
 
     assert cache.stats() == {"entries": 0, "total_bytes": 0}
     assert cache.entries() == []
+
+
+def test_archive_cap_messages_use_precise_byte_units(monkeypatch) -> None:
+    monkeypatch.setattr(client_module, "_MAX_ARCHIVE_BYTES", 100)
+    response = _FakeDownloadResponse(content=b"x", headers={"Content-Length": "1000"})
+    with pytest.raises(MinerUError, match="exceeds the 100 B limit"):
+        _read_limited_body(response)
+
+    monkeypatch.setattr(client_module, "_MAX_ARCHIVE_MEMBER_BYTES", 1536)
+    data = _zip_bytes({"result/full.md": b"x" * 2000, "result/x_content_list.json": b"[]"})
+    with pytest.raises(MinerUError, match="exceeds the 1.5 KB limit"):
+        _read_archive(data)
+
+
+class _StreamFailureResponse:
+    def __init__(self, *, fail: bool) -> None:
+        self.status_code = 200
+        self.headers: dict[str, str] = {}
+        self.text = ""
+        self._fail = fail
+
+    def iter_content(self, chunk_size: int = 1024):
+        if self._fail:
+            raise RequestsConnectionError("stream dropped")
+        yield b"archive-bytes"
+
+    def close(self) -> None:
+        pass
+
+
+class _SequenceDownloadSession:
+    def __init__(self, responses: list[_StreamFailureResponse]) -> None:
+        self.responses = list(responses)
+        self.calls = 0
+
+    def get(self, _url: str, **_kwargs: object) -> _StreamFailureResponse:
+        self.calls += 1
+        return self.responses.pop(0)
+
+
+def test_download_archive_retries_once_when_stream_drops() -> None:
+    session = _SequenceDownloadSession([_StreamFailureResponse(fail=True), _StreamFailureResponse(fail=False)])
+    client = MinerUClient("token", session=session)  # type: ignore[arg-type]
+
+    assert client._download_archive("https://mineru.net/result.zip") == b"archive-bytes"
+    assert session.calls == 2
+
+
+def test_download_archive_stream_retry_is_bounded() -> None:
+    session = _SequenceDownloadSession([_StreamFailureResponse(fail=True), _StreamFailureResponse(fail=True)])
+    client = MinerUClient("token", session=session)  # type: ignore[arg-type]
+
+    with pytest.raises(RequestsConnectionError, match="stream dropped"):
+        client._download_archive("https://mineru.net/result.zip")
+    assert session.calls == 2
+
+
+def test_lock_stale_window_is_never_longer_than_the_wait_timeout() -> None:
+    assert cache_module._LOCK_STALE_SECONDS <= cache_module._LOCK_TIMEOUT_SECONDS
+
+
+def test_dead_owner_lock_is_reclaimed_immediately(tmp_path) -> None:
+    pdf = tmp_path / "paper.pdf"
+    pdf.write_bytes(b"pdf")
+    client = MagicMock()
+    client.parse_many.return_value = {pdf: _remote_for(pdf)}
+    cache = MinerUParseCache(tmp_path / "cache", client=client, model_version="vlm")
+    lock_dir = cache.root / ".locks"
+    lock_dir.mkdir(parents=True)
+    fingerprint = cache_module.file_sha256(pdf)
+    lock_path = lock_dir / f"{fingerprint}.lock"
+    lock_path.write_text(str(2**31 - 1))  # no such process
+
+    started = time.monotonic()
+    parsed = cache.ensure(pdf)
+
+    assert isinstance(parsed, MinerUParseResult)
+    assert time.monotonic() - started < 2.0
+    client.parse_many.assert_called_once()
+    assert not lock_path.exists()
+
+
+def test_live_owner_lock_waits_with_a_stderr_notice(tmp_path, monkeypatch, capsys) -> None:
+    pdf = tmp_path / "paper.pdf"
+    pdf.write_bytes(b"pdf")
+    client = MagicMock()
+    client.parse_many.return_value = {pdf: _remote_for(pdf)}
+    cache = MinerUParseCache(tmp_path / "cache", client=client, model_version="vlm")
+    lock_dir = cache.root / ".locks"
+    lock_dir.mkdir(parents=True)
+    fingerprint = cache_module.file_sha256(pdf)
+    lock_path = lock_dir / f"{fingerprint}.lock"
+    lock_path.write_text(str(os.getpid()))  # this process is alive
+    monkeypatch.setattr(cache_module, "_LOCK_TIMEOUT_SECONDS", 0.1)
+    monkeypatch.setattr(cache_module, "_LOCK_POLL_SECONDS", 0.01)
+
+    with pytest.raises(MinerUError, match="Timed out waiting"):
+        cache.ensure(pdf)
+
+    assert "waiting for another process" in capsys.readouterr().err
+    client.parse_many.assert_not_called()
+
+
+def test_stale_staging_dirs_are_swept_before_parse(tmp_path, monkeypatch) -> None:
+    pdf = tmp_path / "paper.pdf"
+    pdf.write_bytes(b"pdf")
+    client = MagicMock()
+    client.parse_many.return_value = {pdf: _remote_for(pdf)}
+    cache = MinerUParseCache(tmp_path / "cache", client=client, model_version="vlm")
+    fingerprint = cache_module.file_sha256(pdf)
+    fingerprint_dir = cache.root / fingerprint
+    fingerprint_dir.mkdir(parents=True)
+    old_staging = fingerprint_dir / ".vlm-old-leftover"
+    old_staging.mkdir()
+    (old_staging / "manifest.json").write_text("{}")
+    fresh_staging = fingerprint_dir / ".vlm-fresh-in-progress"
+    fresh_staging.mkdir()
+    monkeypatch.setattr(cache_module, "_STAGING_STALE_SECONDS", 1.0)
+    stale = time.time() - 120
+    os.utime(old_staging, (stale, stale))
+
+    cache.ensure(pdf)
+
+    assert not old_staging.exists()
+    assert fresh_staging.exists()
+
+
+def test_stats_entries_and_total_bytes_only_cover_valid_packages(tmp_path) -> None:
+    pdf = tmp_path / "paper.pdf"
+    pdf.write_bytes(b"pdf")
+    client = MagicMock()
+    client.parse_many.return_value = {pdf: _remote_for(pdf)}
+    cache = MinerUParseCache(tmp_path / "cache", client=client, model_version="vlm")
+    package = cache.ensure(pdf)
+    corrupt_dir = cache.root / ("f" * 64) / "vlm"
+    corrupt_dir.mkdir(parents=True)
+    (corrupt_dir / "manifest.json").write_text("{not json")
+    (corrupt_dir / "document.md").write_text("corrupt")
+
+    stats = cache.stats()
+    entries = cache.entries()
+
+    assert stats["entries"] == len(entries) == 1
+    assert entries[0]["source_sha256"] == package.fingerprint
+    assert stats["total_bytes"] > 0
+    assert stats["total_bytes"] < 10_000
+
+
+def test_cache_clear_returns_valid_count_and_removes_root(tmp_path) -> None:
+    first_pdf = tmp_path / "one.pdf"
+    first_pdf.write_bytes(b"one")
+    second_pdf = tmp_path / "two.pdf"
+    second_pdf.write_bytes(b"two")
+    client = MagicMock()
+    client.parse_many.side_effect = lambda paths, progress=None: {path: _remote_for(path) for path in paths}
+    root = tmp_path / "cache"
+    cache = MinerUParseCache(root, client=client, model_version="vlm")
+    cache.ensure(first_pdf)
+    cache.ensure(second_pdf)
+    assert cache.stats()["entries"] == 2
+
+    removed = cache.clear()
+
+    assert removed == 2
+    assert not root.exists()
+    assert list(tmp_path.glob(".cache-clearing-*")) == []
+    assert cache.clear() == 0
+
+
+def test_cache_clear_falls_back_when_root_cannot_be_renamed(tmp_path, monkeypatch) -> None:
+    pdf = tmp_path / "paper.pdf"
+    pdf.write_bytes(b"pdf")
+    client = MagicMock()
+    client.parse_many.return_value = {pdf: _remote_for(pdf)}
+    cache = MinerUParseCache(tmp_path / "cache", client=client, model_version="vlm")
+    cache.ensure(pdf)
+
+    def failing_replace(*_args: object, **_kwargs: object) -> None:
+        raise OSError("rename not permitted")
+
+    monkeypatch.setattr(cache_module.os, "replace", failing_replace)
+    removed = cache.clear()
+
+    assert removed == 1
+    assert not cache.root.exists()
+
+
+def test_cache_clear_reports_detached_tombstone_failure(tmp_path, monkeypatch) -> None:
+    pdf = tmp_path / "paper.pdf"
+    pdf.write_bytes(b"pdf")
+    client = MagicMock()
+    client.parse_many.return_value = {pdf: _remote_for(pdf)}
+    cache = MinerUParseCache(tmp_path / "cache", client=client, model_version="vlm")
+    cache.ensure(pdf)
+    real_rmtree = cache_module.shutil.rmtree
+
+    def failing_rmtree(path, *args, **kwargs):
+        if ".cache-clearing-" in str(path):
+            raise OSError("disk busy")
+        return real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(cache_module.shutil, "rmtree", failing_rmtree)
+
+    with pytest.raises(OSError, match="detached to"):
+        cache.clear()
+
+    tombstones = list(tmp_path.glob(".cache-clearing-*"))
+    assert len(tombstones) == 1
+    assert not cache.root.exists()
+    real_rmtree(tombstones[0])

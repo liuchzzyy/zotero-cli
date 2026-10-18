@@ -51,7 +51,7 @@ def _flatten_latex(match: re.Match[str]) -> str:
 def flatten_scripts(text: str) -> str:
     """Write HTML-tagged, LaTeX and Unicode super/subscripts as plain characters."""
     unwrapped = _MATH_SCRIPT.sub(r"\1", _SCRIPT_TAG.sub("", text))
-    return plain_super_subscripts(_LATEX_SCRIPT.sub(_flatten_latex, unwrapped))
+    return str(plain_super_subscripts(_LATEX_SCRIPT.sub(_flatten_latex, unwrapped)))
 
 
 def collapse_whitespace(text: str) -> str:
@@ -61,7 +61,7 @@ def collapse_whitespace(text: str) -> str:
 
 def normalize(text: str) -> str:
     """Return ``text`` ready for a Zotero field: no scripts, CJK/Latin spaced."""
-    return pad_cjk_latin(collapse_whitespace(flatten_scripts(text)))
+    return str(pad_cjk_latin(collapse_whitespace(flatten_scripts(text))))
 
 
 # A model that echoes the source's own "Abstract"/"摘要" label leaves a stray word
@@ -93,4 +93,4 @@ def has_script(text: str) -> bool:
     """True when ``text`` still carries a super/subscript in any of the three forms."""
     if _SCRIPT_TAG.search(text) or _LATEX_SCRIPT.search(text):
         return True
-    return plain_super_subscripts(text) != text
+    return bool(plain_super_subscripts(text) != text)

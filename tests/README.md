@@ -1,10 +1,10 @@
 # Test architecture
 
-The suite is organized by behavior rather than implementation history:
+The suite requires **CPython 3.12** (the only supported interpreter, `>=3.12,<3.13`) and runs offline. The suite is organized by behavior rather than implementation history:
 
-- `unit/`: isolated core logic, models, readers, writers, renderers, and providers. Reader tests cover both full-text schemas: legacy word tables and Zotero 7 userdata v130 (`fulltextItems` + `.zotero-ft-cache` bounded scan + metadata fallback), plus fixture/schema parity and library/trash scoping.
-- `cli/`: Click commands, JSON envelopes, exit codes, dry-run/confirmation behavior, mutation guards, the top-level error boundary, and streaming.
-- `integration/`: multi-module PDF, workspace RAG, and tool-script workflows. Tool tests live in `tools/**/test_*.py` and are collected by the same run.
+- `unit/`: isolated core logic, models, readers, writers, renderers, providers, config loaders (profile-aware sections, atomic/symlink-safe writes, TOML value coverage), and the sanitizer. Reader tests cover both full-text schemas and the `fulltext_limited` flag; writer tests pin `pyzotero>=1.16,<2` response shapes and attachment upload behavior offline.
+- `cli/`: Click commands, JSON envelopes (including tri-state `ok: "partial"` and validated `next` hints), exit codes, dry-run/confirmation behavior, permanent-delete and raw-PATCH trash-restore semantics, schema `--diff`/schema-guard errors, cite/open machine-mode side effects, mutation guards, the top-level error boundary, and streaming.
+- `integration/`: multi-module PDF, workspace RAG (prune/empty-workspace cleanup, embed deadline/retry, degraded query, safe vector-store pruning, manifest guards), and tool-script workflows. Tool tests live in `tools/**/test_*.py` and are collected by the same run.
 - `fixtures/`: the deterministic Zotero database (v130-shaped) and PDF inputs.
 - `support.py`: shared CLI harness, isolated environment, fixture paths, and JSON parsing.
 - Repository `conftest.py`: rejects unmocked outbound socket connections for both `tests/` and `tools/`, isolates runtime state, and tags `tools/**` tests with the `tools` marker.
@@ -36,4 +36,4 @@ uv run python -m mypy src/zotero_cli tools --exclude '(^|/)test_[^/]*\.py$'
 uv run pytest --cov --cov-report=term-missing
 ```
 
-Coverage includes production code under `src/` and `tools/`, but excludes test modules. `.github/workflows/ci.yml` runs these gates plus `uv build` on Python 3.10 and 3.13; a weekly/manual, network-dependent `pip-audit` job is best-effort and non-blocking. A green offline suite verifies the fixture-driven workflows; it does not certify live Zotero, MinerU or model availability.
+Coverage includes production code under `src/` and `tools/`, but excludes test modules. `.github/workflows/ci.yml` runs these gates plus `uv build` on Python 3.12 only; a weekly/manual, network-dependent `pip-audit` job is best-effort and non-blocking. A green offline suite verifies the fixture-driven workflows; it does not certify live Zotero, MinerU or model availability.

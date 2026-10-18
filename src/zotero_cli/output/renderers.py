@@ -29,15 +29,16 @@ from zotero_cli.output.envelope import envelope_error, envelope_ok
 
 # CSI/OSC/OSC-terminated escape sequences plus single-character ESC sequences.
 _ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|[@-_])")
-# C0 controls (except tab/newline), DEL and C1 controls.
-_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+# C0 controls except tab/newline (so a lone CR is stripped too), DEL and C1 controls.
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 
 
 def sanitize_text(value: object) -> str:
     """Return text safe to print to a terminal: no ANSI escapes/control chars.
 
-    Newlines and tabs are preserved so multi-paragraph notes keep their layout.
-    This is used for human output only; JSON payloads remain byte-identical.
+    Tabs and newlines are preserved so multi-paragraph notes keep their layout;
+    carriage returns are stripped (a lone CR can overwrite the current terminal
+    line). Used for human output only; JSON payloads remain unchanged.
     """
     if value is None:
         return ""
@@ -53,14 +54,19 @@ def _dump(obj: Any) -> str:
     return json.dumps(obj, indent=2, ensure_ascii=False)
 
 
-def format_items(items: list[Item], output_json: bool = False, detail: str = "standard") -> str:
+def format_items(
+    items: list[Item],
+    output_json: bool = False,
+    detail: str = "standard",
+    meta: dict | None = None,
+) -> str:
     if output_json:
         if detail == "minimal":
             minimal_keys = {"key", "item_type", "title", "creators", "date"}
             data = [{k: v for k, v in asdict(i).items() if k in minimal_keys} for i in items]
         else:
             data = [asdict(i) for i in items]
-        return _dump(envelope_ok(data, meta={"count": len(items)}))
+        return _dump(envelope_ok(data, meta={"count": len(items), **(meta or {})}))
     buf = StringIO()
     console = Console(file=buf, force_terminal=False, width=120)
     table = Table(show_header=True, header_style="bold")

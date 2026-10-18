@@ -201,14 +201,14 @@ def test_pdf_cli_cache_configuration_error_is_configuration_error() -> None:
     assert "bad model version" in payload["error"]["message"]
 
 
-def test_pdf_cli_unreadable_pdf_is_typed_internal_error() -> None:
+def test_pdf_cli_unreadable_pdf_is_typed_runtime_error() -> None:
     cache = MagicMock()
     cache.lookup.side_effect = OSError("permission denied")
     with patch("zotero_cli.commands.attachments.pdf.MinerUParseCache", return_value=cache):
         result = invoke_cli(["pdf", "ATTN001"], json_output=True)
     assert result.exit_code == 1, result.output
     payload = json.loads(result.output)
-    assert payload["error"]["code"] == "internal_error"
+    assert payload["error"]["code"] == "runtime_error"
     assert "permission denied" in payload["error"]["message"]
     assert "Traceback" not in result.output
 
@@ -254,21 +254,58 @@ def test_pdf_cli_renderer_failure_is_typed_internal_error(tmp_path: Path) -> Non
         patch("zotero_cli.commands.attachments.pdf.MinerUParseCache", return_value=cache),
         patch("zotero_cli.commands.attachments.pdf.format_pdf_text", side_effect=RuntimeError("markup broke")),
     ):
-        result = invoke_cli(["pdf", "ATTN001", "--section", "1"])
+        result = invoke_cli(["pdf", "ATTN001", "--section", "1"], json_output=True)
     assert result.exit_code == 1, result.output
+    payload = json.loads(result.output)
+    assert payload["error"]["code"] == "internal_error"
+    assert "markup broke" in payload["error"]["message"]
     combined = result.output + (result.stderr or "")
-    assert "Could not render MinerU output" in combined
     assert "Traceback" not in combined
 
 
-def test_pdf_cli_reader_failure_is_typed_internal_error() -> None:
+def test_pdf_cli_reader_failure_is_typed_runtime_error() -> None:
     with patch("zotero_cli.commands.attachments.pdf.ZoteroReader", side_effect=OSError("database unreadable")):
         result = invoke_cli(["pdf", "ATTN001"], json_output=True)
     assert result.exit_code == 1, result.output
     payload = json.loads(result.output)
-    assert payload["error"]["code"] == "internal_error"
+    assert payload["error"]["code"] == "runtime_error"
     assert "database unreadable" in payload["error"]["message"]
     assert "Traceback" not in result.output
+
+
+def test_pdf_cli_missing_database_is_configuration_error() -> None:
+    result = invoke_cli(
+        ["pdf", "ATTN001"],
+        json_output=True,
+        env={"ZOT_DATA_DIR": "/tmp/definitely-not-a-zotero-data-dir"},
+    )
+    assert result.exit_code == 3, result.output
+    payload = json.loads(result.output)
+    assert payload["error"]["code"] == "configuration_error"
+    assert "database not found" in payload["error"]["message"].lower()
+    assert (result.stderr or "") == ""
+
+
+def test_pdf_cli_verbose_prints_traceback_for_configuration_errors() -> None:
+    result = invoke_cli(
+        ["pdf", "ATTN001", "--verbose"],
+        json_output=True,
+        env={"ZOT_DATA_DIR": "/tmp/definitely-not-a-zotero-data-dir"},
+    )
+    assert result.exit_code == 3, result.output
+    payload = json.loads(result.stdout)
+    assert payload["error"]["code"] == "configuration_error"
+    assert "Traceback (most recent call last)" in (result.stderr or "")
+
+
+def test_pdf_cli_verbose_prints_traceback_for_unexpected_errors() -> None:
+    with patch("zotero_cli.commands.attachments.pdf.MinerUParseCache", side_effect=ValueError("boom-inside-pdf")):
+        result = invoke_cli(["pdf", "ATTN001", "--verbose"], json_output=True)
+    assert result.exit_code == 1, result.output
+    payload = json.loads(result.stdout)
+    assert payload["error"]["code"] == "internal_error"
+    assert "boom-inside-pdf" in payload["error"]["message"]
+    assert "Traceback (most recent call last)" in (result.stderr or "")
 
 
 def test_pdf_cli_list_attachments_unknown_item_is_not_found() -> None:

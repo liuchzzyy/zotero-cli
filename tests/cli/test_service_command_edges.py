@@ -13,6 +13,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import httpx
+import httpx2
 import pytest
 from click.testing import Result
 from tests.support import FIXTURES_DIR, invoke_cli, parse_json_output
@@ -279,7 +280,7 @@ def test_attach_group_credentials_use_public_group_id(sandbox: ServiceSandbox) -
 @pytest.mark.parametrize("failure", ["network", "upload", "empty"])
 def test_attach_failure_keeps_reservation_for_unknown_outcome(sandbox: ServiceSandbox, failure: str) -> None:
     if failure == "network":
-        sandbox.zotero.attachment_simple.side_effect = httpx.ConnectError("offline upload disconnected")
+        sandbox.zotero.attachment_simple.side_effect = httpx2.ConnectError("offline upload disconnected")
         expected_code, expected_exit = "network_error", 5
     else:
         sandbox.zotero.attachment_simple.return_value = {
@@ -522,12 +523,16 @@ def test_update_status_apply_continues_after_failed_write_and_reports_exact_coun
     json_output: bool,
 ) -> None:
     _seed_preprints(sandbox)
-    sandbox.zotero.update_item.side_effect = [httpx.ConnectError("offline write interrupted"), None]
+    sandbox.zotero.update_item.side_effect = [httpx2.ConnectError("offline write interrupted"), None]
     result = _invoke(sandbox, ["update-status", "--apply"], json_output=json_output)
-    assert result.exit_code == 0, result.output
+    # fix2: a partial apply (one write failed) is ok="partial" and exits non-zero.
+    assert result.exit_code == 5, result.output
     assert sandbox.zotero.update_item.call_count == 2
     if json_output:
-        data = parse_json_output(result.output)["data"]
+        envelope = parse_json_output(result.output)
+        assert envelope["ok"] == "partial"
+        assert "error" not in envelope
+        data = envelope["data"]
         assert (data["checked"], data["published"], data["updated"], data["sync_required"]) == (4, 2, 1, True)
         assert [row["key"] for row in data["update_failed"]] == ["ATTN001"]
         failure = data["results"][0]
@@ -548,11 +553,14 @@ def test_update_status_all_writes_failed_never_claims_sync_required(
     json_output: bool,
 ) -> None:
     _seed_preprints(sandbox)
-    sandbox.zotero.update_item.side_effect = httpx.ConnectError("offline service unavailable")
+    sandbox.zotero.update_item.side_effect = httpx2.ConnectError("offline service unavailable")
     result = _invoke(sandbox, ["update-status", "--apply"], json_output=json_output)
-    assert result.exit_code == 0, result.output
+    # fix2: all writes failed -> still ok="partial" (data has update_failed) and exit 5.
+    assert result.exit_code == 5, result.output
     if json_output:
-        data = parse_json_output(result.output)["data"]
+        envelope = parse_json_output(result.output)
+        assert envelope["ok"] == "partial"
+        data = envelope["data"]
         assert data["updated"] == 0
         assert data["sync_required"] is False
         assert len(data["update_failed"]) == 2

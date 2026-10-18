@@ -85,9 +85,25 @@ evidence of the wrong repository — do not "restore" a docs tree.
   skipped, that is a regression to fix in code, not something to document.
   `tools/**` tests carry the `tools` marker and run in the default suite.
 - **CI exists.** `.github/workflows/ci.yml` runs lint, format check, mypy, the
-  full test suite, and wheel/sdist build on Python 3.10 and 3.13; a weekly/manual
+  full test suite, and wheel/sdist build on Python 3.12 only; a weekly/manual
   best-effort `pip-audit` job is network-dependent and non-blocking. Do not
-  document "no CI" or a hard dependency-audit gate.
+  document "no CI" or a hard dependency-audit gate. The project supports only
+  CPython 3.12 (`>=3.12,<3.13`) with upgraded dependencies (`pyzotero>=1.16,<2`);
+  never write 3.10/3.13 matrix or downgrade claims.
+- **Delete is permanent; trash restore is different.** `zot delete` is a
+  permanent Web API deletion, never a move to the trash; `zot trash list` reads
+  the local synced `deletedItems`, and `zot trash restore` restores an
+  already-trashed item through a raw `PATCH {"deleted": 0}`. There is no
+  `trash empty` command. Docs must say permanent for delete and must not imply
+  trash/restore as its consequence or promise immediate local visibility after
+  remote writes.
+- **Envelope top level is closed.** Only `ok`, `data`/`error`, `meta`, optional
+  `dry_run` and optional `next` are official; `ok` is tri-state (true/false
+  `"partial"`). `next` is validated and only on success/partial envelopes.
+- **Ruff 0.17 formats Markdown code fences too.** `uv run ruff format --check .`
+  includes Python fences in `skill/**/references/*.md`; after editing a reference
+  run `uv run ruff format <that .md>` (or the CI format gate fails for a
+  docs-only change).
 - **`core.fileMode=false` used to hide lost executable bits.** Fixed by
   normalising the working tree (644 files, 755 dirs and the three `.zsh`
   entrypoints) and enabling `core.fileMode=true`, so `chmod +x` on a tracked

@@ -52,7 +52,7 @@ def test_unknown_profile_blocks_cli_writer_even_with_legacy_credentials(
     assert "offline-legacy-secret" not in result.output
 
 
-@pytest.mark.parametrize("source", ["--pdf", "--from-file"])
+@pytest.mark.parametrize("source", ["--from-file"])
 @pytest.mark.parametrize("dry_run", [False, True], ids=["apply", "preview"])
 @pytest.mark.parametrize("json_output", [False, True], ids=["text", "json"])
 @pytest.mark.parametrize("credentials", [False, True], ids=["no-auth", "auth"])
@@ -313,6 +313,50 @@ def test_reorganize_invalid_hierarchy_is_rejected_before_any_write(
     assert payload["error"]["code"] == "validation_error"
 
 
+def test_add_pdf_idempotency_preview_is_side_effect_free(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "paper.pdf"
+    path.write_bytes(b"%PDF-1.4 offline")
+    writer = Mock()
+    monkeypatch.setattr("zotero_cli.commands.items.add.ZoteroWriter", writer)
+    result = CliRunner().invoke(
+        main,
+        [
+            "--json",
+            "add",
+            "--pdf",
+            str(path),
+            "--doi",
+            "10.1000/offline",
+            "--idempotency-key",
+            "retry",
+            "--dry-run",
+        ],
+        env={},
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["dry_run"] is True
+    assert payload["data"]["would"]["source"] == "pdf"
+    writer.assert_not_called()
+
+
+def test_add_pdf_idempotency_replays_cached_envelope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "paper.pdf"
+    path.write_bytes(b"%PDF-1.4 offline")
+    writer = Mock()
+    cached = {"ok": True, "data": {"key": "CACHED1"}, "meta": {}}
+    monkeypatch.setattr("zotero_cli.commands.items.add.ZoteroWriter", writer)
+    monkeypatch.setattr(idempotency, "begin_mutation", Mock(return_value=cached))
+    result = CliRunner().invoke(
+        main,
+        ["--json", "add", "--pdf", str(path), "--doi", "10.1000/offline", "--idempotency-key", "retry"],
+        env=WRITE_ENV,
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["data"]["key"] == "CACHED1"
+    writer.assert_not_called()
+
+
 def test_reorganize_forward_parent_reference_does_not_become_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -331,7 +375,7 @@ def test_reorganize_forward_parent_reference_does_not_become_root(
         call("Root", parent_key=None),
         call("Child", parent_key="ROOTKEY"),
     ]
-    writer.return_value.move_to_collection.assert_called_once_with("K1", "CHILDKEY")
+    writer.return_value.set_item_collections.assert_called_once_with("K1", ["CHILDKEY"])
     rows = json.loads(result.output)["data"]["created_collections"]
     assert rows[1]["parent_key"] == "ROOTKEY"
 
@@ -366,10 +410,10 @@ def test_reorganize_failed_parent_never_creates_or_moves_orphaned_descendants(
         call("Root", parent_key=None),
         call("Independent", parent_key=None),
     ]
-    writer.return_value.move_to_collection.assert_called_once_with("K3", "OTHERKEY")
+    writer.return_value.set_item_collections.assert_called_once_with("K3", ["OTHERKEY"])
     if json_output:
         payload = json.loads(result.output)
-        assert payload["ok"] is False
+        assert payload["ok"] == "partial"
         assert payload["data"]["summary"] == {
             "collections_requested": 4,
             "collections_created": 1,
@@ -417,10 +461,10 @@ def test_reorganize_legacy_valid_plan_preserves_names_and_parent_links(
             call("Sub B", parent_key="COLA"),
             call("Empty", parent_key=None),
         ]
-        assert writer.return_value.move_to_collection.call_args_list == [
-            call("K1", "COLA"),
-            call("K2", "COLA"),
-            call("K3", "COLB"),
+        assert writer.return_value.set_item_collections.call_args_list == [
+            call("K1", ["COLA"]),
+            call("K2", ["COLA"]),
+            call("K3", ["COLB"]),
         ]
     if json_output:
         payload = json.loads(result.output)

@@ -15,6 +15,7 @@ from zotero_cli import __version__
 from zotero_cli.cli.registry import register_commands
 from zotero_cli.cli.tiered_group import TieredGroup
 from zotero_cli.output.envelope import request_scope
+from zotero_cli.output.exit_codes import set_verbose
 
 
 @click.group(cls=TieredGroup, invoke_without_command=True, no_args_is_help=False)
@@ -38,7 +39,11 @@ from zotero_cli.output.envelope import request_scope
     "--detail", type=click.Choice(["minimal", "standard", "full"]), default="standard", help="Output detail level"
 )
 @click.option("--no-interaction", is_flag=True, help="Suppress interactive prompts for automation")
-@click.option("--verbose", is_flag=True, help="Verbose output")
+@click.option(
+    "--verbose",
+    is_flag=True,
+    help="Print tracebacks for unexpected errors (also enabled by ZOT_DEBUG)",
+)
 @click.option("--profile", default=None, help="Config profile name")
 @click.option("--library", default="user", help="Library: 'user' (default) or 'group:<id>'")
 @click.pass_context
@@ -68,6 +73,8 @@ def main(
     ctx.call_on_close(lambda: scope.__exit__(None, None, None))
     ctx.ensure_object(dict)
     ctx.obj["request_id"] = rid
+    # Record the parsed flag for the error boundary; never infer it from raw argv.
+    set_verbose(verbose)
     # Mutual exclusion check: --json and --no-json cannot be used together
     if output_json is not None and output_no_json:
         raise click.BadParameter("Cannot use both --json and --no-json")

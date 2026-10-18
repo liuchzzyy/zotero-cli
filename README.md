@@ -11,7 +11,7 @@
 
 ## 安装
 
-需要 Python 3.10–3.13 和 [uv](https://docs.astral.sh/uv/)。
+需要 Python 3.12（`requires-python = ">=3.12,<3.13"`）和 [uv](https://docs.astral.sh/uv/)。依赖使用当前最新兼容版本（例如 `pyzotero>=1.16,<2`）；Python 3.10/3.11/3.13 不受支持。
 
 ```bash
 git clone git@github.com:liuchzzyy/zotero-cli.git
@@ -40,6 +40,8 @@ prefs_js_path = "/Users/your-name/Library/Application Support/Zotero/Profiles/<p
 ```
 
 涉及写入时，还需要 Zotero User ID 和具有写权限的 API key。MinerU PDF 解析需要配置 `mineru_token`，AI 笔记需要配置 `[ai_notes]`。真实配置文件、缓存和本地索引不会提交到 Git。
+
+配置发现：源码 checkout 使用仓库内 `.zot/config.toml`；安装版（`uv tool install` / pipx）使用 per-user 配置 `$XDG_CONFIG_HOME/zotero-cli/config.toml`（默认 `~/.config/zotero-cli/config.toml`，Windows 为 `%APPDATA%/zotero-cli/config.toml`）；相对 `XDG_CONFIG_HOME` 会被忽略（按 XDG 规范回退到默认目录），且安装版不会读取当前目录的 `.zot/config.toml`。
 
 AI 笔记相关配置（`[ai_notes]`）：
 
@@ -91,10 +93,14 @@ ZOT_RERANK_*（ACTIVE/PROVIDER/URL/KEY/MODEL/BATCH_SIZE）
 配置相关说明：
 
 - 配置解析顺序：CLI flag > 环境变量 > 当前 profile > 默认值；`config show` 同样遵循 `--profile` / `ZOT_PROFILE`。
-- `config init` 和 `config profile set` 会合并并保留所有已存在 section 与 active profile，原子写入并保留 `.bak`；配置文件权限 0600、目录 0700。
-- `config cache clear` 需要 `--yes`，支持 `--dry-run`。
+- profile 可以覆盖 `[embedding]`、`[rerank]`、`[semantic_search]`、`[vector_store]` 的键（`[profile.<name>.<section>]` 优先，缺省键回退到顶层同名 section）；未知 profile 返回 `configuration_error`（exit 3）。
+- `config init` 和 `config profile set` 会合并并保留所有已存在 section 与 active profile，原子写入并保留 `.bak`；配置文件权限 0600、目录 0700。无变化的保存会跳过重写/备份；`--config-path` 指向 symlink 时写穿到目标且保留 symlink，`.bak` 建在真实目标旁。TOML 写出支持日期/时间、inf/nan、数组的 inline table 表示；不支持的值返回可操作的 `configuration_error`。
+- `config init` 的 JSON `profile` 字段报告生效的 active profile；无效/空白的默认 profile 会直接失败（`configuration_error`，exit 3），不会回退到旧式 `[zotero]`；`config profile list` 对这类配置同样报告 `configuration_error`。修复方式：`zot config profile set NAME` 或 `zot config init --profile NAME`。
+- `config cache list` 支持 `--limit`（默认 100，0 表示全部），JSON `meta` 带 `{count,total,limit}`，人类可读输出会提示截断。
+- `config cache clear` 需要 `--yes`，支持 `--dry-run`：预览 data 为 `{entries,total_bytes,would_remove}`，真实清理成功 data 为 `{entries,total_bytes,removed}`。
 - `ZOT_DATA_DIR`、`ZOT_PREFS_JS_PATH` 支持 `~` 展开；显式指定的缺失 `--config-path`、损坏 TOML 或类型错误都会返回 `configuration_error`（exit 3）。
-- `ZOT_STATE_DIR` 覆盖持久状态目录；源码 checkout 默认使用仓库内 `.zot/state`，安装版默认使用 `$XDG_STATE_HOME/zotero-cli`（Windows 为 `%LOCALAPPDATA%/zotero-cli`）。
+- `ZOT_STATE_DIR` / `XDG_STATE_HOME` 只有绝对路径生效（相对值按 XDG 规范忽略并回退到 per-user 默认）；源码 checkout 默认使用仓库内 `.zot/state`，安装版默认使用 `$XDG_STATE_HOME/zotero-cli`（Windows 为 `%LOCALAPPDATA%/zotero-cli`）。
+- 版本更新提示只在交互式 TTY 显示；管道、JSON 模式或 `--no-interaction` 不显示，`ZOT_NO_UPDATE_CHECK` 可关闭。
 - `.zot/config.example.toml` 必须保持无凭据、无机器绝对路径，profile 名为中性的 `main`。
 
 ## 常用命令
@@ -110,30 +116,51 @@ uv run zot export ITEMKEY --format bibtex
 uv run zot list --collection "00 | 收件箱"
 uv run zot recent
 uv run zot relate ITEMKEY
-uv run zot duplicates
+uv run zot duplicates                 # 发现重复组时 exit 6（conflict）；无重复 exit 0
 uv run zot summarize ITEMKEY
 uv run zot stats
 
-# 回收站
+# 永久删除（Web API DELETE；不可恢复，不是移入回收站）
+uv run zot delete ITEMKEY --dry-run
+uv run zot delete ITEMKEY --yes
+
+# 回收站：list 读本地 deletedItems；restore 通过 Web API 恢复远端条目
 uv run zot trash list
 uv run zot trash restore ITEMKEY --dry-run
 uv run zot trash restore ITEMKEY
 
+# 引用与打开（JSON 模式不写剪贴板；open 会启动 GUI）
+uv run zot cite ITEMKEY --style apa    # 人类模式打印并复制到剪贴板
+uv run zot cite ITEMKEY --no-copy     # 只打印，不复制
+uv run zot --json cite ITEMKEY        # envelope {citation, style, copied:false}，不写剪贴板
+uv run zot --json open ITEMKEY        # 启动默认应用；envelope {target, kind: pdf|url, gui:true}
+uv run zot open --url https://example.com
+uv run zot open doi:10.1038/example --url   # KEY 可为 http(s) URL 或 doi:...；非 http scheme 返回 validation_error（exit 3）
+
 # 查看完整命令契约
 uv run zot schema
 uv run zot schema search
+uv run zot schema --diff prev.json   # 与缓存 schema 做结构 diff
 ```
 
 程序化调用统一使用 `--json`。命令按安全等级分组：read / write / destructive，分组结果同时反映在 `zot --help` 和 `zot schema` 中；嵌套的 workspace/config 变更子命令也分别归入 write/destructive。
 
+`zot schema --diff prev.json` 输出结构 diff；缓存文件结构非法返回 `validation_error`（exit 3）。不支持的本地 Zotero userdata schema 返回 `configuration_error`（exit 3，附修复提示）。
+
+`delete` 是**永久删除**（Web API DELETE），不是移入回收站；帮助、人类可读输出、JSON 和 `next` 提示都明确写 permanent（成功 JSON data 带 `permanently_deleted` + `permanent: true`，dry-run 带 `would_delete` + `permanent: true`，确认文案说明不可撤销）。`trash list` 只读本地 `deletedItems`，Zotero Desktop 同步前看不到远端删除；`trash restore` 对已在回收站中的条目发 raw PATCH `{"deleted": 0}`（带 `If-Unmodified-Since-Version`），恢复本身是远端写入。不存在 `trash empty` 命令，任何文档都不得宣传它。所有 Web API 写入完成后，本地 SQLite 读取都可能滞后到 Zotero Desktop 同步为止；不要仅凭本地读判断远程写入成功。
+
 ## 输出契约、错误与流式输出
 
-- 每次调用在 stdout 只输出一个 JSON envelope（`ok`、`data`/`error`、`meta`），进度和警告走 stderr。
-- 参数/用法错误也输出 JSON envelope，返回 `validation_error`（exit 3）；未捕获异常、数据库错误、损坏 TOML 等会转换成类型化错误，不泄漏 traceback。`--verbose`（或 `ZOT_DEBUG`）才把内部 traceback 写到 stderr。
+- 每个 JSON envelope 的顶层只使用官方键：`ok`、`data`/`error`、`meta`，以及可选的 `dry_run`、`next`；不存在其他顶层键。`ok` 是三态：`true` 成功、`false` 错误、`"partial"` 部分成功（部分成功时必有 `data`、没有 `error`，并以非零退出码表达失败部分，例如 `add --pdf` 的部分附件失败）。
+- `next` 是官方可选的非空字符串数组，只在 success/partial envelope 出现，给出可直接执行的后续安全命令；它不是理解结果的唯一方式，也不保证远程写入会立刻在本地可读。
+- 每次调用在 stdout 只输出一个 envelope，进度和警告走 stderr。参数/用法错误也输出 JSON envelope，返回 `validation_error`（exit 3）；未捕获异常、数据库错误、损坏 TOML 等会转换成类型化错误，不泄漏 traceback。`--verbose`（或等价的 `ZOT_DEBUG` 环境变量）才把内部 traceback 写到 stderr；两者都只来自解析后的 flag/env，不匹配原始 argv 子串。
+- 写入是远端操作，随后立即读取本地 SQLite 可能仍是旧快照；先用 Web API 回读或等待 Zotero Desktop 同步，再判断写入是否生效。
 - `--stream` 对 `list` / `recent` / `search` 输出 NDJSON（每行一个 item envelope + 汇总行），优先于 `--no-json`；`recent` 的汇总带 `has_more`。
-- `stats`、`summarize`、`summarize-all`、`config profile list/set/cache stats/clear`、所有 `workspace`/`collection` 命令在 JSON 模式下都恰好输出一个 envelope。
+- `search` / `list` 在 v130 有界全文扫描（4000 个 cache 文件 / 单文件 8 MiB / 总量 256 MiB）达到文件/字节预算、或退化为仅元数据匹配时，JSON `meta` 带 `fulltext_limited: true`，人类模式在 stderr 提示：这是“结果可能不完整”的提示，不是错误。
+- `stats`、`summarize`、`summarize-all`、`config profile list/set/cache stats/clear`、所有 `workspace`/`collection` 命令在 JSON 模式下都恰好输出一个 envelope。`completions --json` 返回 `{shell, script, fallback, warning}`（warning 仍走 stderr）；`zot schema` 根节点名为 `zot`。
+- 人类可读输出统一经过 sanitizer：去除 CR（`\r`）等 C0/C1 控制字符（保留 tab/换行），cite/open/update-status/cache-list 等文本不会把终端控制序列带到 stdout/stderr。
 - `export --format json` 在文本模式输出原始 JSON 元数据；加 `--json` 时仍使用 envelope。
-- 退出码：0 成功；1 运行时/内部错误；2 认证缺失或无效；3 参数/配置/确认错误；4 未找到；5 网络或限流；6 冲突。
+- 退出码：0 成功；1 运行时/内部错误；2 认证缺失或无效；3 参数/配置/确认错误；4 未找到；5 网络或限流；6 冲突。**`duplicates` 的 exit 6 是“发现潜在重复组”的正向信号，不是错误**：JSON 仍是 `ok: true` + `data`（组列表）+ `meta.count`，没有重复时 exit 0。脚本可安全地用 `if zot duplicates; then 无重复; else 处理重复; fi` 分支；不要把它当成通用冲突错误。`duplicates` 选项：`--by doi|title|both`（默认 both）、`--threshold`（默认 0.85）、`--limit`。
 
 ## PDF 阅读
 
@@ -156,7 +183,7 @@ uv run zot --json pdf ITEMKEY --attachment ATTACHMENTKEY --section 2
 
 当一个父条目包含多个 PDF 时，直接运行 `zot pdf ITEMKEY` 会返回校验错误，要求明确指定 `--attachment`；`--list-attachments` 遇到不存在的条目返回 `not_found`（exit 4）。MinerU 结果按 PDF 内容哈希和模型版本缓存到 `.zot/state/mineru/`：正文 Markdown 供 `ai_analyze` 使用，`content_list.json` 供 workspace RAG 使用，图片位于缓存包的 `raw/images/`。
 
-安全上限：单文件上传/解析 200MB；下载归档 512MB；归档内单成员 200MB；解压总量 1GB；归档条目数 10,000。缓存写入使用跨进程文件锁、隐藏 `.locks/` 与 staging 目录，PDF 只计算一次哈希；仅瞬时错误重试，MinerU batch POST 不自动重试。
+安全上限：单文件上传/解析 200MB；下载归档 512MB；归档内单成员 200MB；解压总量 1GB；归档条目数 10,000（超限消息按 MB 精度报告）。PDF 命令统一走 CLI 错误边界：配置类错误返回 `configuration_error`（exit 3），运行时错误返回 `runtime_error`/`internal_error`（exit 1），只有 `--verbose`/`ZOT_DEBUG` 才输出 traceback。缓存写入使用跨进程文件锁、隐藏 `.locks/` 与 staging 目录，PDF 只计算一次哈希：锁记录 owner PID，owner 进程死亡立即回收，其它等待者在 stale 窗口（≤ 最大等待）后回收并输出等待提示；启动时清理过期的隐藏 orphan staging；下载在 request 级重试成功后若流式 body 中断，还会再重试一次；仅瞬时错误重试，MinerU batch POST 不自动重试。
 
 ## AI 条目笔记（ai_analyze）
 
@@ -185,11 +212,12 @@ uv run zot ai_analyze ITEMKEY --idempotency-key analyze-ITEMKEY-001
 
 - `--dry-run` 不调用分类模型：`paper_type` 是条目类型默认值（book 类型映射 book，其余 research_article）；它仍会按缓存/云端解析 PDF，只是跳过生成 note 的模型调用和所有写入。它也会预览已打 `ai/noted` 的条目（不因已分析而提前返回）。
 - note 按条目类型/分类选择模板（研究论文 / 综述 / 书籍），模板位于 `tools/ainote/templates/`。
-- 标题、作者、期刊、日期、DOI 和正文作为不可信数据用定界符包裹后进入 prompt，模板声明指令层级，降低论文内容注入风险；prompt 总长上限 220k 字符。
-- MinerU Markdown 中的图片引用会被替换为 `【图 N】` 标记并作为多模态输入发送，默认最多 12 张；同一文档的重复附件会先去重再编号，避免编号与图引用错位；随请求发送的原始图片总量上限 20MB。
+- 标题、作者、期刊、日期、DOI 和正文作为不可信数据用定界符包裹后进入 prompt，模板声明指令层级，降低论文内容注入风险；prompt 总长上限 220k 字符，截断预算会计入模板与渲染后的标题/作者等元数据开销（标题在渲染前先转纯文本再转义）。
+- MinerU Markdown 中的图片引用会被替换为 `【图 N】` 标记并作为多模态输入发送，默认最多 12 张；主文档与 supplementary 文档分别去重（保留最长副本）后再编号，避免编号与图引用错位；超过上限时 prompt 标注仅发送了哪些图号；随请求发送的原始图片总量上限 20MB。
+- 模型返回“不支持图片输入”类错误时只对图片/vision 能力相关提示回退到纯文本模型，不会把 payload 过大等普通错误误判为能力问题。
 - 渲染前统一处理上下标与中英文间距（`MnO₂` → `MnO2`，`Zn²⁺` → `Zn2+`，`g⁻¹` → `g^-1`）。
 - 关键词简记写入条目 Extra 的 `short-note` 字段；校验在 CJK 间距补齐之后执行，长度上限 500 字符。
-- 写入失败返回类型化错误：发生在任何写已可能提交之后时标记 `committed`，不会盲目重试造成重复 note；`--force` 只追加，不删除旧 note。
+- 写入失败返回类型化错误：确定性拒绝（validation/not_found/auth 等，肯定未写入）`committed=false`，只有可能已提交的失败才标记 `committed` 并保留幂等预留，避免盲目重试造成重复 note；`--force` 只追加，不删除旧 note。
 - 进度输出在 TTY 上使用单行刷新（`\\r`），非 TTY/日志使用 `--progress-lines` 按行输出。
 
 同一条文本规则也适用于导入流程写入的中文标题与中文摘要（见「辅助工具」中的 `zh_text.py`）：不得含上下标，中英文之间加半角空格。
@@ -198,7 +226,7 @@ uv run zot ai_analyze ITEMKEY --idempotency-key analyze-ITEMKEY-001
 
 `--dry-run` 覆盖所有写入/破坏性命令及子命令并保证零副作用（envelope 带 `dry_run` 标记），包括 `workspace new/add/remove/import/index/reindex/embed/delete`、`collection create/move/rename`（以及 `delete`）、`config init/profile set/cache clear`、`update-status`。
 
-破坏性操作需要确认：`delete`、`workspace delete`、`collection delete`、`config cache clear` 要求 `--yes`（或先 `--dry-run`）；`--no-interaction` 绝不隐含 `--yes`；非交互终端下缺少 `--yes`/`--dry-run` 返回 `confirmation_required`（exit 3）。`trash restore` 同样支持 `--dry-run` 预览。
+破坏性操作需要确认：`delete`（永久删除）、`workspace delete`、`collection delete`、`config cache clear` 要求 `--yes`（或先 `--dry-run`）；`--no-interaction` 绝不隐含 `--yes`；非交互终端下缺少 `--yes`/`--dry-run` 返回 `confirmation_required`（exit 3）。`trash restore` 恢复的是回收站中已有的条目，支持 `--dry-run` 预览；它不是 `delete` 的反操作（`delete` 永不进入回收站）。
 
 ```bash
 # 预览
@@ -213,7 +241,11 @@ uv run zot update ITEMKEY \
   --title "New title" --idempotency-key update-001
 ```
 
-主要写入命令：`add`、`update`、`attach`、`note`、`tag`、`ai_analyze`。`note --add` 空内容返回 `validation_error`；条目不存在与"条目存在但没有 note"分别返回带上下文的 `not_found`。集合管理（`collection`）父命令属于读取分组，但其 create/move/rename/delete/reorganize 子命令按安全等级归入 write/destructive，且都支持 `--dry-run`。
+主要写入命令：`add`、`update`、`attach`、`note`、`tag`、`ai_analyze`。`note --add` 空内容返回 `validation_error`；条目不存在与"条目存在但没有 note"分别返回带上下文的 `not_found`。
+
+部分成功是正式契约：`add --from-file`、多条目 `update`/`tag`/`delete`、`add --pdf`（条目已创建但附件上传失败）以及 `update-status --apply`（部分写入失败）都返回 `ok: "partial"` + `data` + `next`，并以非零退出码退出（`update-status` 全部失败为 network/rate 时 exit 5，否则 exit 1）。`add --pdf` 支持 `--idempotency-key`，在 partial 时保持预留，避免盲目重试重复创建条目；`add --from-file` 不接受 `--idempotency-key`，会显式返回 `validation_error`。`delete` 的 JSON `data` 带 `permanent: true`；确定性拒绝（validation/not_found/auth 等）会释放幂等预留，只有可能已提交的失败才保留预留。类型化写入错误的 error envelope 在可能已提交时带 `error.committed: true`。
+
+集合管理（`collection`）父命令属于读取分组，但其 create/move/rename/delete/reorganize 子命令按安全等级归入 write/destructive，且都支持 `--dry-run`。`collection delete` 会级联删除子集合，dry-run/确认提示/envelope 都会列出 `descendant_collections`/`descendant_count`；`collection reorganize` 是真正的移动（替换旧集合成员关系，data 中 `items_moved[].replaced_existing_memberships=true`）；未知 key 等失败返回类型化 `not_found`/`conflict`（4/5/3/6）。`add --url` 在元数据解析失败时会以 URL 作为标题回退，不会创建空标题条目。`update-status` 默认是 dry-run 预览，`--apply` 才写；部分写入失败返回 `ok: "partial"` 且非零退出。
 
 ## Workspace RAG
 
@@ -226,10 +258,12 @@ uv run zot --json workspace query \
   "reaction mechanism" --workspace papers
 ```
 
-- 所有 workspace 变更命令都支持 `--dry-run`；`workspace delete` 需要 `--yes`，并会删除该工作区的 Qdrant collection（`ws_<name>`）并清理空向量库。
-- `workspace index` 会移除已从工作区和 Zotero 中消失/缺失的条目；`--force` 重建前会先准备/校验；`reindex` 支持 `--no-embed`；`embed` 心跳与逐条进度通过 `--progress-lines` 输出。
-- `workspace import` 在解析为空时输出 warning，并报告 resolved/imported/skipped 数量。
-- `workspace query` 的 `meta` 暴露 requested/effective mode、degraded、semantic_available、rerank_applied；`top-k` 最小为 1。`--pdf-kind` 只保留 main 或 supplementary。
+- 所有 workspace 变更命令都支持 `--dry-run`；`workspace delete` 需要 `--yes`，会删除该工作区自己的 Qdrant collection（`ws_<name>`）、清理空向量库与空的 `.workspace` 根目录（即使 index 文件缺失也按 owned marker 清理），manifest 不可读时仍安全删除并给出类型化错误。
+- `workspace index` 会移除已从工作区和 Zotero 中消失/缺失的条目；空工作区（或清空后）会 prune/clear 旧索引与向量，不再提前返回留下陈旧 chunk；`--force` 重建前会先准备/校验；`reindex` 支持 `--no-embed`。
+- `workspace embed` 有全局重试预算 `--deadline-seconds`（0 关闭）；确定性 4xx（不支持模型/额度耗尽）快速失败，另有逐条/逐批重试上限；心跳与逐条进度通过 `--progress-lines` 输出。
+- `workspace import` 在解析为空时输出 warning，并报告 resolved/imported/skipped 数量（成功 envelope 不带 dry-run 专用的 `would_add`）；`workspace remove` 会同步 prune 该工作区索引，prune 失败时 warning 说明索引可能仍返回已移除条目。
+- `workspace query` 的 `meta` 暴露 requested/effective mode、degraded、可选的 `degradation` 列表、semantic_available、rerank_applied；读路径不会创建 Qdrant store（缺失/只读文件系统时退化为 BM25 并标记 degraded），rerank 失败也会进入 degradation 而没有静默丢结果；`top-k` 最小为 1，`--pdf-kind` 只保留 main 或 supplementary。
+- 并发 prune/删除有锁与竞态保护；`.workspace` 根目录为空时会清理。
 - 普通 `workspace index` 会根据 PDF、条目元数据和笔记内容判断是否需要重新索引。只有在需要强制重建时使用 `workspace reindex`。
 - 持久数据位置：`.workspace/<name>/`（工作区与 SQLite RAG 索引）、`.workspace/_qdrant/`（本地向量）、`.zot/state/mineru/`（共享 MinerU 解析包）。
 
@@ -238,7 +272,7 @@ uv run zot --json workspace query \
 `tools/` 下的脚本不是 `zot` 子命令：`zot schema` 不会列出它们，它们只负责批量工作流。总览见 `tools/README.md`。
 
 - `tools/paperrag/`：`run-rag-workspace.zsh`（inventory、增量索引、embedding 回填）、`run-rag-evidence-search.zsh`（检索）、`zotero-workflow-common.zsh`（共享函数）、`workspace_inventory.py`（inventory 辅助脚本）。生成物写入唯一命名的 `log/` 运行目录；详细用法见 `tools/paperrag/Instructions.md`。
-- `tools/paper2zotero/`：`zotero_inbox.py`（PaperCrossref 收件箱导入）、`backfill_titles.py`（全库译名回填）、`translate_abstracts.py`（集合与条目中文摘要批量翻译与回填）、`batch_translate_metadata.py`（按集合同步中文标题与中文摘要）、`zh_text.py`（中文格式化规则）。断点状态自本次改动起位于 `.zot/state/paper2zotero/`（旧 `tools/paper2zotero/*_state.json` 不会自动迁移，需要手动移动一次以继续断点续跑）。预览仍需 Zotero API 凭据读取远端库，但不会写入。详见 `tools/paper2zotero/README.md`。
+- `tools/paper2zotero/`：`zotero_inbox.py`（PaperCrossref 收件箱导入）、`backfill_titles.py`（全库译名回填）、`translate_abstracts.py`（集合与条目中文摘要批量翻译与回填）、`batch_translate_metadata.py`（按集合同步中文标题与中文摘要）、`zh_text.py`（中文格式化规则）。断点状态位于 `.zot/state/paper2zotero/`（旧 `tools/paper2zotero/*_state.json` 不会自动迁移，需要手动移动一次以继续断点续跑）。`backfill_titles.py` / `translate_abstracts.py` 的默认模式是只读预览：仍需 Zotero API 凭据读取远端库，但不会写入；`batch_translate_metadata.py` 没有免费预览——不加 `--apply` 仍会调用 AI 暂存翻译并写断点文件。机器相关的 Hermes 目录、PaperCrossref 目录与收件箱 key/name 可用 `ZOT_PAPER2ZOTERO_HERMES_HOME`、`ZOT_PAPER2ZOTERO_INBOX_DIR`、`ZOT_PAPER2ZOTERO_INBOX_KEY`、`ZOT_PAPER2ZOTERO_INBOX_NAME` 覆盖。详见 `tools/paper2zotero/README.md`。
 - `tools/ainote/`：`batch_analyze.py`（按集合批量运行 `ai_analyze`，`--collection` 必填，dry-run 零副作用）和 `templates/`（`ai_analyze` prompt 模板，构建 wheel 时随包发布）。
 - 工具测试使用 `tools` marker，纳入默认 `testpaths`。
 
@@ -247,13 +281,15 @@ uv run zot --json workspace query \
 ```bash
 uv sync --dev
 uv run ruff check .
-uv run ruff format --check .
+uv run ruff format --check .   # ruff 0.17 也会格式化 Markdown 代码块
 uv run python -m mypy src/zotero_cli tools --exclude '(^|/)test_[^/]*\.py$'
 uv run pytest -q -rf
 uv build
 ```
 
-完整测试套件预期全绿：0 failed、0 skipped（没有 skip 标记）。CI（`.github/workflows/ci.yml`）在 Python 3.10 与 3.13 上运行 lint、format、mypy、完整测试和 wheel/sdist 构建；另有每周/手动触发、best-effort 的 `pip-audit` 依赖审计（网络依赖，不阻塞 PR）。
+文档里的 Python 代码块也要通过 `uv run ruff format --check .`；改文档后对相关 Markdown 运行 `uv run ruff format <path>`。
+
+完整测试套件预期全绿：0 failed、0 skipped（没有 skip 标记）。CI（`.github/workflows/ci.yml`）只在 Python 3.12 上运行 lint、format、mypy、完整测试和 wheel/sdist 构建；另有每周/手动触发、best-effort 的 `pip-audit` 依赖审计（网络依赖，不阻塞 PR）。依赖已升级到当前最新兼容版本（`pyzotero>=1.16,<2`、新版 `mypy`/`ruff`/`rich`/`openai` 等）。
 
 源码布局：
 

@@ -22,8 +22,11 @@ def test_add_pdf_upload_failure_returns_partial_state(tmp_path):
             env={"ZOT_LIBRARY_ID": "123", "ZOT_API_KEY": "fake"},
         )
     payload = json.loads(result.output)
-    assert result.exit_code != 0
-    assert payload["ok"] is False
+    assert result.exit_code == 1
+    assert payload["ok"] == "partial"
     assert payload["data"]["key"] == "NEW001"
     assert payload["data"]["attachment_error"] == "upload failed"
-    assert "zot attach NEW001" in payload["data"]["next"][0]
+    # next is the official top-level hint list, never inside data.
+    assert "zot attach NEW001" in payload["next"][0]
+    assert "next" not in payload["data"]
+    assert "error" not in payload

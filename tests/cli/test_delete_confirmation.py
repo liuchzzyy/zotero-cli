@@ -44,3 +44,60 @@ def test_delete_with_yes_executes() -> None:
         result = _run(["--json", "delete", "ABC123", "--yes"], env=ENV)
     assert result.exit_code == 0, result.output
     writer.return_value.delete_item.assert_called_once_with("ABC123")
+    payload = json.loads(result.output)
+    assert payload["ok"] is True
+    assert payload["data"]["permanent"] is True
+    assert payload["data"]["permanently_deleted"] == ["ABC123"]
+    # Permanent deletion must never advertise the trash/restore workflow.
+    assert "next" not in payload
+    assert "trash" not in result.output
+
+
+def test_delete_help_says_permanent_and_never_advertises_trash_empty() -> None:
+    result = _run(["delete", "--help"])
+    assert result.exit_code == 0
+    text = result.output.lower()
+    assert "permanent" in text
+    assert "trash empty" not in text
+    assert "move to trash" not in text
+
+
+def test_delete_dry_run_payload_is_explicitly_permanent() -> None:
+    result = _run(["--json", "delete", "ABC123", "--dry-run"], env=ENV)
+    payload = json.loads(result.output)
+    assert payload["dry_run"] is True
+    assert payload["data"]["permanent"] is True
+    assert payload["data"]["would_delete"] == ["ABC123"]
+
+
+def test_delete_partial_failure_is_typed_partial_envelope() -> None:
+    from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
+
+    with patch("zotero_cli.commands.items.delete.ZoteroWriter") as writer:
+        writer.return_value.delete_item.side_effect = [None, ZoteroWriteError("gone", code="not_found")]
+        result = _run(["--json", "delete", "K1", "K2", "--yes"], env=ENV)
+    assert result.exit_code == 4, result.output
+    payload = json.loads(result.output)
+    assert payload["ok"] == "partial"
+    assert payload["data"]["permanent"] is True
+    assert payload["data"]["permanently_deleted"] == ["K1"]
+    assert payload["data"]["failed"][0]["key"] == "K2"
+    assert payload["data"]["failed"][0]["code"] == "not_found"
+
+
+def test_delete_definite_rejection_releases_idempotency_reservation(tmp_path) -> None:
+    from unittest.mock import patch as patch_obj
+
+    from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
+
+    with (
+        patch_obj("zotero_cli.core.zotero.idempotency.state_dir", return_value=tmp_path),
+        patch("zotero_cli.commands.items.delete.ZoteroWriter") as writer,
+    ):
+        writer.return_value.delete_item.side_effect = ZoteroWriteError("gone", code="not_found")
+        args = ["--json", "delete", "ABC", "--yes", "--idempotency-key", "k"]
+        first = _run(args, env=ENV)
+        second = _run(args, env=ENV)
+    assert first.exit_code == 4
+    assert second.exit_code == 4
+    assert writer.return_value.delete_item.call_count == 2

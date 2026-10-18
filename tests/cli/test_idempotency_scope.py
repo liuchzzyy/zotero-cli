@@ -123,7 +123,7 @@ def test_delete_unknown_outcome_blocks_retry_with_conflict(tmp_path):
         args = ["delete", "ABC", "--yes", "--idempotency-key", "k"]
         first = invoke_agent_cli(args, env=ENV)
         retry = invoke_agent_cli(args, env=ENV)
-    assert first.exit_code == 1  # partial/total delete failure envelope
+    assert first.exit_code == 5  # network_error is a typed exit code
     assert retry.exit_code == 6
     assert json.loads(retry.output)["error"]["code"] == "conflict"
     assert writer.return_value.delete_item.call_count == 1

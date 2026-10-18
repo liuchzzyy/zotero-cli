@@ -10,7 +10,7 @@ Zotero-library mutation goes through the Zotero Web API. Tools may create local
 state (workspace indexes, `log/` run directories, checkpoints) as plain files;
 those live under the git-ignored `.zot/state/` or `.workspace/` trees.
 
-Run them from the repository root, e.g.
+They run on the repository's single supported interpreter, CPython 3.12. Run them from the repository root, e.g.
 `uv run python tools/paper2zotero/translate_abstracts.py --collection "00 | 收件箱"`
 or `tools/paperrag/run-rag-workspace.zsh --help`. `uv run pytest -q` collects
 their tests too because `[tool.pytest.ini_options] testpaths = ["tests", "tools"]`;
@@ -45,9 +45,12 @@ formatting rules. Writes only go through the Zotero Web API and are verified by
 readback; resume checkpoints live under the git-ignored
 `.zot/state/paper2zotero/` directory. Optional local abstract overrides for
 publisher-blocked items come from a JSON file named by
-`ZOT_PAPER2ZOTERO_MANUAL_ABSTRACTS`, not from committed source data. Required
-configuration, per-script behavior and test commands:
-[paper2zotero/README.md](paper2zotero/README.md).
+`ZOT_PAPER2ZOTERO_MANUAL_ABSTRACTS`, not from committed source data. Machine-
+specific defaults (Hermes profile dir, PaperCrossref producer dir, inbox target)
+are overridable without editing code: `ZOT_PAPER2ZOTERO_HERMES_HOME`,
+`ZOT_PAPER2ZOTERO_INBOX_DIR`, `ZOT_PAPER2ZOTERO_INBOX_KEY`,
+`ZOT_PAPER2ZOTERO_INBOX_NAME`. Required configuration, per-script behavior and
+test commands: [paper2zotero/README.md](paper2zotero/README.md).
 
 ## `tools/paperrag/`
 
@@ -55,8 +58,10 @@ Logged end-to-end workspace RAG entrypoints: `run-rag-workspace.zsh`
 (inventory -> incremental index -> embedding backfill) and
 `run-rag-evidence-search.zsh` (query), both built on
 `zotero-workflow-common.zsh` (repo discovery, safe `log/` run directories, run
-logging) plus the Python inventory helper `workspace_inventory.py`. Generated
-run artifacts go to a unique `log/` run directory
+logging) plus the Python inventory helper `workspace_inventory.py`. Default
+workspace/collection targets can be changed without editing the scripts with
+`PAPERRAG_WORKSPACE` / `PAPERRAG_COLLECTIONS`. Generated run artifacts go to a
+unique `log/` run directory
 (`<workflow>-<timestamp>-<pid>-<random>`); a directory that already existed is
 kept on success instead of being deleted. Persistent workspaces, indexes and
 vectors live in `.workspace/`, and MinerU parse packages in

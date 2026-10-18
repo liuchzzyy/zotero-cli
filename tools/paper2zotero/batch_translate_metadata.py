@@ -1,7 +1,7 @@
 """Sync Chinese title and abstract for the items of one Zotero collection.
 
 Target collection is given on the command line: a collection key (e.g.
-6MJBZYQX) or a name (exact, or a unique substring).
+COLLECTIONKEY) or a name (exact, or a unique substring).
 
 Two fields are handled:
 - ``abstractNote``: the English abstract is translated to Chinese. Always on.
@@ -75,7 +75,7 @@ TITLE_DONE = {"updated", "already_translated"}
 
 def default_state_path(collection_key: str) -> Path:
     """Checkpoint under the git-ignored repo state dir, never the tracked tools tree."""
-    return state_dir() / PAPER2ZOTERO_STATE_SUBDIR / f"zh_state_{collection_key}.json"
+    return Path(state_dir()) / PAPER2ZOTERO_STATE_SUBDIR / f"zh_state_{collection_key}.json"
 
 
 def load_manual_abstract_overrides() -> dict[str, tuple[str, str]]:
@@ -571,7 +571,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="为指定 Zotero 集合同步中文摘要（abstractNote），可选同步中文标题（Extra: translated-title）"
     )
-    parser.add_argument("--collection", required=True, help="集合 key（如 6MJBZYQX）或集合名称")
+    parser.add_argument("--collection", required=True, help="集合 key（如 COLLECTIONKEY）或集合名称")
     parser.add_argument(
         "--with-titles",
         action="store_true",

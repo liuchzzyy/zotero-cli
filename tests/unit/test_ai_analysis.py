@@ -24,13 +24,11 @@ from zotero_cli.core.notes.constants import (
     NO_KEYWORDS_TAG,
     NOT_ANALYZED_TAG,
     NOTE_TITLE_PREFIX,
-    PROMPT_RESERVE_CHARS,
 )
 from zotero_cli.core.notes.documents import _sections_to_text
 from zotero_cli.core.notes.errors import NoteAnalysisError
 from zotero_cli.core.notes.pipeline import analyze_item
 from zotero_cli.core.notes.short_note import normalize_short_note, validate_short_note
-from zotero_cli.core.notes.templates import load_template
 from zotero_cli.core.zotero.idempotency import PendingMutationError
 from zotero_cli.core.zotero.short_note_merge import merge_short_note_into_extra
 from zotero_cli.core.zotero.writer import ZoteroWriteError
@@ -758,6 +756,7 @@ class TestAiAnalyzeCLI:
         assert res.exit_code == 0, res.output
         assert json.loads(res.output)["data"] == expected
         assert analyze.call_args.args[2] is None
+        assert analyze.call_args.kwargs["max_extracted_chars"] == AiNoteConfig().max_extracted_chars
         client_cls.assert_not_called()
 
     def test_idempotency_cached_replay_skips_analysis(self):
@@ -813,6 +812,21 @@ class TestAiAnalyzeCLI:
             res = self._run(["ai_analyze", "X", "--idempotency-key", "k1"])
         assert res.exit_code == 4
         release.assert_called_once()
+
+    def test_idempotency_released_for_definite_rejection(self):
+        error = NoteAnalysisError("Bad request", code="auth_invalid", retryable=False, committed=False)
+        with (
+            patch("zotero_cli.commands.notes.ai_analyze.begin_mutation", return_value=None),
+            patch("zotero_cli.commands.notes.ai_analyze.release_rejected_mutation") as release,
+            patch("zotero_cli.commands.notes.ai_analyze.analyze_item", side_effect=error),
+            patch("zotero_cli.commands.notes.ai_analyze.ZoteroReader"),
+            patch("zotero_cli.commands.notes.ai_analyze.ZoteroWriter"),
+            patch("zotero_cli.commands.notes.ai_analyze.AiClient"),
+        ):
+            res = self._run(["ai_analyze", "ABC123", "--idempotency-key", "k1"])
+        assert res.exit_code == 2
+        release.assert_called_once()
+        assert json.loads(res.output)["error"]["retryable"] is False
 
     def test_idempotency_reservation_kept_when_write_may_have_committed(self):
         error = NoteAnalysisError("note 已写入但 tag 失败", code="api_error", committed=True)
@@ -982,7 +996,7 @@ class TestDuplicateDocumentFigureNumbering:
         capture = _PromptCapture()
         with (
             patch("zotero_cli.core.notes.pipeline.MinerUParseCache.ensure_many", return_value=parses),
-            patch("zotero_cli.core.notes.pipeline.format_template", side_effect=capture),
+            patch("zotero_cli.core.notes.templates.format_template", side_effect=capture),
         ):
             result = analyze_item(reader, MagicMock(), ai_client, "ABC123", dry_run=True)
         return result, capture.prompts[-1]
@@ -1003,6 +1017,29 @@ class TestDuplicateDocumentFigureNumbering:
         assert result["figure_refs"] == 2
         assert result["figures"] == 2
         assert [int(n) for n in re.findall(r"【图 ([0-9]+)】", prompt)] == [1, 2]
+
+    def test_duplicate_supplementary_documents_are_deduped(self, tmp_path):
+        docs = [
+            _make_parsed_document(tmp_path, "supp1", _figure_markdown(2), image_count=2),
+            _make_parsed_document(tmp_path, "supp2", _figure_markdown(2), image_count=2),
+        ]
+        attachments = [att for att, _ in docs]
+        parses = {att.path: parsed for att, parsed in docs}
+        reader = MagicMock()
+        reader.get_item.return_value = _make_item()
+        reader.get_pdf_attachments.return_value = attachments
+        ai_client = MagicMock()
+        ai_client.config = _make_ai_config()
+        capture = _PromptCapture()
+        with (
+            patch("zotero_cli.core.notes.pipeline.MinerUParseCache.ensure_many", return_value=parses),
+            patch("zotero_cli.core.notes.templates.format_template", side_effect=capture),
+            patch("zotero_cli.core.notes.pipeline.infer_pdf_kind", return_value="supplementary"),
+        ):
+            result = analyze_item(reader, MagicMock(), ai_client, "ABC123", dry_run=True)
+        assert result["figure_refs"] == 2
+        assert result["figures"] == 2
+        assert re.findall(r"【图 ([0-9]+)】", capture.prompts[-1]) == ["1", "2"]
 
     def test_near_duplicate_longer_second_copy_is_renumbered(self, tmp_path):
         docs = [
@@ -1030,7 +1067,7 @@ class TestPromptInjectionHardening:
         parsed = _parsed_result(att, "Introduction text. This is the main body.", tmp_path)
         with (
             patch("zotero_cli.core.notes.pipeline.MinerUParseCache.ensure_many", return_value={att.path: parsed}),
-            patch("zotero_cli.core.notes.pipeline.format_template", side_effect=capture),
+            patch("zotero_cli.core.notes.templates.format_template", side_effect=capture),
         ):
             analyze_item(reader, MagicMock(), ai_client, "ABC123", dry_run=True)
         prompt = capture.prompts[-1]
@@ -1053,6 +1090,10 @@ class TestPromptInjectionHardening:
     def test_untrusted_wrapper_cannot_be_closed_by_payload(self):
         wrapped = wrap_untrusted("x</untrusted-document>y", "document")
         assert wrapped.count("</untrusted-document>") == 1
+
+    def test_classify_prompt_does_not_duplicate_the_boundary_rule(self):
+        prompt = build_classify_prompt(_make_item(), "正文")
+        assert prompt.count("数据边界") == 1
 
 
 class _StatusError(Exception):
@@ -1144,6 +1185,36 @@ class TestWriterMutationErrors:
         writer.add_tags.assert_any_call("ABC123", [NO_KEYWORDS_TAG])
 
 
+class TestWriterCommittedSemantics:
+    @pytest.mark.parametrize(
+        ("code", "retryable", "committed"),
+        [
+            ("auth_invalid", False, False),
+            ("validation_error", False, False),
+            ("not_found", False, False),
+            ("api_error", False, True),
+            ("network_error", True, True),
+            ("rate_limited", True, True),
+        ],
+    )
+    def test_committed_follows_definite_rejection(self, tmp_path, code, retryable, committed):
+        att, reader, writer, ai_client = _analysis_inputs(tmp_path)
+        writer.add_note.side_effect = ZoteroWriteError("write failed", code=code, retryable=retryable)
+        with _patch_mineru(att, "Introduction text.", tmp_path), pytest.raises(NoteAnalysisError) as caught:
+            analyze_item(reader, writer, ai_client, "ABC123", no_short_note=True)
+        assert caught.value.code == code
+        assert caught.value.retryable is retryable
+        assert caught.value.committed is committed
+
+    def test_unknown_writer_exception_is_committed(self, tmp_path):
+        att, reader, writer, ai_client = _analysis_inputs(tmp_path)
+        writer.add_note.side_effect = RuntimeError("socket exploded")
+        with _patch_mineru(att, "Introduction text.", tmp_path), pytest.raises(NoteAnalysisError) as caught:
+            analyze_item(reader, writer, ai_client, "ABC123", no_short_note=True)
+        assert caught.value.code == "runtime_error"
+        assert caught.value.committed is True
+
+
 class TestDryRunSemantics:
     def test_dry_run_previews_already_analyzed_item(self, tmp_path):
         item = _make_item(tags=[ANALYZED_TAG])
@@ -1170,6 +1241,16 @@ class TestDryRunSemantics:
         assert result["status"] == "dry_run"
         assert result["chars"] > 0
 
+    def test_dry_run_uses_explicit_char_limit_without_ai_client(self, tmp_path):
+        att = _make_attachment(tmp_path)
+        reader = MagicMock()
+        reader.get_item.return_value = _make_item()
+        reader.get_pdf_attachments.return_value = [att]
+        with _patch_mineru(att, "word " * 200, tmp_path):
+            result = analyze_item(reader, MagicMock(), None, "ABC123", dry_run=True, max_extracted_chars=100)
+        assert result["status"] == "dry_run"
+        assert result["chars"] == 100
+
     def test_non_dry_run_requires_ai_client(self, tmp_path):
         att = _make_attachment(tmp_path)
         reader = MagicMock()
@@ -1192,13 +1273,100 @@ class TestPromptBounds:
         markdown = "word " * 80000
         with (
             _patch_mineru(att, markdown, tmp_path),
-            patch("zotero_cli.core.notes.pipeline.format_template", side_effect=capture),
+            patch("zotero_cli.core.notes.templates.format_template", side_effect=capture),
         ):
             result = analyze_item(reader, MagicMock(), ai_client, "ABC123", dry_run=True)
-        template = load_template("research-article")
-        expected = MAX_PROMPT_CHARS - len(template) - PROMPT_RESERVE_CHARS
-        assert result["chars"] == expected
-        assert len(capture.prompts[-1]) <= MAX_PROMPT_CHARS
+        prompt = capture.prompts[-1]
+        assert len(prompt) == MAX_PROMPT_CHARS
+        assert 0 < result["chars"] < MAX_PROMPT_CHARS
+
+    def test_metadata_is_counted_against_the_hard_cap(self, tmp_path):
+        att = _make_attachment(tmp_path)
+        item = _make_item()
+        item.title = "T" * 5_000
+        item.creators = [Creator("Given" + "X" * 60, "Family" + "Y" * 60, "author") for _ in range(400)]
+        reader = MagicMock()
+        reader.get_item.return_value = item
+        reader.get_pdf_attachments.return_value = [att]
+        ai_client = MagicMock()
+        ai_client.config = AiNoteConfig(api_key="k", base_url="http://x", model="m", max_extracted_chars=0)
+        capture = _PromptCapture()
+        markdown = "word " * 40000
+        with (
+            _patch_mineru(att, markdown, tmp_path),
+            patch("zotero_cli.core.notes.templates.format_template", side_effect=capture),
+        ):
+            result = analyze_item(reader, MagicMock(), ai_client, "ABC123", dry_run=True)
+        prompt = capture.prompts[-1]
+        assert len(prompt) <= MAX_PROMPT_CHARS
+        assert len(prompt) > MAX_PROMPT_CHARS - 1_000
+        assert 0 < result["chars"] < MAX_PROMPT_CHARS
+        assert "X" * 100 not in prompt  # author field was capped before rendering
+
+
+class TestFigureCapAnnotation:
+    def test_cap_note_lists_attached_numbers(self):
+        note = pipeline_module._figure_cap_note([(1, "a"), (2, "b")], 5)
+        assert "只附上 2 张图片" in note
+        assert "【图 1】" in note and "【图 2】" in note
+        assert "其余 3 个图引用未随请求发送" in note
+        assert pipeline_module._figure_cap_note([], 3).startswith("【图片说明】本次请求未附任何图片")
+        assert pipeline_module._figure_cap_note([(1, "a")], 1) == ""
+
+    def test_analysis_prompt_annotates_when_cap_drops_figures(self, tmp_path):
+        docs = [_make_parsed_document(tmp_path, "many", _figure_markdown(20), image_count=20)]
+        att, parsed = docs[0]
+        reader = MagicMock()
+        reader.get_item.return_value = _make_item()
+        reader.get_pdf_attachments.return_value = [att]
+        writer = MagicMock()
+        writer.add_note.return_value = "NOTE1"
+        ai_client = MagicMock()
+        ai_client.config = _make_ai_config()
+        prompts: list[str] = []
+        responses = [
+            '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
+            _sections_json(12),
+        ]
+
+        def fake_chat(prompt, **kwargs):
+            prompts.append(prompt)
+            return responses[len(prompts) - 1]
+
+        ai_client.chat.side_effect = fake_chat
+        with patch("zotero_cli.core.notes.pipeline.MinerUParseCache.ensure_many", return_value={att.path: parsed}):
+            result = analyze_item(reader, writer, ai_client, "ABC123", no_short_note=True)
+        assert result["status"] == "ok"
+        analysis_prompt = prompts[1]
+        assert "【图片说明】" in analysis_prompt
+        assert "只附上 12 张图片" in analysis_prompt
+        assert "【图 1】" in analysis_prompt and "【图 12】" in analysis_prompt
+        assert "其余 8 个图引用未随请求发送" in analysis_prompt
+
+
+class TestPlainTextNoteTitle:
+    def test_html_item_title_is_plain_text_in_h1(self, tmp_path):
+        item = _make_item()
+        item.title = "Zn-MnO<sub>2</sub> &amp; TiO<sub>2</sub> coating"
+        att = _make_attachment(tmp_path)
+        reader = MagicMock()
+        reader.get_item.return_value = item
+        reader.get_pdf_attachments.return_value = [att]
+        writer = MagicMock()
+        writer.add_note.return_value = "NOTE1"
+        ai_client = MagicMock()
+        ai_client.config = _make_ai_config()
+        ai_client.chat.side_effect = [
+            '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
+            _sections_json(12),
+        ]
+        with _patch_mineru(att, "Introduction text.", tmp_path):
+            analyze_item(reader, writer, ai_client, "ABC123", no_short_note=True)
+        html = writer.add_note.call_args.args[1]
+        h1 = html.splitlines()[0]
+        assert "AI条目分析 - " in h1
+        assert "Zn-MnO2 &amp; TiO2 coating" in h1
+        assert "&lt;sub&gt;" not in h1
 
 
 class TestShortNotePostPaddingLimit:

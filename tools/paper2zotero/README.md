@@ -9,7 +9,8 @@ by readback before it is reported as done.
 ## Requirements
 
 - Run from the repository root with `uv run python tools/paper2zotero/<script>.py`
-  so the package and the repo-local config resolve.
+  on the repository's single supported interpreter, CPython 3.12, so the package
+  and the repo-local config resolve.
 - `.zot/config.toml` (env overrides win: `env > profile > defaults`) with
   `data_dir`, `prefs_js_path`, and Zotero library credentials
   (`library_id` + `api_key`; `ZOT_LIBRARY_ID` / `ZOT_API_KEY` override the
@@ -26,13 +27,15 @@ by readback before it is reported as done.
   Tests mock all of them; do not run a real import from a test.
 - Two translation backends are in use and are not interchangeable:
   - `backfill_titles.py` and `translate_abstracts.py` shell out to the
-    `hermes` CLI with `HERMES_HOME=/Users/liuchzzyy/.hermes/profiles/scientist`
-    (the `SCIENTIST_HOME` constant in each file); adjust it on another machine.
+    `hermes` CLI with `HERMES_HOME` set to the scientist profile by default;
+    set `ZOT_PAPER2ZOTERO_HERMES_HOME` to another Hermes profile directory on a
+    different machine (the default lives in the `SCIENTIST_HOME` constant).
   - `batch_translate_metadata.py` uses `zotero_cli`'s configured AI client
     (`[ai_notes]` in `.zot/config.toml`, overridable with `ZOT_AI_*`).
-- `zotero_inbox.py` reads the producer CSV from the hard-coded
-  `/Users/liuchzzyy/CodeSpace/PaperCrossref` directory (`SCRIPT_DIR`); update
-  that constant if the producer moves.
+- `zotero_inbox.py` reads the producer CSV from the PaperCrossref directory
+  (`SCRIPT_DIR`); set `ZOT_PAPER2ZOTERO_INBOX_DIR` when the producer moves, and
+  use `ZOT_PAPER2ZOTERO_INBOX_KEY` / `ZOT_PAPER2ZOTERO_INBOX_NAME` if the inbox
+  collection is renamed. The constants are documented defaults, not secrets.
 - Checkpoints live under the git-ignored repo state dir,
   `.zot/state/paper2zotero/`, never in the tracked tools tree:
   - `backfill_titles_state.json`

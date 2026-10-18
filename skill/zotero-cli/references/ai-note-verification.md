@@ -61,9 +61,9 @@ anything:
 
 ```python
 flat = re.sub(r"\s+", " ", text)
-normalized = re.sub(r"[\s{}\\\^_$]", "", text)      # LaTeX-tolerant
+normalized = re.sub(r"[\s{}\\\^_$]", "", text)  # LaTeX-tolerant
 hits = normalized.count("60.61")
-loose = re.search(r"6\s*0\s*\.\s*6\s*1", flat)        # whitespace-tolerant
+loose = re.search(r"6\s*0\s*\.\s*6\s*1", flat)  # whitespace-tolerant
 ```
 
 A zero hit in the first form alone is a false negative and must not be reported
@@ -79,7 +79,7 @@ guessing. Search there before calling any number invented:
 
 ```python
 text = re.sub(r"\s+", " ", open(cache_path, errors="replace").read())
-print("201.578" in text, "vs." in text)   # True True, where MinerU shows `2 0 1 . 5 7 8` / `\lor`
+print("201.578" in text, "vs." in text)  # True True, where MinerU shows `2 0 1 . 5 7 8` / `\lor`
 ```
 
 Two things it catches that MinerU hides: a value present only in a section MinerU
@@ -129,11 +129,16 @@ cite a panel; send main-text panels before SI ones, because a cap consumed by
 supplementary pages silently drops the main evidence; cap the count (12 panels, plus
 20 MiB of raw image bytes per request); and lower that cap on a parse-failure retry —
 a truncated JSON answer is the usual reason a run fails once figures are attached.
-Duplicate document copies are dropped before figure numbering, and titles/authors/
-journal/DOI/full text are wrapped as untrusted data by the prompt templates (the
-prompt is capped at 220,000 chars). A typed writer failure with `committed` set
+Main-text and supplementary document copies are separately deduped (longest copy
+kept) before figure numbering; panels beyond the 12-figure/20 MiB cap are not
+attached, and the prompt says which figure numbers actually went to the model.
+Titles/authors/journal/date/DOI/full text are wrapped as untrusted data by the
+prompt templates, and the whole prompt is capped at 220,000 chars after counting
+the template plus rendered metadata. A typed writer failure with `committed` set
 means the note write may already have landed: verify before retrying, and remember
-`--force` appends notes instead of replacing them.
+`--force` appends notes instead of replacing them. Definite rejections
+(`validation_error`/`not_found`/auth) are non-committed and release the idempotency
+reservation; only committed/unknown outcomes keep it reserved.
 A text-only model in the fallback chain rejects the image parts, so retry that
 model without them instead of aborting; capability is per model, so an image
 rejection must not strip figures for a vision model tried next. Before repeating any judgement about plots, micrographs or axis

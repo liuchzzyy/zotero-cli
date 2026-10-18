@@ -16,6 +16,17 @@ from abc import ABC, abstractmethod
 from zotero_cli.models import Item
 
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
+_BIBTEX_ESCAPE_RE = re.compile(r"([\\&%#_{}$])")
+_BIBTEX_ESCAPES = {
+    "\\": r"\textbackslash{}",
+    "&": r"\&",
+    "%": r"\%",
+    "#": r"\#",
+    "_": r"\_",
+    "{": r"\{",
+    "}": r"\}",
+    "$": r"\$",
+}
 _YEAR_RE = re.compile(r"\b(\d{4})\b")
 _DATE_PARTS_RE = re.compile(r"^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?")
 
@@ -121,19 +132,12 @@ class CitationExportMixin(ABC):
 
     @staticmethod
     def _escape_bibtex(value: str) -> str:
-        """Escape special LaTeX/BibTeX characters in a field value."""
-        for char, escaped in (
-            ("\\", r"\textbackslash{}"),
-            ("&", r"\&"),
-            ("%", r"\%"),
-            ("#", r"\#"),
-            ("_", r"\_"),
-            ("{", r"\{"),
-            ("}", r"\}"),
-            ("$", r"\$"),
-        ):
-            value = value.replace(char, escaped)
-        return value
+        """Escape special LaTeX/BibTeX characters in a field value.
+
+        A single regex pass is used so the braces inserted for a backslash
+        escape are not escaped again on a later loop iteration.
+        """
+        return _BIBTEX_ESCAPE_RE.sub(lambda match: _BIBTEX_ESCAPES[match.group(1)], value)
 
     @staticmethod
     def _to_bibtex(item: Item) -> str:

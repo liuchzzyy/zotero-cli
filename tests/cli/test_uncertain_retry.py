@@ -14,7 +14,7 @@ from pathlib import Path
 from threading import Barrier
 from unittest.mock import patch
 
-import httpx
+import httpx2 as httpx
 import pytest
 from pyzotero import zotero
 from tests.support import invoke_agent_cli

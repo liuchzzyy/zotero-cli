@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from requests import PreparedRequest  # type: ignore[import-untyped]
-from requests.exceptions import (  # type: ignore[import-untyped]
+from requests import PreparedRequest
+from requests.exceptions import (
     ChunkedEncodingError,
     Timeout,
 )

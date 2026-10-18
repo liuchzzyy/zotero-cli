@@ -1,7 +1,9 @@
+import sqlite3
 from pathlib import Path
 
 import pytest
 
+from zotero_cli.core.zotero import reader as reader_module
 from zotero_cli.core.zotero.reader import ZoteroReader
 
 
@@ -71,6 +73,64 @@ class TestSearch:
     def test_search_with_limit(self, reader: ZoteroReader):
         result = reader.search("", limit=1)
         assert len(result.items) == 1
+
+
+class TestSearchFulltextBudget:
+    def test_metadata_search_reports_not_limited(self, reader: ZoteroReader):
+        result = reader.search("", limit=1)
+        assert result.fulltext_limited is False
+
+    def test_fulltext_scan_is_complete_under_default_budget(self, reader: ZoteroReader):
+        result = reader.search("e")
+        assert result.fulltext_limited is False
+
+    def test_search_propagates_fulltext_limited_flag(self, reader: ZoteroReader, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(
+            type(reader),
+            "_search_fulltext",
+            lambda self, *args, **kwargs: (set(), True),
+        )
+        result = reader.search("e")
+        assert result.fulltext_limited is True
+
+    @staticmethod
+    def _budget_conn() -> sqlite3.Connection:
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("CREATE TABLE items (itemID INTEGER PRIMARY KEY, key TEXT, itemTypeID INTEGER, libraryID INTEGER)")
+        conn.execute("CREATE TABLE itemAttachments (itemID INTEGER PRIMARY KEY, parentItemID INTEGER)")
+        conn.execute("CREATE TABLE fulltextItems (itemID INTEGER PRIMARY KEY)")
+        conn.execute("CREATE TABLE deletedItems (itemID INTEGER PRIMARY KEY)")
+        # Keys match the fixture storage dirs so cache files are readable.
+        for attachment_id, parent_id, key in ((5, 1, "ATCH005"), (10, 2, "GRPATT10")):
+            conn.execute("INSERT INTO items VALUES (?, ?, 2, 1)", (attachment_id, key))
+            conn.execute("INSERT INTO items VALUES (?, ?, 2, 1)", (parent_id, f"ITEM{parent_id:02d}"))
+            conn.execute("INSERT INTO itemAttachments VALUES (?, ?)", (attachment_id, parent_id))
+            conn.execute("INSERT INTO fulltextItems VALUES (?)", (attachment_id,))
+        return conn
+
+    def test_file_budget_marks_scan_limited(self, reader: ZoteroReader, monkeypatch: pytest.MonkeyPatch):
+        conn = self._budget_conn()
+        try:
+            monkeypatch.setattr(reader_module, "_FULLTEXT_CACHE_MAX_FILES", 1)
+            _matched, limited = reader._cached_fulltext_ids(
+                conn, "needle", "NOT IN (?,?)", (14, 26), "AND i.libraryID = ?", (1,)
+            )
+        finally:
+            conn.close()
+        assert limited is True
+
+    def test_byte_budget_marks_scan_limited(self, reader: ZoteroReader, monkeypatch: pytest.MonkeyPatch):
+        conn = self._budget_conn()
+        try:
+            monkeypatch.setattr(reader_module, "_FULLTEXT_CACHE_MAX_BYTES_PER_FILE", 1)
+            monkeypatch.setattr(reader_module, "_FULLTEXT_CACHE_MAX_TOTAL_BYTES", 1)
+            _matched, limited = reader._cached_fulltext_ids(
+                conn, "needle", "NOT IN (?,?)", (14, 26), "AND i.libraryID = ?", (1,)
+            )
+        finally:
+            conn.close()
+        assert limited is True
 
 
 class TestNotes:

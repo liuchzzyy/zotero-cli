@@ -7,8 +7,8 @@ SCRIPT_PATH="${0:A}"
 SCRIPT_DIR="${SCRIPT_PATH:h}"
 source "$SCRIPT_DIR/zotero-workflow-common.zsh"
 
-workspace_name="00_收件箱"
-collections_csv="00 | 收件箱"
+workspace_name="${PAPERRAG_WORKSPACE:-00_收件箱}"
+collections_csv="${PAPERRAG_COLLECTIONS:-00 | 收件箱}"
 profile_name=""
 scan_limit=100000
 progress_every=100

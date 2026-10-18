@@ -139,6 +139,14 @@ class TestAiClientFigures:
         assert len(completions.calls) == 1
         assert isinstance(completions.calls[0]["messages"][1]["content"], list)
 
+    def test_generic_content_type_error_does_not_trigger_text_only_retry(self):
+        client, completions = _client([Exception("400 Unsupported content type: application/octet-stream")])
+        client.config.fallback_models = []
+        with pytest.raises(Exception):
+            client.chat("prompt", figures=_FIGURE)
+        assert len(completions.calls) == 1
+        assert isinstance(completions.calls[0]["messages"][1]["content"], list)
+
     def test_text_only_model_retries_without_images(self):
         rejection = Exception("BadRequestError: image input is not supported")
         client, completions = _client([rejection, "degraded ok"])

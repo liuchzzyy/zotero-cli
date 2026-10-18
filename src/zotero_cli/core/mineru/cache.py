@@ -2,7 +2,10 @@
 
 Writes are two-phase (mkdtemp staging + same-filesystem replace) and guarded by
 a per-fingerprint lock file so concurrent CLI processes parse each PDF at most
-once. Hidden staging/lock entries are ignored by stats and listings.
+once. Locks record the owner PID: a lock whose owner process is dead is reclaimed
+immediately, while other waiters are reclaimed once stale. Hidden staging/lock
+entries are ignored by stats and listings, and stale staging directories left by
+killed writes are swept before the next parse.
 """
 
 from __future__ import annotations
@@ -12,12 +15,14 @@ import io
 import json
 import os
 import shutil
+import sys
 import tempfile
 import time
+import uuid
 import zipfile
 from collections.abc import Iterator, Sequence
 from contextlib import ExitStack, contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -30,30 +35,71 @@ from zotero_cli.core.workspace_store import mineru_cache_dir
 _CACHE_SCHEMA_VERSION = 1
 
 # Cross-process parse reservation. A second CLI process waits for the first one
-# instead of issuing a duplicate MinerU batch; stale locks from killed
-# processes are reclaimed after the stale window.
+# instead of issuing a duplicate MinerU batch. A lock whose recorded owner PID is
+# no longer alive is reclaimed immediately; otherwise it becomes stale after the
+# stale window, which is kept <= the maximum wait so a waiter always gets a
+# chance to recover a crashed or hung holder.
 _LOCK_DIRNAME = ".locks"
 _LOCK_POLL_SECONDS = 0.2
 _LOCK_TIMEOUT_SECONDS = 1800.0
-_LOCK_STALE_SECONDS = 2 * 60 * 60.0
+_LOCK_STALE_SECONDS = 900.0
+assert _LOCK_STALE_SECONDS <= _LOCK_TIMEOUT_SECONDS
+
+# Hidden .{model}-<random> staging dirs older than this are leftovers from a
+# killed write and are swept before the next parse.
+_STAGING_STALE_SECONDS = 24 * 60 * 60.0
+
+
+def _lock_owner_pid(lock_path: Path) -> int | None:
+    try:
+        raw = lock_path.read_text(encoding="ascii").strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    try:
+        pid = int(raw)
+    except ValueError:
+        return None
+    return pid if pid > 0 else None
+
+
+def _process_is_alive(pid: int) -> bool | None:
+    """Best-effort liveness probe; None when the platform cannot tell."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return None
+    return True
 
 
 @contextmanager
 def _exclusive_lock(lock_path: Path, *, timeout: float, poll: float, stale: float) -> Iterator[None]:
-    """Create an exclusive lock file, waiting for a live owner and reclaiming stale ones."""
+    """Create an exclusive lock file, waiting for a live owner and reclaiming dead/stale ones."""
     deadline = time.monotonic() + timeout
+    notified = False
     while True:
         try:
             descriptor = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         except FileExistsError:
+            owner = _lock_owner_pid(lock_path)
+            alive = _process_is_alive(owner) if owner is not None else None
             try:
                 age = time.time() - lock_path.stat().st_mtime
             except OSError:
                 age = 0.0
-            if age > stale:
+            if alive is False or age > stale:
                 with contextlib.suppress(OSError):
                     lock_path.unlink()
                 continue
+            if not notified:
+                sys.stderr.write(
+                    f"\r{' ' * 60}\r  [cache] waiting for another process to finish parsing {lock_path.stem[:12]}...\n"
+                )
+                sys.stderr.flush()
+                notified = True
             if time.monotonic() >= deadline:
                 raise MinerUError(
                     f"Timed out waiting for another process to finish parsing {lock_path.stem}; "
@@ -185,6 +231,7 @@ class MinerUParseCache:
         misses: list[tuple[Path, str]],
         progress_callback: ProgressCallback | None,
     ) -> dict[Path, MinerUParseResult | Exception]:
+        self._cleanup_stale_staging([fingerprint for _path, fingerprint in misses])
         results: dict[Path, MinerUParseResult | Exception] = {}
         client = self._client or MinerUClient(self._token, model_version=self.model_version)
         remote_results = client.parse_many([pdf_path for pdf_path, _fingerprint in misses], progress_callback)
@@ -200,6 +247,30 @@ class MinerUParseCache:
             else:
                 results[pdf_path] = MinerUError(f"MinerU did not return a result for {pdf_path.name}")
         return results
+
+    def _cleanup_stale_staging(self, fingerprints: Sequence[str]) -> int:
+        """Remove hidden staging dirs left behind by killed writes for these fingerprints."""
+        removed = 0
+        cutoff = time.time() - _STAGING_STALE_SECONDS
+        for fingerprint in sorted(set(fingerprints)):
+            fingerprint_dir = self.root / fingerprint
+            if fingerprint_dir.is_symlink() or not fingerprint_dir.is_dir():
+                continue
+            try:
+                candidates = list(fingerprint_dir.iterdir())
+            except OSError:
+                continue
+            for staging in candidates:
+                if not staging.name.startswith(".") or not staging.is_dir():
+                    continue
+                try:
+                    if staging.stat().st_mtime > cutoff:
+                        continue
+                except OSError:
+                    continue
+                shutil.rmtree(staging, ignore_errors=True)
+                removed += 1
+        return removed
 
     @contextmanager
     def _fingerprint_locks(self, fingerprints: Sequence[str]) -> Iterator[None]:
@@ -218,19 +289,27 @@ class MinerUParseCache:
             yield
 
     def clear(self) -> int:
-        count = self.stats()["entries"]
-        if self.root.exists():
-            shutil.rmtree(self.root)
-        return count
+        """Remove the cache root, counting only valid packages as removed.
 
-    def _visible_files(self) -> list[Path]:
+        The root is first renamed to a hidden tombstone (same filesystem) so a
+        crash or delete failure can never leave a half-readable cache root; the
+        tombstone is then deleted best-effort.
+        """
         if not self.root.exists():
-            return []
-        return [
-            path
-            for path in self.root.rglob("*")
-            if path.is_file() and not any(part.startswith(".") for part in path.relative_to(self.root).parts)
-        ]
+            return 0
+        count = len(self._valid_entries())
+        tombstone = self.root.with_name(f".{self.root.name}-clearing-{os.getpid()}-{uuid.uuid4().hex[:8]}")
+        try:
+            os.replace(self.root, tombstone)
+        except OSError:
+            # Rename is best-effort: fall back to a direct delete.
+            shutil.rmtree(self.root)
+            return count
+        try:
+            shutil.rmtree(tombstone)
+        except OSError as exc:
+            raise OSError(f"MinerU cache was detached to {tombstone} but could not be fully removed: {exc}") from exc
+        return count
 
     def _manifest_paths(self) -> list[Path]:
         return sorted(
@@ -239,23 +318,45 @@ class MinerUParseCache:
             if not any(part.startswith(".") for part in path.relative_to(self.root).parts)
         )
 
-    def stats(self) -> dict[str, int]:
-        manifests = self._manifest_paths() if self.root.exists() else []
-        total_bytes = sum(path.stat().st_size for path in self._visible_files())
-        return {"entries": len(manifests), "total_bytes": total_bytes}
-
-    def entries(self) -> list[dict[str, Any]]:
-        entries: list[dict[str, Any]] = []
+    def _valid_entries(self) -> list[tuple[Path, dict[str, Any]]]:
+        """Return (manifest path, parsed manifest) pairs, skipping corrupt/hidden ones."""
+        valid: list[tuple[Path, dict[str, Any]]] = []
         if not self.root.exists():
-            return entries
+            return valid
         for manifest_path in self._manifest_paths():
             try:
                 data = json.loads(manifest_path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 continue
             if isinstance(data, dict):
-                entries.append(data)
-        return entries
+                valid.append((manifest_path, data))
+        return valid
+
+    def _visible_bytes(self, entries: Sequence[tuple[Path, dict[str, Any]]]) -> int:
+        total = 0
+        for manifest_path, _data in entries:
+            package_dir = manifest_path.parent
+            for path in package_dir.rglob("*"):
+                relative = path.relative_to(package_dir)
+                if not path.is_file() or any(part.startswith(".") for part in relative.parts):
+                    continue
+                try:
+                    total += path.stat().st_size
+                except OSError:
+                    continue
+        return total
+
+    def stats(self) -> dict[str, int]:
+        """Count valid package manifests and the visible bytes of those packages.
+
+        Corrupt manifests and hidden staging/lock entries are ignored exactly like
+        in entries(), so stats.entries always equals len(entries()).
+        """
+        entries = self._valid_entries()
+        return {"entries": len(entries), "total_bytes": self._visible_bytes(entries)}
+
+    def entries(self) -> list[dict[str, Any]]:
+        return [data for _path, data in self._valid_entries()]
 
     def _cache_path(self, fingerprint: str) -> Path:
         model_version = _validated_model_version(self.model_version)
@@ -316,7 +417,7 @@ class MinerUParseCache:
                 "source_mtime_ns": stat.st_mtime_ns,
                 "source_sha256": fingerprint,
                 "mineru_model_version": self.model_version,
-                "parsed_at": datetime.now(timezone.utc).isoformat(),
+                "parsed_at": datetime.now(UTC).isoformat(),
                 "batch_id": remote.batch_id,
                 "markdown_file": "document.md",
                 "structured_json_file": "content_list.json",

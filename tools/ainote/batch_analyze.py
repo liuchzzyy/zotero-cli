@@ -59,11 +59,13 @@ def resolve_collection_key(reader: ZoteroReader, name_or_key: str) -> str | None
     collect(reader.get_collections())
     for collection in collections:
         if collection.key == name_or_key:
-            return collection.key
-    matches = [collection.key for collection in collections if collection.name.casefold() == name_or_key.casefold()]
+            return str(collection.key)
+    matches = [
+        str(collection.key) for collection in collections if collection.name.casefold() == name_or_key.casefold()
+    ]
     if len(matches) > 1:
         raise ValueError(f"Collection name is ambiguous; use a key: {', '.join(matches)}")
-    return matches[0] if matches else None
+    return str(matches[0]) if matches else None
 
 
 def get_collection_items_recursive(reader: ZoteroReader, root_key: str) -> list[Item]:

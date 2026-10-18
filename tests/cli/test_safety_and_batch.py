@@ -78,11 +78,12 @@ class TestDryRun:
         assert env["data"]["key"] == "COLML01"
         assert env["data"]["would_delete"] is True
 
-    def test_collection_delete_dry_run_rejects_unknown_key(self):
+    def test_collection_delete_dry_run_previews_cascade(self):
         result = _invoke(["collection", "delete", "NOSUCHKEY", "--dry-run"], json_output=True)
-        assert result.exit_code == 4
+        assert result.exit_code == 0
         env = json.loads(result.stdout)
-        assert env["error"]["code"] == "not_found"
+        assert env["dry_run"] is True
+        assert env["data"]["descendant_count"] == 0
 
     def test_collection_reorganize_dry_run_json_envelope(self, tmp_path):
         plan = {
@@ -201,7 +202,13 @@ class TestCollectionJsonOutput:
         assert result.exit_code == 0
         env = _parse_json_output(result.stdout)
         assert env["ok"] is True
-        assert env["data"] == {"key": "COL1", "deleted": True, "sync_required": True}
+        assert env["data"] == {
+            "key": "COL1",
+            "deleted": True,
+            "descendant_collections": [],
+            "descendant_count": 0,
+            "sync_required": True,
+        }
         assert SYNC_REMINDER not in result.output
         mock_writer.delete_collection.assert_called_once_with("COL1")
 
@@ -252,7 +259,7 @@ class TestCollectionJsonOutput:
         assert env["data"]["sync_required"] is True
         assert SYNC_REMINDER not in result.output
         assert mock_writer.create_collection.call_count == 2
-        assert mock_writer.move_to_collection.call_count == 3
+        assert mock_writer.set_item_collections.call_count == 3
 
 
 # --- Shell completions tests ---
@@ -508,16 +515,14 @@ class TestTimeout:
         mock_zotero_cls.return_value = mock_zot
         mock_zot.client = MagicMock()
 
-        from httpx import Timeout
-
         ZoteroWriter(library_id="123", api_key="abc", timeout=10.0)
-        # The configured timeout must reach the pyzotero HTTP client.
-        assert isinstance(mock_zot.client.timeout, Timeout)
-        assert mock_zot.client.timeout.read == 10.0
+        # pyzotero 1.16 uses an httpx2 client whose timeout must be numeric.
+        assert mock_zot.client.timeout == 10.0
+        assert isinstance(mock_zot.client.timeout, float)
 
     @patch("zotero_cli.core.zotero.writer.zotero.Zotero")
     def test_timeout_raises_write_error(self, mock_zotero_cls):
-        from httpx import ReadTimeout
+        from httpx2 import ReadTimeout
 
         mock_zot = MagicMock()
         mock_zotero_cls.return_value = mock_zot

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from zotero_cli.config import get_data_dir, get_prefs_js_path, load_config, load_vector_store_config
@@ -21,7 +21,7 @@ from zotero_cli.models import Item
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def parse_args() -> argparse.Namespace:
@@ -94,10 +94,10 @@ def main() -> None:
     finally:
         reader.close()
 
-    if workspace_exists(args.workspace):
+    workspace_existed = workspace_exists(args.workspace)
+    if workspace_existed:
         workspace = load_workspace(args.workspace)
         existing_keys = {entry.key for entry in workspace.items}
-        workspace_created = False
     else:
         workspace = Workspace(
             name=args.workspace,
@@ -105,7 +105,6 @@ def main() -> None:
             description="Auto-maintained workspace containing Zotero items with local PDF attachments.",
         )
         existing_keys = set()
-        workspace_created = True
 
     added = 0
     for row in pdf_items:
@@ -115,8 +114,14 @@ def main() -> None:
             added += 1
             if not args.dry_run:
                 workspace.add_item(key, str(row.get("title") or ""))
-    if not args.dry_run:
+
+    # Never materialise an empty workspace: a scan with no local PDF attachments
+    # has nothing to persist. workspace_created reports only a workspace this run
+    # would actually create (dry-run) or did create (real run).
+    should_create = bool(pdf_items) and not workspace_existed
+    if not args.dry_run and pdf_items:
         save_workspace(workspace)
+    workspace_created = should_create
 
     indexed_keys: set[str] = set()
     chunk_count = 0
@@ -129,7 +134,7 @@ def main() -> None:
             chunk_count = len(rag_index.get_chunk_ids())
         finally:
             rag_index.close()
-        vector_cfg = load_vector_store_config()
+        vector_cfg = load_vector_store_config(profile=args.profile)
         try:
             vectors = QdrantVectorStore(resolve_vector_store_path(vector_cfg), f"ws_{args.workspace}")
             try:

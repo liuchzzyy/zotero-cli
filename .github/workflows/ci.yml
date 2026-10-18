@@ -1,7 +1,8 @@
-# Continuous integration for zotero-cli.
+# Continuous integration for zotero-cli (single supported interpreter: CPython 3.12).
 #
-# Offline-safe stage: lint, format check, type check, full test suite on the
-# minimum and maximum supported Python versions (3.10-3.13), and wheel build.
+# Offline-safe stage: lint, format check, type check, full test suite, and
+# wheel/sdist build on CPython 3.12 (the only supported runtime; pyproject
+# requires-python ">=3.12,<3.13").
 # The dependency audit stage needs the network (PyPI/OSV) and is therefore
 # best-effort: it runs weekly and on manual dispatch, never blocks the PR gate.
 name: CI
@@ -21,21 +22,19 @@ concurrency:
 
 jobs:
   quality:
-    name: lint, types, tests (Python ${{ matrix.python-version }})
+    name: lint, types, tests, package (Python 3.12)
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - name: Install uv
         uses: astral-sh/setup-uv@v6
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.12"
           enable-cache: true
       - name: Install dev environment
-        run: uv sync --dev --python ${{ matrix.python-version }}
+        run: uv sync --dev --python 3.12
+      - name: Install zsh (paperrag integration tests)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq zsh
       - name: Ruff lint
         run: uv run ruff check .
       - name: Ruff format check

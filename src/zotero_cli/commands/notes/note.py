@@ -6,7 +6,6 @@ import json
 import sqlite3
 
 import click
-import httpx
 
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id, resolve_write_credentials
 from zotero_cli.core.zotero.reader import ZoteroReader
@@ -15,32 +14,6 @@ from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.output.renderers import format_notes
-
-
-def _definitely_rejected(response: object) -> bool:
-    """Require a concrete server rejection, not merely a non-retryable error.
-
-    pyzotero stores the POST response before parsing it, so this also covers
-    per-item failures that the writer converts to an untyped api_error.
-    A 412 can mean an earlier token was accepted; 5xx/invalid JSON are unknown.
-    """
-    if not isinstance(response, httpx.Response) or response.request.method != "POST":
-        return False
-    rejected_codes = {400, 401, 403, 404, 409, 413, 422, 428, 429}
-    if response.status_code in rejected_codes:
-        return True
-    if response.status_code != 200:
-        return False
-    try:
-        payload = response.json()
-    except ValueError:
-        return False
-    if not isinstance(payload, dict) or any(payload.get(field) for field in ("successful", "success", "unchanged")):
-        return False
-    failed = payload.get("failed")
-    failure = failed.get("0") if isinstance(failed, dict) else None
-    code = failure.get("code") if isinstance(failure, dict) else None
-    return isinstance(code, int) and code in rejected_codes
 
 
 @click.command("note")
@@ -84,7 +57,7 @@ def note_cmd(
         if dry_run:
             data = {"would": {"parent": key, "content_preview": content[:200]}}
             if json_out:
-                click.echo(json.dumps(envelope_ok(data, extra={"dry_run": True}), indent=2, ensure_ascii=False))
+                click.echo(json.dumps(envelope_ok(data, dry_run=True), indent=2, ensure_ascii=False))
             else:
                 click.echo(f"[dry-run] Would add note to '{key}': {content[:80]}...")
             return
@@ -104,6 +77,7 @@ def note_cmd(
         from zotero_cli.core.zotero.idempotency import (
             PendingMutationError,
             begin_mutation,
+            failure_definitely_rejected,
             release_rejected_mutation,
             request_scope,
             store_cached,
@@ -151,21 +125,29 @@ def note_cmd(
                 if isinstance(exc, ZoteroWriteError)
                 else ZoteroWriteError("Note creation did not return a usable result")
             )
-            rejected = False
-            if idempotency_key and writer is not None and _definitely_rejected(writer._zot.request):
+            # pyzotero 1.16/httpx2 keeps the last response on the client; the
+            # writer's typed error carries committed/code evidence as a fallback.
+            response = getattr(getattr(writer, "_zot", None), "request", None) if writer is not None else None
+            rejected = failure_definitely_rejected(
+                response=response,
+                code=write_error.code,
+                retryable=write_error.retryable,
+                committed=write_error.committed,
+            )
+            if rejected and idempotency_key:
                 try:
                     release_rejected_mutation(cache_scope, idempotency_key)
-                    rejected = True
                 except (OSError, sqlite3.Error):
-                    pass  # Preserve the reservation if its durable release failed.
+                    rejected = False  # Preserve the reservation if its durable release failed.
+            outcome_unknown = not rejected
             emit_error(
                 write_error.code,
                 str(write_error),
                 output_json=json_out,
-                retryable=False if idempotency_key and not rejected else write_error.retryable,
+                retryable=False if outcome_unknown else write_error.retryable,
                 hint=(
                     "The write outcome is unknown. Reconcile the remote parent's notes; do not retry with a new key"
-                    if idempotency_key and not rejected
+                    if outcome_unknown
                     else "Check item key and API credentials"
                 ),
                 context="note",
@@ -173,7 +155,7 @@ def note_cmd(
 
         env = envelope_ok(
             {"note_key": note_key, "parent_key": key, "sync_required": True},
-            extra={"next": [f"zot note {key}"]},
+            next=[f"zot note {key}"],
         )
         if idempotency_key:
             try:

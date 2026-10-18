@@ -27,18 +27,20 @@ from pathlib import Path
 from typing import Any
 
 import zh_text
+from pyzotero.errors import ResourceNotFoundError
 
 from zotero_cli.config import load_config, resolve_write_credentials, state_dir
 from zotero_cli.core.zotero.writer import ZoteroWriter
 
-SCIENTIST_HOME = Path("/Users/liuchzzyy/.hermes/profiles/scientist")
+_DEFAULT_SCIENTIST_HOME = Path.home() / ".hermes" / "profiles" / "scientist"
+SCIENTIST_HOME = Path(os.environ.get("ZOT_PAPER2ZOTERO_HERMES_HOME") or _DEFAULT_SCIENTIST_HOME).expanduser()
 TOOLS_DIR = Path(__file__).resolve().parent
 PAPER2ZOTERO_STATE_SUBDIR = "paper2zotero"
 
 
 def default_state_file() -> Path:
     """Checkpoint under the git-ignored repo state dir, never the tracked tools tree."""
-    return state_dir() / PAPER2ZOTERO_STATE_SUBDIR / "translate_abstracts_state.json"
+    return Path(state_dir()) / PAPER2ZOTERO_STATE_SUBDIR / "translate_abstracts_state.json"
 
 
 CHINESE_RE = re.compile(r"[\u4e00-\u9fff]")
@@ -58,6 +60,14 @@ PROMPT = """你是材料科学与电化学储能领域的专业科研论文翻�
 
 class AbstractTranslationError(RuntimeError):
     """An abstract could not be safely translated, validated, or verified."""
+
+    exit_code = 1
+
+
+class ItemLookupError(AbstractTranslationError):
+    """A requested Zotero item key does not exist or is not visible to this API key."""
+
+    exit_code = 4
 
 
 def validate_translation(text: object, key: str) -> str:
@@ -402,7 +412,7 @@ def resolve_collection_items(api: Any, collection_name_or_key: str) -> list[dict
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="翻译 Zotero 指定集合或条目的英文摘要并替换为规范中文摘要")
-    parser.add_argument("--collection", help="目标集合名称或 key（例如 '00 | 收件箱' 或 'AG7NQ5UW'）")
+    parser.add_argument("--collection", help="目标集合名称或 key（例如 'Inbox' 或 'COLLECTIONKEY'）")
     parser.add_argument("--key", action="append", default=[], help="指定更新的单个或多个条目 key（可重复使用）")
     parser.add_argument("--all", action="store_true", help="处理全库顶层条目（谨慎使用）")
     parser.add_argument("--apply", action="store_true", help="执行实际写入（默认仅 dry-run 统计预览）")
@@ -435,7 +445,10 @@ def main(argv: list[str] | None = None) -> None:
     raw_items: list[dict[str, Any]] = []
     if args.key:
         for k in args.key:
-            raw_items.append(api.item(k))
+            try:
+                raw_items.append(api.item(k))
+            except ResourceNotFoundError as exc:
+                raise ItemLookupError(f"条目不存在或当前 API key 不可见：{k}") from exc
     elif args.collection:
         raw_items = resolve_collection_items(api, args.collection)
     elif args.all:
@@ -468,6 +481,9 @@ def main(argv: list[str] | None = None) -> None:
 if __name__ == "__main__":
     try:
         main()
-    except (AbstractTranslationError, OSError, ValueError, KeyError) as err:
+    except AbstractTranslationError as err:
+        print(f"摘要翻译任务中断: {err}", file=sys.stderr)
+        raise SystemExit(err.exit_code) from err
+    except (OSError, ValueError, KeyError) as err:
         print(f"摘要翻译任务中断: {err}", file=sys.stderr)
         raise SystemExit(1) from err

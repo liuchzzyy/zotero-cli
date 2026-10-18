@@ -72,7 +72,7 @@ def test_add_note_network_error(mock_zotero_cls):
     mock_zot = MagicMock()
     mock_zotero_cls.return_value = mock_zot
     mock_zot.item_template.return_value = {"itemType": "note", "note": "", "parentItem": ""}
-    from httpx import ConnectError
+    from httpx2 import ConnectError
 
     mock_zot.create_items.side_effect = ConnectError("Network unreachable")
 
@@ -86,7 +86,7 @@ def test_add_item_read_error_is_retryable(mock_zotero_cls):
     mock_zot = MagicMock()
     mock_zotero_cls.return_value = mock_zot
     mock_zot.item_template.return_value = {"itemType": "journalArticle", "DOI": ""}
-    from httpx import ReadError
+    from httpx2 import ReadError
 
     mock_zot.create_items.side_effect = ReadError("Connection reset")
 

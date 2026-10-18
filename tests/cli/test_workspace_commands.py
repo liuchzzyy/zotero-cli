@@ -41,6 +41,8 @@ class TestValidateName:
         assert validate_name("trailing-") is False
         assert validate_name("double--dash") is False
         assert validate_name("has.dot") is False
+        assert validate_name("trailing-newline\n") is False
+        assert validate_name("mid\nline") is False
 
 
 class TestWorkspaceModel:
@@ -486,3 +488,50 @@ class TestWorkspaceManifestRobustness:
         assert result.exit_code == 3, result.output
         assert json.loads(result.output)["error"]["code"] == "validation_error"
         assert "Traceback" not in result.output
+
+
+class TestWorkspaceManifestSchemaErrors:
+    def _write_schema_invalid_manifest(self, root):
+        workspace_dir = root / "bad-manifest"
+        workspace_dir.mkdir(parents=True)
+        (workspace_dir / "workspace.toml").write_text('created = "x"\n[[items]]\nkey = "ATTN001"\n', encoding="utf-8")
+        return workspace_dir
+
+    def test_schema_invalid_manifest_is_a_typed_configuration_error(self, tmp_path):
+        with patch("zotero_cli.core.workspace_store.workspaces_dir", return_value=tmp_path):
+            self._write_schema_invalid_manifest(tmp_path)
+            result = _invoke(["workspace", "show", "bad-manifest"], json_output=True)
+        assert result.exit_code == 3, result.output
+        payload = json.loads(result.stdout)
+        assert payload["error"]["code"] == "configuration_error"
+        assert "items[1].title" in payload["error"]["message"]
+
+    def test_delete_removes_workspace_with_schema_invalid_manifest(self, tmp_path):
+        with patch("zotero_cli.core.workspace_store.workspaces_dir", return_value=tmp_path):
+            workspace_dir = self._write_schema_invalid_manifest(tmp_path)
+            result = _invoke(["workspace", "delete", "bad-manifest", "--yes"], json_output=True)
+            exists = workspace_dir.exists()
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert payload["data"]["deleted"] is True
+        assert exists is False
+        assert "unreadable" in result.stderr
+
+
+class TestWorkspaceRootCleanup:
+    def test_delete_last_workspace_removes_empty_workspace_root(self, tmp_path):
+        # The repository conftest isolates the workspace root to tmp_path/.workspace.
+        created = _invoke(["workspace", "new", "last-workspace"], json_output=True)
+        assert created.exit_code == 0, created.output
+        root = tmp_path / ".workspace"
+        assert root.exists()
+        deleted = _invoke(["workspace", "delete", "last-workspace", "--yes"], json_output=True)
+        assert deleted.exit_code == 0, deleted.output
+        assert not root.exists()
+
+    def test_delete_keeps_root_when_other_workspaces_remain(self, tmp_path):
+        _invoke(["workspace", "new", "keep-a"], json_output=True)
+        _invoke(["workspace", "new", "keep-b"], json_output=True)
+        deleted = _invoke(["workspace", "delete", "keep-a", "--yes"], json_output=True)
+        assert deleted.exit_code == 0, deleted.output
+        assert (tmp_path / ".workspace" / "keep-b" / "workspace.toml").exists()

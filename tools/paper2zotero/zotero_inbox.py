@@ -1,6 +1,7 @@
 """Send semantically selected DOI items to the Zotero inbox using zotero-cli's Web API writer.
 
-Run this file with /Users/liuchzzyy/CodeSpace/zotero-cli/.venv/bin/python.
+Run this file with the repository virtualenv Python (for example
+`uv run python tools/paper2zotero/zotero_inbox.py --dry-run`).
 The local Zotero SQLite database is never written to; readback uses the Web API.
 """
 
@@ -20,9 +21,10 @@ if TYPE_CHECKING:
 
 import zh_text
 
-SCRIPT_DIR = Path("/Users/liuchzzyy/CodeSpace/PaperCrossref")
-INBOX_KEY = "AG7NQ5UW"
-INBOX_NAME = "00 | 收件箱"
+_DEFAULT_PRODUCER_DIR = Path.home() / "CodeSpace" / "PaperCrossref"
+SCRIPT_DIR = Path(os.environ.get("ZOT_PAPER2ZOTERO_INBOX_DIR") or _DEFAULT_PRODUCER_DIR).expanduser()
+INBOX_KEY = os.environ.get("ZOT_PAPER2ZOTERO_INBOX_KEY") or "AG7NQ5UW"
+INBOX_NAME = os.environ.get("ZOT_PAPER2ZOTERO_INBOX_NAME") or "00 | 收件箱"
 FLAGS = ("is_cathode_material", "is_characterization_technique")
 DOI_PATTERN = re.compile(r"^10\.\d{4,9}/\S+$", re.IGNORECASE)
 STATUS_COLUMNS = ("zotero_status", "zotero_key")
@@ -145,7 +147,7 @@ def import_doi(
         fields["abstractNote"] = translated_abstract
     else:
         fields.pop("abstractNote", None)
-    key = writer.add_item(doi=doi, extra_fields=fields)
+    key = str(writer.add_item(doi=doi, extra_fields=fields))
     _verify(api, key, doi, translated_title, translated_abstract)
     return key
 

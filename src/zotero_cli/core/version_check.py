@@ -5,6 +5,8 @@ Hardening rules (M-22/L-10 follow-up):
   this in interactive TTY mode, and ZOT_NO_UPDATE_CHECK=1 disables it entirely);
 * the cache path is resolved lazily through config.state_dir() so state-root
   changes are honoured and tests never write into the checkout;
+* the update notice is interactive-only: piped/JSON/--no-interaction runs skip
+  the check entirely, so agents and scripts never pay its latency;
 * every failure mode is non-fatal: a version check must never break a command.
 """
 

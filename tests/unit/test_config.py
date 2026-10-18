@@ -1,3 +1,4 @@
+import math
 import os
 import stat
 import sys
@@ -30,6 +31,7 @@ from zotero_cli.config import (
     resolve_library_id,
     save_config,
     state_dir,
+    write_config_data,
 )
 from zotero_cli.config.loaders import _split_models
 
@@ -809,3 +811,239 @@ def test_save_config_creates_new_parent_dirs_with_0700(tmp_path):
     created_dir = tmp_path / "created" / "config"
     save_config(AppConfig(library_id="1"), created_dir / "config.toml")
     assert stat.S_IMODE(created_dir.stat().st_mode) == 0o700
+
+
+# --- H-07: invalid/blank default profile fails closed ------------------------
+
+MIXED_TYPO_CONFIG = """
+[default]
+profile = "typo"
+
+[zotero]
+library_id = "legacy-999"
+api_key = "legacy-secret"
+"""
+
+
+def test_invalid_default_profile_fails_closed_on_read(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text(MIXED_TYPO_CONFIG, encoding="utf-8")
+    with pytest.raises(ConfigError, match="Unknown config profile 'typo'"):
+        load_config(path)
+
+
+def test_invalid_default_profile_fails_closed_on_write(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text(MIXED_TYPO_CONFIG, encoding="utf-8")
+    with pytest.raises(ConfigError, match="Unknown config profile 'typo'"):
+        save_config(AppConfig(library_id="42"), path)
+    # The blocking write must leave the file untouched.
+    assert read_config_data(path)["zotero"]["library_id"] == "legacy-999"
+
+
+def test_profiles_without_default_profile_fails_closed(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[profile.main]\nlibrary_id = "1"\n', encoding="utf-8")
+    with pytest.raises(ConfigError, match="no default profile"):
+        load_config(path)
+    with pytest.raises(ConfigError, match="no default profile"):
+        save_config(AppConfig(library_id="2"), path)
+
+
+def test_blank_default_profile_fails_closed(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[default]\nprofile = "   "\n\n[profile.main]\nlibrary_id = "1"\n', encoding="utf-8")
+    with pytest.raises(ConfigError, match="no default profile"):
+        load_config(path)
+
+
+def test_default_profile_pointing_to_missing_profile_fails_closed(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[default]\nprofile = "gone"\n\n[profile.main]\nlibrary_id = "1"\n', encoding="utf-8")
+    with pytest.raises(ConfigError, match="Unknown config profile 'gone'"):
+        load_config(path)
+
+
+def test_legacy_config_without_profiles_still_loads(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[zotero]\nlibrary_id = "legacy"\n', encoding="utf-8")
+    assert load_config(path).library_id == "legacy"
+
+
+def test_blank_explicit_profile_uses_configured_default(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[default]\nprofile = "lab"\n\n[profile.lab]\nlibrary_id = "222"\n', encoding="utf-8")
+    assert load_config(path, profile="   ").library_id == "222"
+
+
+# --- M-19: TOML writer supports valid TOML value types -----------------------
+
+EXTENDED_TYPES_CONFIG = """
+[profile.main]
+library_id = "1"
+created = 2024-01-02T03:04:05.000006+00:00
+day = 2024-01-02
+clock = 03:04:05.000006
+positive_inf = inf
+negative_inf = -inf
+not_a_number = nan
+
+[profile.main.inline]
+mode = "fast"
+retries = 2
+
+[[profile.main.entries]]
+name = "a"
+
+[[profile.main.entries]]
+name = "b"
+"""
+
+
+def test_toml_writer_round_trips_extended_toml_types(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text(EXTENDED_TYPES_CONFIG, encoding="utf-8")
+    before = read_config_data(path)
+
+    save_config(AppConfig(library_id="2"), path, profile="main")
+    after = read_config_data(path)
+    main = after["profile"]["main"]
+    assert main["library_id"] == "2"
+    for key in ("created", "day", "clock"):
+        assert main[key] == before["profile"]["main"][key]
+    assert math.isinf(main["positive_inf"]) and main["positive_inf"] > 0
+    assert math.isinf(main["negative_inf"]) and main["negative_inf"] < 0
+    assert math.isnan(main["not_a_number"])
+    assert main["entries"] == before["profile"]["main"]["entries"]
+    assert main["inline"] == before["profile"]["main"]["inline"]
+
+    # The writer is deterministic: an unchanged save keeps the same bytes.
+    first_bytes = path.read_bytes()
+    save_config(AppConfig(library_id="2"), path, profile="main")
+    assert path.read_bytes() == first_bytes
+
+
+def test_toml_writer_reports_unsupported_values_actionably(tmp_path):
+    path = tmp_path / "config.toml"
+    with pytest.raises(ConfigError, match=r"extra\.value.*bytes"):
+        write_config_data(path, {"extra": {"value": b"raw-bytes"}})
+    assert not path.exists()
+
+
+# --- M-20: invalid UTF-8 config is a configuration error ---------------------
+
+
+def test_invalid_utf8_config_raises_configuration_error(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_bytes(b'[zotero]\nlibrary_id = "\xff\xfe"\n')
+    with pytest.raises(ConfigError, match="not valid UTF-8"):
+        load_config(path)
+
+
+# --- M-24/M-18: no-op saves and symlinked config paths -----------------------
+
+
+def test_write_config_data_returns_backup_and_skips_identical_content(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[profile.main]\nlibrary_id = "1"\n', encoding="utf-8")
+    data = read_config_data(path)
+
+    backup = write_config_data(path, data)
+    assert backup == path.with_name("config.toml.bak")
+    assert backup is not None and backup.exists()
+    file_mtime = path.stat().st_mtime_ns
+    backup_mtime = backup.stat().st_mtime_ns
+
+    assert write_config_data(path, data) is None
+    assert path.stat().st_mtime_ns == file_mtime
+    assert backup.stat().st_mtime_ns == backup_mtime
+
+
+def test_save_config_writes_through_symlink_target(tmp_path):
+    real_dir = tmp_path / "dotfiles"
+    real_dir.mkdir()
+    target = real_dir / "config.toml"
+    target.write_text('[profile.main]\nlibrary_id = "orig"\n', encoding="utf-8")
+    link = tmp_path / "config.toml"
+    link.symlink_to(target)
+
+    save_config(AppConfig(library_id="new"), link, profile="main")
+
+    assert link.is_symlink()
+    assert load_config(link).library_id == "new"
+    backup = real_dir / "config.toml.bak"
+    assert backup.exists()
+    assert 'library_id = "orig"' in backup.read_text(encoding="utf-8")
+
+
+# --- TOOL-01: profile-aware section loaders ----------------------------------
+
+PROFILE_SECTIONS_CONFIG = """
+[embedding]
+active = "api.gitee"
+
+[embedding.api.gitee]
+provider = "gitee"
+url = "https://top/v1"
+api_key = "top-key"
+model = "top-model"
+batch_size = 20
+
+[profile.lab.embedding.api.gitee]
+url = "https://lab/v1"
+api_key = "lab-key"
+
+[rerank]
+batch_size = 4
+
+[profile.lab.rerank]
+batch_size = 9
+
+[vector_store]
+provider = "qdrant_local"
+path = "/top/vectors"
+
+[profile.lab.vector_store]
+path = "/lab/vectors"
+
+[semantic_search]
+candidate_k = 11
+
+[profile.lab.semantic_search]
+candidate_k = 22
+"""
+
+
+def test_section_loaders_prefer_profile_scoped_sections(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text(PROFILE_SECTIONS_CONFIG, encoding="utf-8")
+
+    top_embedding = load_embedding_config(path)
+    assert top_embedding.url == "https://top/v1"
+    assert top_embedding.api_key == "top-key"
+    assert top_embedding.model == "top-model"
+    assert top_embedding.batch_size == 20
+
+    lab_embedding = load_embedding_config(path, profile="lab")
+    assert lab_embedding.url == "https://lab/v1"
+    assert lab_embedding.api_key == "lab-key"
+
+    assert load_rerank_config(path).batch_size == 4
+    assert load_rerank_config(path, profile="lab").batch_size == 9
+
+    assert load_vector_store_config(path).path == "/top/vectors"
+    assert load_vector_store_config(path, profile="lab").path == "/lab/vectors"
+
+    top_semantic = load_semantic_search_config(path)
+    assert top_semantic.candidate_k == 11
+    assert top_semantic.top_k == 20
+    lab_semantic = load_semantic_search_config(path, profile="lab")
+    assert lab_semantic.candidate_k == 22
+    assert lab_semantic.top_k == 20  # missing profile key falls back to top-level
+
+
+def test_section_loaders_unknown_profile_raises_configuration_error(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text(PROFILE_SECTIONS_CONFIG, encoding="utf-8")
+    with pytest.raises(ConfigError, match="Unknown config profile 'missing'"):
+        load_vector_store_config(path, profile="missing")

@@ -45,7 +45,7 @@ def attach_cmd(
     if dry_run:
         data = {"would": {"parent": key, "file": str(fp), "size_bytes": size}}
         if json_out:
-            click.echo(json.dumps(envelope_ok(data, extra={"dry_run": True}), indent=2, ensure_ascii=False))
+            click.echo(json.dumps(envelope_ok(data, dry_run=True), indent=2, ensure_ascii=False))
         else:
             click.echo(f"[dry-run] Would upload {fp} ({size} bytes) as attachment to '{key}'")
         return
@@ -116,7 +116,12 @@ def attach_cmd(
     except ZoteroWriteError as e:
         rejected = False
         if idempotency_key:
-            rejected = failure_definitely_rejected(response=writer._zot.request, code=e.code, retryable=e.retryable)
+            rejected = failure_definitely_rejected(
+                response=writer._zot.request,
+                code=e.code,
+                retryable=e.retryable,
+                committed=e.committed,
+            )
             if rejected:
                 try:
                     release_rejected_mutation(cache_scope, idempotency_key)
@@ -126,10 +131,11 @@ def attach_cmd(
             e.code,
             str(e),
             output_json=json_out,
-            retryable=False if idempotency_key and not rejected else e.retryable,
+            retryable=False if (e.committed or (idempotency_key and not rejected)) else e.retryable,
+            committed=e.committed,
             hint=(
                 "The upload outcome is unknown. Reconcile the item's attachments before retrying"
-                if idempotency_key and not rejected
+                if e.committed or (idempotency_key and not rejected)
                 else "Check the item key and file path"
             ),
             context="attach",
@@ -137,7 +143,7 @@ def attach_cmd(
 
     env = envelope_ok(
         {"attachment_key": att_key, "parent_key": key, "file": str(fp), "sync_required": True},
-        extra={"next": [f"zot read {key}"]},
+        next=[f"zot read {key}"],
     )
     if idempotency_key:
         try:

@@ -41,7 +41,7 @@ Inspect the full interface:
 tools/paperrag/run-rag-workspace.zsh --help
 ```
 
-For the existing `00_收件箱` workspace, source items from the renamed Zotero collection `00 | 收件箱` (collection key `AG7NQ5UW`). The workspace name is local and does not need to match the collection name:
+For the existing `00_收件箱` workspace, source items from the renamed Zotero collection `00 | 收件箱` (collection key `AG7NQ5UW`). The workspace name is local and does not need to match the collection name. The default workspace/collection targets can be overridden per shell with `PAPERRAG_WORKSPACE` / `PAPERRAG_COLLECTIONS` (later explicit flags still win):
 
 ```bash
 tools/paperrag/run-rag-workspace.zsh \

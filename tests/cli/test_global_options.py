@@ -119,6 +119,25 @@ def test_cache_clear_requires_yes_or_dry_run(tmp_path):
         assert confirmed.exit_code == 0, confirmed.output
 
 
+def test_detail_missing_value_reports_flag_error_without_swallowing_tokens(test_db_path):
+    """A bare --detail must not eat --json or the subcommand token (M-07)."""
+    env = {"ZOT_DATA_DIR": str(test_db_path.parent)}
+    runner = CliRunner()
+    for args in (
+        ["--json", "list", "--detail"],
+        ["list", "--detail", "--json"],
+        ["--detail", "--json", "list"],
+    ):
+        result = runner.invoke(main, args, env=env)
+        assert result.exit_code == 3, (args, result.output)
+        envelope = json.loads(result.stdout)
+        assert envelope["error"]["code"] == "validation_error"
+        message = envelope["error"]["message"]
+        assert "'--detail'" in message
+        # The subcommand name must not be reported as the bad --detail value.
+        assert "'list'" not in message, message
+
+
 def test_cache_stats_command(tmp_path):
     with patch("zotero_cli.core.mineru.MinerUParseCache") as cache_cls:
         cache_cls.return_value.stats.return_value = {"entries": 0, "total_bytes": 0}

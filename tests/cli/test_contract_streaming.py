@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from tests.support import invoke_agent_cli as _run
 
@@ -160,3 +162,25 @@ class TestEmitProgress:
         # elapsed_ms is monotonically non-decreasing
         elapsed = [line["elapsed_ms"] for line in lines]
         assert elapsed == sorted(elapsed)
+
+
+class TestFulltextLimitedMeta:
+    """v130 bounded full-text scan: expose the budget flag instead of dropping it."""
+
+    def test_list_json_meta_reports_fulltext_limited(self):
+        fake = SimpleNamespace(items=[], total=0, fulltext_limited=True)
+        with patch("zotero_cli.commands.items.listing.ZoteroReader") as reader_cls:
+            reader_cls.return_value.search.return_value = fake
+            result = _run(["--json", "list"])
+        assert result.exit_code == EXIT_OK, result.output
+        env = json.loads(result.output)
+        assert env["meta"]["fulltext_limited"] is True
+
+    def test_list_stream_summary_reports_fulltext_limited(self):
+        fake = SimpleNamespace(items=[], total=0, fulltext_limited=True)
+        with patch("zotero_cli.commands.items.listing.ZoteroReader") as reader_cls:
+            reader_cls.return_value.search.return_value = fake
+            result = _run(["list", "--stream"])
+        assert result.exit_code == EXIT_OK, result.output
+        summary = _parse_ndjson(result.output)[-1]
+        assert summary["meta"]["fulltext_limited"] is True

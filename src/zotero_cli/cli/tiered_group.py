@@ -26,6 +26,8 @@ from zotero_cli.output.exit_codes import (
     emit_error,
     emit_exception,
     emit_usage_error,
+    set_verbose,
+    verbose_enabled,
 )
 
 
@@ -44,6 +46,9 @@ class TieredGroup(click.Group):
         if args is None:
             args = sys.argv[1:]
         args = _hoist_global_flags(list(args), self)
+        # Fresh per invocation; the root callback records the parsed --verbose
+        # flag and ZOT_DEBUG is read lazily by verbose_enabled().
+        set_verbose(False)
 
         if not standalone_mode:
             return super().main(
@@ -56,7 +61,6 @@ class TieredGroup(click.Group):
             )
 
         json_output = detect_json_output(args)
-        verbose = "--verbose" in args
         try:
             result = super().main(
                 args=args,
@@ -95,9 +99,9 @@ class TieredGroup(click.Group):
         except OSError as exc:
             if getattr(exc, "errno", None) == errno.EPIPE:
                 raise SystemExit(EXIT_RUNTIME) from None
-            emit_exception(exc, output_json=json_output, verbose=verbose)
+            emit_exception(exc, output_json=json_output, verbose=verbose_enabled())
         except BaseException as exc:  # noqa: BLE001 - the boundary is the point
-            emit_exception(exc, output_json=json_output, verbose=verbose)
+            emit_exception(exc, output_json=json_output, verbose=verbose_enabled())
 
         if isinstance(result, int):
             raise SystemExit(result)

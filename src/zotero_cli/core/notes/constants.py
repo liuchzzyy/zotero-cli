@@ -19,6 +19,15 @@ MIN_SECTIONS = 10
 MAX_PROMPT_CHARS = 220_000
 PROMPT_RESERVE_CHARS = 2_000
 
+# Per-field caps keep specially crafted / pathological Zotero metadata from
+# consuming the prompt budget before the (truncatable) full text is considered.
+MAX_TITLE_CHARS = 2_000
+MAX_ABSTRACT_CHARS = 20_000
+MAX_AUTHORS_CHARS = 10_000
+MAX_JOURNAL_CHARS = 1_000
+MAX_DATE_CHARS = 100
+MAX_DOI_CHARS = 500
+
 # Retry instructions appended to a prompt when the model output is unusable.
 PARSE_RETRY_SUFFIX = (
     "\n\n【输出格式要求（必须遵守）】"

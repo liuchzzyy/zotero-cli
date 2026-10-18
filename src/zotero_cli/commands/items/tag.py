@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import click
 
@@ -12,7 +13,7 @@ from zotero_cli.core.zotero.writer import SYNC_REMINDER, ZoteroWriter
 from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
 from zotero_cli.models import ErrorInfo
 from zotero_cli.output.envelope import envelope_error, envelope_ok, envelope_partial
-from zotero_cli.output.exit_codes import EXIT_NOT_FOUND, EXIT_RUNTIME, emit_error
+from zotero_cli.output.exit_codes import EXIT_NOT_FOUND, emit_error, exit_code_for
 from zotero_cli.output.renderers import print_error
 
 
@@ -41,7 +42,7 @@ def tag_cmd(
         if remove_tag:
             data["would_remove"] = remove_tag
         if json_out:
-            click.echo(json.dumps(envelope_ok(data, extra={"dry_run": True}), indent=2, ensure_ascii=False))
+            click.echo(json.dumps(envelope_ok(data, dry_run=True), indent=2, ensure_ascii=False))
             return
         for key in keys:
             if add_tag:
@@ -63,8 +64,8 @@ def tag_cmd(
                 context="tag",
             )
         writer = ZoteroWriter(library_id=str(write_library_id), api_key=api_key, library_type=library_type)
-        succeeded: list[dict[str, object]] = []
-        failed: list[dict[str, object]] = []
+        succeeded: list[dict[str, Any]] = []
+        failed: list[dict[str, Any]] = []
         for key in keys:
             try:
                 if add_tag:
@@ -78,29 +79,60 @@ def tag_cmd(
                     if not json_out:
                         click.echo(f"Tag '{remove_tag}' removed from '{key}'.")
             except ZoteroWriteError as e:
-                failed.append({"key": key, "error": {"code": e.code, "message": str(e), "retryable": e.retryable}})
+                failed.append(
+                    {
+                        "key": key,
+                        "error": {
+                            "code": e.code,
+                            "message": str(e),
+                            "retryable": e.retryable,
+                            "committed": e.committed,
+                        },
+                    }
+                )
                 if not json_out:
                     print_error(
-                        ErrorInfo(message=str(e), context="tag", hint=f"Failed for key '{key}'"), output_json=False
+                        ErrorInfo(
+                            message=str(e),
+                            context="tag",
+                            hint=f"Failed for key '{key}'" + (" (write may have committed)" if e.committed else ""),
+                        ),
+                        output_json=False,
                     )
+        first_failure: dict[str, Any] | None = None
+        if failed:
+            candidate = failed[0].get("error")
+            if isinstance(candidate, dict):
+                first_failure = candidate
+        exit_code = exit_code_for(str(first_failure["code"])) if first_failure else 0
         if json_out:
+            if failed:
+                assert first_failure is not None
             if failed and succeeded:
                 env = envelope_partial(succeeded, failed, meta={"sync_required": bool(succeeded)})
                 click.echo(json.dumps(env, indent=2, ensure_ascii=False))
-                ctx.exit(EXIT_RUNTIME)
+                raise SystemExit(exit_code)
             if failed:
+                assert first_failure is not None
+                committed_extra = {"committed": True} if first_failure["committed"] else {}
                 env = envelope_error(
-                    "api_error",
+                    str(first_failure["code"]),
                     f"{len(failed)} tag update(s) failed",
-                    retryable=True,
+                    retryable=bool(first_failure["retryable"]) and not first_failure["committed"],
+                    **committed_extra,
                     failed=failed,
+                    hint=(
+                        "The write outcome is unknown for at least one item; reconcile before retrying"
+                        if first_failure["committed"]
+                        else "Check item keys and API credentials"
+                    ),
                 )
                 click.echo(json.dumps(env, indent=2, ensure_ascii=False))
-                ctx.exit(EXIT_RUNTIME)
+                raise SystemExit(exit_code)
             env = envelope_ok(
                 {"succeeded": succeeded, "sync_required": True},
                 meta={"count": len(succeeded)},
-                extra={"next": [f"zot read {keys[0]}"] if len(keys) == 1 else []},
+                next=[f"zot read {keys[0]}"] if len(keys) == 1 else None,
             )
             click.echo(json.dumps(env, indent=2, ensure_ascii=False))
             return
@@ -108,7 +140,7 @@ def tag_cmd(
             click.echo(SYNC_REMINDER)
         else:
             # Surface failures via typed exit so agents/scripts detect them.
-            ctx.exit(EXIT_RUNTIME)
+            raise SystemExit(exit_code)
     else:
         # View mode — show tags for each key
         data_dir = get_data_dir(cfg)

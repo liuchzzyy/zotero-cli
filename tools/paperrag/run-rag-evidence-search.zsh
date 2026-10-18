@@ -8,7 +8,7 @@ SCRIPT_DIR="${SCRIPT_PATH:h}"
 source "$SCRIPT_DIR/zotero-workflow-common.zsh"
 
 question=""
-workspace_name="rag-workspace"
+workspace_name="${PAPERRAG_WORKSPACE:-rag-workspace}"
 profile_name=""
 mode="auto"
 pdf_kind="any"

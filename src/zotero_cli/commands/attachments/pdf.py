@@ -11,7 +11,7 @@ from zotero_cli.config import get_data_dir, get_prefs_js_path, load_config, load
 from zotero_cli.core.mineru import MinerUError, MinerUParseCache
 from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.output.envelope import envelope_ok
-from zotero_cli.output.exit_codes import emit_error
+from zotero_cli.output.exit_codes import emit_error, emit_exception
 from zotero_cli.output.renderers import format_pdf_text
 
 _NO_PDF_HINT = "Check item details with: zot read KEY"
@@ -65,6 +65,7 @@ def pdf_cmd(
     RAG. Repeated calls reuse the same content-addressed package.
     """
     json_out = ctx.obj.get("json", False)
+    verbose = bool(ctx.obj.get("verbose", False))
     if sum((outline, section is not None, structured)) > 1:
         emit_error(
             "validation_error",
@@ -164,13 +165,6 @@ def pdf_cmd(
                 hint="Check [pdf].mineru_model_version in .zot/config.toml",
                 context="pdf",
             )
-        except OSError as exc:
-            emit_error(
-                "internal_error",
-                f"Could not initialize the MinerU cache: {exc}",
-                output_json=json_out,
-                context="pdf",
-            )
 
         try:
             cached, fingerprint = cache.lookup(pdf_path)
@@ -180,13 +174,6 @@ def pdf_cmd(
                 f"Could not read the MinerU cache: {exc}",
                 output_json=json_out,
                 hint=_CACHE_STATE_HINT,
-                context="pdf",
-            )
-        except OSError as exc:
-            emit_error(
-                "internal_error",
-                f"Could not read PDF attachment '{pdf_path}': {exc}",
-                output_json=json_out,
                 context="pdf",
             )
 
@@ -210,13 +197,6 @@ def pdf_cmd(
                     output_json=json_out,
                     retryable=True,
                     hint="Check the MinerU token, API status, and network connection",
-                    context="pdf",
-                )
-            except OSError as exc:
-                emit_error(
-                    "internal_error",
-                    f"Could not store the MinerU parse package: {exc}",
-                    output_json=json_out,
                     context="pdf",
                 )
 
@@ -283,22 +263,13 @@ def pdf_cmd(
                 context="pdf",
             )
         except Exception as exc:
-            emit_error(
-                "internal_error",
-                f"Could not render MinerU output: {type(exc).__name__}: {exc}",
-                output_json=json_out,
-                context="pdf",
-            )
+            emit_exception(exc, output_json=json_out, verbose=verbose, context="pdf")
     except SystemExit:
         raise
     except Exception as exc:
-        # Last-resort boundary: the command must never leak a traceback.
-        emit_error(
-            "internal_error",
-            f"Failed to read PDF '{key}': {type(exc).__name__}: {exc}",
-            output_json=json_out,
-            context="pdf",
-        )
+        # Last-resort boundary: classify centrally (configuration vs runtime) and
+        # honor --verbose tracebacks like every other command.
+        emit_exception(exc, output_json=json_out, verbose=verbose, context="pdf")
     finally:
         if reader is not None:
             reader.close()

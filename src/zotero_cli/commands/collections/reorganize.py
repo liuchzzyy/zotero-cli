@@ -12,8 +12,8 @@ from zotero_cli.commands.collections.commands import _emit_dry_run, _emit_json_o
 from zotero_cli.config import load_config, resolve_write_credentials
 from zotero_cli.core.zotero.writer import ZoteroWriter
 from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
-from zotero_cli.output.envelope import envelope_ok
-from zotero_cli.output.exit_codes import EXIT_RUNTIME, emit_error
+from zotero_cli.output.envelope import envelope_ok, envelope_partial_data
+from zotero_cli.output.exit_codes import emit_error, exit_code_for
 
 
 def _validate_reorganization_plan(plan: Any) -> list[dict[str, Any]]:
@@ -77,7 +77,10 @@ def collection_reorganize(ctx: click.Context, plan_file: str, dry_run: bool) -> 
 
     {"collections": [{"name": "Topic A", "items": ["KEY1", "KEY2"]}, ...]}
 
-    Optional "parent" field creates subcollections.
+    Optional "parent" field creates subcollections. This is a true move: after
+    the plan runs, each listed item's collection memberships are replaced with
+    the plan's target collections (other memberships are removed). Failures are
+    reported with typed error codes and a non-zero exit.
     """
     from pathlib import Path
 
@@ -134,16 +137,17 @@ def collection_reorganize(ctx: click.Context, plan_file: str, dry_run: bool) -> 
             parent_str = f" (under '{parent_name}')" if parent_name else ""
             click.echo(f"[dry-run] Would create collection '{name}'{parent_str}")
             for item_key in items:
-                click.echo(f"[dry-run]   Would move {item_key} -> '{name}'")
+                click.echo(f"[dry-run]   Would move {item_key} -> '{name}' (replacing other collection memberships)")
         if json_out:
             data = {
                 "would_create_collections": preview_collections,
                 "total_collections": len(preview_collections),
                 "total_items": sum(len(coll["items"]) for coll in preview_collections),
+                "would_replace_collection_memberships": True,
             }
             click.echo(
                 json.dumps(
-                    envelope_ok(data, meta={"count": len(preview_collections)}, extra={"dry_run": True}),
+                    envelope_ok(data, meta={"count": len(preview_collections)}, dry_run=True),
                     indent=2,
                     ensure_ascii=False,
                 )
@@ -174,48 +178,15 @@ def collection_reorganize(ctx: click.Context, plan_file: str, dry_run: bool) -> 
         name = coll["name"]
         parent_name = coll.get("parent")
         parent_key = created_collections.get(parent_name) if parent_name else None
-        items = coll.get("items", [])
-
         try:
             if parent_name is not None and parent_key is None:
-                raise ZoteroWriteError(f"Parent collection '{parent_name}' was not created; skipping '{name}'")
+                raise ZoteroWriteError(
+                    f"Parent collection '{parent_name}' was not created; skipping '{name}'",
+                    code="validation_error",
+                    retryable=False,
+                    committed=False,
+                )
             col_key = writer.create_collection(name, parent_key=parent_key)
-            created_collections[name] = col_key
-            created_results.append(
-                {
-                    "name": name,
-                    "key": col_key,
-                    "parent_name": parent_name,
-                    "parent_key": parent_key,
-                }
-            )
-            if not json_out:
-                click.echo(f"Created collection '{name}' ({col_key})")
-
-            for item_key in items:
-                try:
-                    writer.move_to_collection(item_key, col_key)
-                    moved_results.append(
-                        {
-                            "item_key": item_key,
-                            "collection_name": name,
-                            "collection_key": col_key,
-                        }
-                    )
-                    if not json_out:
-                        click.echo(f"  Moved {item_key} -> '{name}'")
-                except ZoteroWriteError as e:
-                    failed_results.append(
-                        {
-                            "operation": "move_item",
-                            "item_key": item_key,
-                            "collection_name": name,
-                            "collection_key": col_key,
-                            "message": str(e),
-                        }
-                    )
-                    if not json_out:
-                        click.echo(f"  Failed to move {item_key}: {e}")
         except ZoteroWriteError as e:
             failed_results.append(
                 {
@@ -223,11 +194,62 @@ def collection_reorganize(ctx: click.Context, plan_file: str, dry_run: bool) -> 
                     "name": name,
                     "parent_name": parent_name,
                     "parent_key": parent_key,
+                    "code": e.code,
                     "message": str(e),
+                    "committed": e.committed,
                 }
             )
             if not json_out:
-                click.echo(f"Failed to create collection '{name}': {e}")
+                click.echo(f"Failed to create collection '{name}': {e}", err=True)
+            continue
+        created_collections[name] = col_key
+        created_results.append({"name": name, "key": col_key, "parent_name": parent_name, "parent_key": parent_key})
+        if not json_out:
+            click.echo(f"Created collection '{name}' ({col_key})")
+
+    # True move: collect every planned target per item, then replace the item's
+    # collection membership with that target set in one write.
+    targets: dict[str, list[tuple[str, str]]] = {}
+    for coll in collections:
+        name = coll["name"]
+        created_key = created_collections.get(name)
+        if not created_key:
+            continue
+        for item_key in coll.get("items", []):
+            targets.setdefault(item_key, []).append((name, created_key))
+
+    for item_key in sorted(targets):
+        entries = targets[item_key]
+        target_keys = [col_key for _name, col_key in entries]
+        try:
+            writer.set_item_collections(item_key, target_keys)
+        except ZoteroWriteError as e:
+            failed_results.append(
+                {
+                    "operation": "move_item",
+                    "item_key": item_key,
+                    "collection_names": [name for name, _key in entries],
+                    "collection_keys": target_keys,
+                    "code": e.code,
+                    "message": str(e),
+                    "committed": e.committed,
+                }
+            )
+            if not json_out:
+                click.echo(f"Failed to move {item_key}: {e}", err=True)
+            continue
+        for name, col_key in entries:
+            moved_results.append(
+                {
+                    "item_key": item_key,
+                    "collection_name": name,
+                    "collection_key": col_key,
+                    "replaced_existing_memberships": True,
+                }
+            )
+        if not json_out:
+            names = ", ".join(f"'{name}'" for name, _key in entries)
+            click.echo(f"  Moved {item_key} -> {names} (replaced other memberships)")
 
     summary = {
         "collections_requested": len(collections),
@@ -240,14 +262,20 @@ def collection_reorganize(ctx: click.Context, plan_file: str, dry_run: bool) -> 
         "items_moved": moved_results,
         "failed": failed_results,
         "summary": summary,
+        "replaced_existing_memberships": True,
         "sync_required": True,
     }
     if failed_results:
+        exit_code = exit_code_for(str(failed_results[0].get("code") or "api_error"))
         if json_out:
-            click.echo(json.dumps({**envelope_ok(data, meta=summary), "ok": False}, indent=2, ensure_ascii=False))
+            env = envelope_partial_data(data, meta=summary)
+            click.echo(json.dumps(env, indent=2, ensure_ascii=False))
         else:
             click.echo(f"Incomplete: {len(failed_results)} operation(s) failed.", err=True)
-        ctx.exit(EXIT_RUNTIME)
+        raise SystemExit(exit_code)
     _emit_sync_success(
-        data, output_json=json_out, human_text=f"\nDone. Created {len(created_collections)} collections.", meta=summary
+        data,
+        output_json=json_out,
+        human_text=f"\nDone. Created {len(created_collections)} collections; moved {len(targets)} item(s).",
+        meta=summary,
     )

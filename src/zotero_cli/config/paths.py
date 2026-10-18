@@ -1,11 +1,17 @@
 """Configuration and state paths.
 
-Checkouts keep configuration and runtime state inside the repository (/.zot,
-/.workspace). Installed wheels have no checkout marker, so persistent state is
-resolved deterministically per user instead of depending on the current working
-directory: `ZOT_STATE_DIR` first, then `XDG_STATE_HOME/zotero-cli`
-(`~/.local/state/zotero-cli`) or Windows `%LOCALAPPDATA%/zotero-cli`.
-Configuration discovery keeps the historical checkout/CWD behavior.
+Source checkouts keep configuration and runtime state inside the repository
+(/.zot, /.workspace). Installed wheels resolve both deterministically per user
+instead of depending on the current working directory:
+
+* state: absolute `ZOT_STATE_DIR`, else `XDG_STATE_HOME/zotero-cli`
+  (`~/.local/state/zotero-cli`) or Windows `%LOCALAPPDATA%/zotero-cli`;
+* config: `XDG_CONFIG_HOME/zotero-cli/config.toml` (`~/.config/...`) or
+  Windows `%APPDATA%/zotero-cli/config.toml`.
+
+Relative XDG/ZOT path env values are ignored (XDG base directories must be
+absolute) and the per-user default is used instead, so state never fragments
+by working directory nor silently picks up a foreign project's config.
 """
 
 from __future__ import annotations
@@ -23,6 +29,15 @@ STATE_DIRNAME = "state"
 WORKSPACE_DIRNAME = ".workspace"
 
 APP_DIRNAME = "zotero-cli"
+
+
+def _absolute_env_path(name: str) -> Path | None:
+    """Return an absolute, ~-expanded path from an env var; relative values are ignored."""
+    value = os.environ.get(name, "").strip()
+    if not value:
+        return None
+    candidate = Path(value).expanduser()
+    return candidate if candidate.is_absolute() else None
 
 
 def _find_project_root(start: Path) -> Path | None:
@@ -57,15 +72,31 @@ def project_root(start: Path | None = None) -> Path:
 
 
 def _installed_state_root() -> Path:
-    override = os.environ.get("ZOT_STATE_DIR", "").strip()
-    if override:
-        return Path(override).expanduser()
+    override = _absolute_env_path("ZOT_STATE_DIR")
+    if override is not None:
+        return override
     if sys.platform == "win32":
-        base = os.environ.get("LOCALAPPDATA", "").strip()
-        return Path(base).expanduser() / APP_DIRNAME if base else Path.home() / "AppData" / "Local" / APP_DIRNAME
-    xdg_state = os.environ.get("XDG_STATE_HOME", "").strip()
-    base = Path(xdg_state).expanduser() if xdg_state else Path.home() / ".local" / "state"
-    return base / APP_DIRNAME
+        base = _absolute_env_path("LOCALAPPDATA") or Path.home() / "AppData" / "Local"
+        return base / APP_DIRNAME
+    xdg_state = _absolute_env_path("XDG_STATE_HOME") or Path.home() / ".local" / "state"
+    return xdg_state / APP_DIRNAME
+
+
+def config_search_dir() -> Path:
+    """Directory holding config.toml: repo-local for a source checkout, else per-user.
+
+    Installed packages never read a config from the current working directory, so
+    running zot inside an unrelated project cannot pick up that project's
+    .zot/config.toml (or its credentials).
+    """
+    source_root = _source_project_root()
+    if source_root is not None:
+        return source_root / SETTINGS_DIRNAME
+    if sys.platform == "win32":
+        base = _absolute_env_path("APPDATA") or Path.home() / "AppData" / "Roaming"
+        return base / APP_DIRNAME
+    xdg_config = _absolute_env_path("XDG_CONFIG_HOME") or Path.home() / ".config"
+    return xdg_config / APP_DIRNAME
 
 
 def state_root() -> Path:
@@ -99,7 +130,9 @@ def settings_dir(start: Path | None = None) -> Path:
 
 
 def config_file_path(start: Path | None = None) -> Path:
-    return settings_dir(start) / CONFIG_FILENAME
+    if start is not None:
+        return settings_dir(start) / CONFIG_FILENAME
+    return config_search_dir() / CONFIG_FILENAME
 
 
 def state_dir(start: Path | None = None) -> Path:

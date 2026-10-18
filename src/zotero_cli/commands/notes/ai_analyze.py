@@ -183,6 +183,7 @@ def ai_analyze_cmd(
             no_short_note=no_short_note,
             short_note_only=short_note_only,
             progress=progress,
+            max_extracted_chars=ai_cfg.max_extracted_chars,
         )
     except NoteAnalysisError as exc:
         committed = bool(getattr(exc, "committed", False))

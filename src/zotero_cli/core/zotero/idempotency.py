@@ -20,6 +20,7 @@ from contextlib import closing
 from pathlib import Path
 
 import httpx
+import httpx2
 
 from zotero_cli.config import state_dir
 
@@ -49,7 +50,10 @@ def response_definitely_rejected(response: object) -> bool:
     callers can distinguish an explicit rejection (safe to release the
     reservation) from an unknown outcome (network drop, 412, 5xx, bad JSON).
     """
-    if not isinstance(response, httpx.Response) or response.request.method not in {"POST", "PATCH", "PUT", "DELETE"}:
+    if not isinstance(response, (httpx2.Response, httpx.Response)):
+        return False
+    request = getattr(response, "request", None)
+    if request is None or request.method not in {"POST", "PATCH", "PUT", "DELETE"}:
         return False
     if response.status_code in _REJECTED_STATUS_CODES:
         return True
@@ -70,13 +74,16 @@ def response_definitely_rejected(response: object) -> bool:
 _DEFINITIVE_FAILURE_CODES = frozenset({"not_found", "validation_error", "auth_invalid"})
 
 
-def failure_definitely_rejected(*, response: object, code: str, retryable: bool) -> bool:
+def failure_definitely_rejected(*, response: object, code: str, retryable: bool, committed: bool = False) -> bool:
     """Return True when a write error proves the remote mutation did not land.
 
-    Uses the last HTTP response when available; otherwise falls back to error
-    codes that cannot represent an unknown outcome (a rejected key or invalid
-    payload never commits). Conflicts, 5xx and network errors stay ambiguous.
+    Uses the last HTTP response when available and the typed error's committed
+    flag; otherwise falls back to error codes that cannot represent an unknown
+    outcome (a rejected key or invalid payload never commits). Conflicts, 5xx
+    and network errors stay ambiguous.
     """
+    if committed:
+        return False
     if response_definitely_rejected(response):
         return True
     return code in _DEFINITIVE_FAILURE_CODES and not retryable

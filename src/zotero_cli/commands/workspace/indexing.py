@@ -6,7 +6,7 @@ import json
 import sqlite3
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from hashlib import sha1
 from pathlib import Path
 
@@ -40,6 +40,7 @@ from zotero_cli.core.rag.index import RagIndex
 from zotero_cli.core.rag.vector_store import (
     QdrantVectorStore,
     drop_collection,
+    is_local_vector_store,
     prune_empty_store,
     resolve_vector_store_path,
 )
@@ -101,6 +102,8 @@ def drop_workspace_vector_collection(name: str) -> bool:
     is absent so a workspace that only produced an empty store cleans it up.
     """
     store_path = resolve_vector_store_path(load_vector_store_config())
+    if not is_local_vector_store(store_path):
+        return False
     removed = drop_collection(store_path, f"ws_{name}")
     prune_empty_store(store_path)
     return removed
@@ -112,7 +115,7 @@ def _read_index_stats(index_path: Path) -> dict[str, object]:
     if not index_path.exists():
         return stats
     try:
-        conn = sqlite3.connect(f"file:{index_path}?mode=ro", uri=True)
+        conn = sqlite3.connect(index_path.resolve().as_uri() + "?mode=ro", uri=True)
     except sqlite3.Error:
         return stats
     try:
@@ -123,6 +126,85 @@ def _read_index_stats(index_path: Path) -> dict[str, object]:
     finally:
         conn.close()
     return stats
+
+
+def open_vector_store_for_read(name: str) -> QdrantVectorStore | None:
+    """Open the workspace vector store only when it already exists.
+
+    Read paths (query) must never create the local store: a missing directory
+    simply means "no vectors", and an unreadable/read-only store degrades to
+    BM25-only instead of failing the command or writing to disk.
+    """
+    store_path = resolve_vector_store_path(load_vector_store_config())
+    if not store_path.is_dir():
+        return None
+    try:
+        return QdrantVectorStore(store_path, f"ws_{name}")
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def prune_workspace_items(name: str, keys: list[str]) -> int:
+    """Prune chunks/meta/vectors for item keys removed from the workspace manifest."""
+    if not keys:
+        return 0
+    index_path = workspace_index_path(name)
+    if not index_path.exists():
+        return 0
+    store_path = resolve_vector_store_path(load_vector_store_config())
+    idx = RagIndex(index_path)
+    pruned = 0
+    try:
+        for key in keys:
+            old_ids = idx.delete_chunks_for_item(key)
+            if old_ids and store_path.is_dir():
+                store = _vector_store_for(name)
+                try:
+                    store.delete(old_ids)
+                finally:
+                    store.close()
+            idx.delete_meta(f"pdf_hash:{key}")
+            idx.delete_meta(f"content_hash:{key}")
+            idx.delete_meta(f"pipeline:{key}")
+            pruned += 1
+        remaining = idx.get_indexed_keys()
+        if not remaining:
+            idx.set_meta("chunk_count", "0")
+            idx.set_meta("indexed_at", datetime.now(UTC).isoformat())
+        idx.commit()
+    finally:
+        idx.close()
+    if not remaining:
+        drop_collection(store_path, f"ws_{name}")
+        prune_empty_store(store_path)
+    return pruned
+
+
+def _clear_workspace_index(name: str, index_path: Path, *, force: bool) -> int:
+    """Prune every indexed item (or clear everything for --force) for an empty workspace."""
+    store_path = resolve_vector_store_path(load_vector_store_config())
+    pruned = 0
+    if index_path.exists():
+        idx = RagIndex(index_path)
+        try:
+            indexed = idx.get_indexed_keys()
+            pruned = len(indexed)
+            if force:
+                idx.clear()
+            else:
+                for key in indexed:
+                    idx.delete_chunks_for_item(key)
+                    idx.delete_meta(f"pdf_hash:{key}")
+                    idx.delete_meta(f"content_hash:{key}")
+                    idx.delete_meta(f"pipeline:{key}")
+            idx.set_meta("chunk_count", "0")
+            idx.set_meta("indexed_at", datetime.now(UTC).isoformat())
+            idx.commit()
+        finally:
+            idx.close()
+    drop_collection(store_path, f"ws_{name}")
+    prune_empty_store(store_path)
+    return pruned
 
 
 def _prune_item_from_index(idx: RagIndex, vector_store: QdrantVectorStore, key: str) -> None:
@@ -148,20 +230,39 @@ def _index_workspace(
     workspace = load_workspace_or_exit(ctx, name, context="workspace index", hint=_ITEM_HINT)
     index_path = workspace_index_path(name)
     if not workspace.items:
+        stats = _read_index_stats(index_path)
         if dry_run:
             emit_result(
                 ctx,
-                {"name": name, "force": force, "items": 0, "would_index": 0, "index_exists": index_path.exists()},
-                human_text=f"[dry-run] Workspace '{name}' is empty; nothing would be indexed",
+                {
+                    "name": name,
+                    "force": force,
+                    "items": 0,
+                    "would_index": 0,
+                    "would_prune": stats.get("indexed_items", 0),
+                    **stats,
+                },
+                human_text=f"[dry-run] Workspace '{name}' is empty; nothing would be indexed"
+                + (
+                    f" (would prune {stats.get('indexed_items', 0)} stale item(s))"
+                    if stats.get("indexed_items")
+                    else ""
+                ),
                 dry_run=True,
             )
+            return
+        pruned = _clear_workspace_index(name, index_path, force=force)
+        human = f"Workspace '{name}' is empty."
+        if pruned:
+            human += f" Cleared {pruned} stale item(s) from its index."
         else:
-            emit_result(
-                ctx,
-                {"name": name, "indexed": 0, "pruned": 0, "items": 0},
-                human_text=f"Workspace '{name}' is empty. Add items first with: zot workspace add {name} KEY",
-                meta={"count": 0},
-            )
+            human += f" Add items first with: zot workspace add {name} KEY"
+        emit_result(
+            ctx,
+            {"name": name, "indexed": 0, "chunks": 0, "pruned": pruned, "items": 0, "force": force},
+            human_text=human,
+            meta={"count": 0},
+        )
         return
 
     cfg = load_config(profile=ctx.obj.get("profile"))
@@ -415,7 +516,7 @@ def _index_workspace(
 
             total_chunks = len(all_chunks)
             idx.set_meta("chunk_count", str(total_chunks))
-            idx.set_meta("indexed_at", datetime.now(timezone.utc).isoformat())
+            idx.set_meta("indexed_at", datetime.now(UTC).isoformat())
             for ws_item, _item, pdf_refs, _notes in to_index:
                 if ws_item.key in failed_item_keys:
                     idx.delete_meta(f"pdf_hash:{ws_item.key}")

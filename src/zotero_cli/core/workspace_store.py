@@ -8,17 +8,10 @@ import re
 import shutil
 import sys
 import tempfile
+import tomllib
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path, PureWindowsPath
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    try:
-        import tomllib
-    except ModuleNotFoundError:
-        import tomli as tomllib  # type: ignore[no-redef]
 
 from zotero_cli.config import state_dir, workspace_root
 
@@ -26,6 +19,11 @@ from zotero_cli.config import state_dir, workspace_root
 # while requiring an alphanumeric/CJK first and last character.
 _NAME_RE = re.compile(r"^[a-z0-9\u4e00-\u9fff]+(?:[-_][a-z0-9\u4e00-\u9fff]+)*$")
 _MAX_NAME_BYTES = 200
+_WORKSPACE_DIRNAME = ".workspace"
+
+
+class WorkspaceManifestError(ValueError):
+    """Raised when a workspace manifest is unreadable or schema-invalid."""
 
 
 def workspaces_dir() -> Path:
@@ -98,7 +96,7 @@ def mineru_cache_dir() -> Path:
 def validate_name(name: str) -> bool:
     if not name or len(name.encode("utf-8")) > _MAX_NAME_BYTES:
         return False
-    return bool(_NAME_RE.match(name))
+    return bool(_NAME_RE.fullmatch(name))
 
 
 @dataclass
@@ -126,7 +124,7 @@ class Workspace:
             WorkspaceItem(
                 key=key,
                 title=title,
-                added=datetime.now(timezone.utc).isoformat(),
+                added=datetime.now(UTC).isoformat(),
             )
         )
         return True
@@ -190,18 +188,45 @@ def save_workspace(ws: Workspace) -> None:
     _write_atomic(path, _manifest_text(ws))
 
 
+def _parse_manifest(name: str, text: str) -> Workspace:
+    try:
+        data = tomllib.loads(text)
+    except Exception as exc:  # tomllib.TOMLDecodeError (ValueError) and friends
+        raise WorkspaceManifestError(f"invalid TOML manifest: {exc}") from exc
+    if not isinstance(data, dict):
+        raise WorkspaceManifestError("manifest must be a TOML table")
+    created = data.get("created", "")
+    description = data.get("description", "")
+    if not isinstance(created, str):
+        raise WorkspaceManifestError("manifest field 'created' must be a string")
+    if not isinstance(description, str):
+        raise WorkspaceManifestError("manifest field 'description' must be a string")
+    raw_items = data.get("items", [])
+    if not isinstance(raw_items, list):
+        raise WorkspaceManifestError("manifest field 'items' must be a list of tables")
+    items: list[WorkspaceItem] = []
+    for row, raw_item in enumerate(raw_items, 1):
+        if not isinstance(raw_item, dict):
+            raise WorkspaceManifestError(f"items[{row}] must be a table with key, title, and added")
+        values: list[str] = []
+        for field_name in ("key", "title", "added"):
+            value = raw_item.get(field_name)
+            if not isinstance(value, str) or not value:
+                raise WorkspaceManifestError(f"items[{row}].{field_name} must be a non-empty string")
+            values.append(value)
+        items.append(WorkspaceItem(key=values[0], title=values[1], added=values[2]))
+    return Workspace(name=name, created=created, description=description, items=items)
+
+
 def load_workspace(name: str) -> Workspace:
     path = _workspace_path(name)
     if not path.exists():
         raise FileNotFoundError(f"Workspace '{name}' not found")
-    data = tomllib.loads(path.read_text(encoding="utf-8"))
-    items = [WorkspaceItem(key=i["key"], title=i["title"], added=i["added"]) for i in data.get("items", [])]
-    return Workspace(
-        name=name,
-        created=data.get("created", ""),
-        description=data.get("description", ""),
-        items=items,
-    )
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        raise
+    return _parse_manifest(name, text)
 
 
 def _list_warning(path: Path, exc: Exception) -> str | None:
@@ -243,6 +268,37 @@ def delete_workspace(name: str) -> None:
     if not path.exists():
         raise FileNotFoundError(f"Workspace '{name}' not found")
     shutil.rmtree(path)
+
+
+def cleanup_empty_workspace_root() -> None:
+    """Remove the workspace root directory when no workspaces remain.
+
+    Only the standard '.workspace' root is cleaned; known prune-lock files are
+    removed first so they do not keep the root alive. Best effort only.
+    """
+    root = workspaces_dir()
+    try:
+        if root.name != _WORKSPACE_DIRNAME or root.is_symlink() or not root.is_dir():
+            return
+    except OSError:
+        return
+    try:
+        leftovers = [entry for entry in root.iterdir() if not _is_prune_lock_file(entry)]
+        if leftovers:
+            return
+        for entry in root.iterdir():
+            if _is_prune_lock_file(entry):
+                entry.unlink()
+        root.rmdir()
+    except OSError:
+        pass
+
+
+def _is_prune_lock_file(path: Path) -> bool:
+    try:
+        return path.is_file() and path.name.endswith(".prune.lock")
+    except OSError:
+        return False
 
 
 def workspace_exists(name: str) -> bool:

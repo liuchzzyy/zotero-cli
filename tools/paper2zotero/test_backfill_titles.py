@@ -39,13 +39,17 @@ class BackfillTests(unittest.TestCase):
             stderr="",
         )
 
-        with patch.object(backfill.subprocess, "run", side_effect=[bad, good]) as model:
-            self.assertEqual(backfill.translate_batch(rows), {"A1234567": "MnO2 正极的原位 XAS 研究"})
-            self.assertEqual(model.call_count, 2)
-            args = model.call_args.args[0]
-            self.assertIn("--ignore-rules", args)
-            self.assertEqual(args[args.index("-t") + 1], "browser")
-            self.assertIn("--query-file", args)
+        with tempfile.TemporaryDirectory() as scratch:
+            with (
+                patch.object(backfill, "SCIENTIST_HOME", Path(scratch)),
+                patch.object(backfill.subprocess, "run", side_effect=[bad, good]) as model,
+            ):
+                self.assertEqual(backfill.translate_batch(rows), {"A1234567": "MnO2 正极的原位 XAS 研究"})
+                self.assertEqual(model.call_count, 2)
+                args = model.call_args.args[0]
+                self.assertIn("--ignore-rules", args)
+                self.assertEqual(args[args.index("-t") + 1], "browser")
+                self.assertIn("--query-file", args)
 
     def test_normalise_multiline_jats_title_without_changing_source(self):
         original = "Interlayer‐Engineered 1T‐MoSe\n   <sub>2</sub> Enabling Reversible Mn"

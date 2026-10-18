@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.utils import format_datetime
 from typing import Any
 
@@ -370,7 +370,7 @@ def test_retry_after_dates_and_invalid_headers_keep_bounded_safe_spacing(
     expected_delay: float,
 ) -> None:
     if retry_after == "http-date":
-        retry_after = format_datetime(datetime.fromtimestamp(clock.now + expected_delay, tz=timezone.utc), usegmt=True)
+        retry_after = format_datetime(datetime.fromtimestamp(clock.now + expected_delay, tz=UTC), usegmt=True)
     client, requests = make_client(
         [httpx.Response(429, headers={"Retry-After": retry_after}), httpx.Response(200, json={})], None
     )

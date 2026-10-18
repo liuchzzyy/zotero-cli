@@ -29,8 +29,7 @@ def emit_result(
 ) -> None:
     """Emit exactly one output document: a JSON envelope, or human-readable text."""
     if output_json(ctx):
-        extra = {"dry_run": True} if dry_run else None
-        click.echo(json.dumps(envelope_ok(data, meta=meta, extra=extra), indent=2, ensure_ascii=False))
+        click.echo(json.dumps(envelope_ok(data, meta=meta, dry_run=dry_run), indent=2, ensure_ascii=False))
     else:
         click.echo(human_text)
 

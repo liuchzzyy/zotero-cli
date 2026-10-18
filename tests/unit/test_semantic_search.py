@@ -9,10 +9,13 @@ from zotero_cli.config import VectorStoreConfig
 from zotero_cli.core.rag import weighted_reciprocal_rank_fusion
 from zotero_cli.core.rag.index import RagIndex
 from zotero_cli.core.rag.vector_store import (
+    MANAGED_STORE_MARKER,
     QdrantVectorStore,
     drop_collection,
+    is_local_vector_store,
     prune_empty_store,
     resolve_vector_store_path,
+    store_lock,
 )
 
 
@@ -154,3 +157,82 @@ def test_instance_drop_collection_deletes_named_collection(tmp_path):
         assert store.drop_collection("ws_b") is False
     finally:
         store.close()
+
+
+def test_managed_store_writes_ownership_marker(tmp_path):
+    store_path = tmp_path / "_qdrant"
+    store = QdrantVectorStore(store_path, "ws_marker")
+    try:
+        store.upsert([1], [[1.0]])
+    finally:
+        store.close()
+
+    marker = store_path / MANAGED_STORE_MARKER
+    assert marker.is_file()
+    assert is_local_vector_store(store_path) is True
+    with store_lock(store_path) as acquired:
+        assert acquired is True
+
+
+def test_prune_empty_store_refuses_arbitrary_directory_with_user_files(tmp_path):
+    victim = tmp_path / "not-a-vector-store"
+    victim.mkdir()
+    (victim / "important.txt").write_text("user data")
+    (victim / "subdir").mkdir()
+    (victim / "subdir" / "more.txt").write_text("more user data")
+    before = sorted(str(path.relative_to(victim)) for path in victim.rglob("*"))
+    parent_before = sorted(path.name for path in tmp_path.iterdir())
+
+    assert is_local_vector_store(victim) is False
+    assert prune_empty_store(victim) is False
+    assert drop_collection(victim, "ws_gone") is False
+
+    assert victim.is_dir()
+    assert sorted(str(path.relative_to(victim)) for path in victim.rglob("*")) == before
+    assert sorted(path.name for path in tmp_path.iterdir()) == parent_before
+
+
+def test_prune_empty_store_refuses_empty_arbitrary_directory(tmp_path):
+    victim = tmp_path / "empty-user-dir"
+    victim.mkdir()
+    parent_before = sorted(path.name for path in tmp_path.iterdir())
+
+    assert is_local_vector_store(victim) is False
+    assert prune_empty_store(victim) is False
+    assert drop_collection(victim, "ws_gone") is False
+
+    assert victim.is_dir()
+    assert list(victim.iterdir()) == []
+    assert sorted(path.name for path in tmp_path.iterdir()) == parent_before
+
+
+def test_store_with_foreign_entry_is_never_pruned(tmp_path):
+    store_path = tmp_path / "_qdrant"
+    store = QdrantVectorStore(store_path, "ws_foreign")
+    try:
+        store.upsert([1], [[1.0]])
+    finally:
+        store.close()
+    (store_path / "user-notes.txt").write_text("keep me")
+
+    assert is_local_vector_store(store_path) is False
+    assert prune_empty_store(store_path) is False
+    assert drop_collection(store_path, "ws_foreign", prune_empty=True) is False
+    assert store_path.is_dir()
+    assert (store_path / "user-notes.txt").read_text() == "keep me"
+
+
+def test_managed_store_with_collections_is_not_pruned_but_drop_prunes_last(tmp_path):
+    store_path = tmp_path / "_qdrant"
+    store = QdrantVectorStore(store_path, "ws_last")
+    try:
+        store.upsert([1], [[1.0]])
+    finally:
+        store.close()
+
+    assert is_local_vector_store(store_path) is True
+    assert prune_empty_store(store_path) is False
+    assert store_path.is_dir()
+
+    assert drop_collection(store_path, "ws_last", prune_empty=True) is True
+    assert not store_path.exists()

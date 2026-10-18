@@ -73,3 +73,40 @@ def test_zsh_and_fish_fallbacks_are_shell_specific(mock_run):
     assert "~/.zshrc" in zsh.stdout
     assert "_ZOT_COMPLETE=fish_source zot" in fish.stdout
     assert "~/.config/fish/completions/zot.fish" in fish.stdout
+
+
+def _invoke_json(shell: str = "bash"):
+    return CliRunner().invoke(main, ["--json", "completions", shell])
+
+
+@patch("zotero_cli.commands.system.completions.subprocess.run")
+def test_json_mode_returns_single_envelope_with_script(mock_run):
+    import json
+
+    mock_run.return_value = SimpleNamespace(returncode=0, stdout="# generated completion\n")
+    result = _invoke_json()
+    assert result.exit_code == 0
+    envelope = json.loads(result.stdout)
+    assert envelope["ok"] is True
+    assert envelope["data"] == {
+        "shell": "bash",
+        "script": "# generated completion\n",
+        "fallback": False,
+        "warning": None,
+    }
+    assert "Warning:" not in result.stderr
+
+
+@patch("zotero_cli.commands.system.completions.subprocess.run")
+def test_json_fallback_envelope_reports_warning(mock_run):
+    import json
+
+    mock_run.side_effect = FileNotFoundError(2, "No such file or directory", "zot")
+    result = _invoke_json("zsh")
+    assert result.exit_code == 0
+    envelope = json.loads(result.stdout)
+    assert envelope["data"]["fallback"] is True
+    assert "could not execute 'zot'" in envelope["data"]["warning"]
+    assert "_ZOT_COMPLETE=zsh_source zot" in envelope["data"]["script"]
+    # Warnings still go to stderr so stdout stays one clean envelope.
+    assert "could not execute 'zot'" in result.stderr

@@ -86,3 +86,54 @@ def fit_text_to_prompt(template: str, text: str) -> str:
     if budget <= 0:
         return ""
     return text[:budget]
+
+
+def render_bounded_prompt(
+    template: str,
+    *,
+    title: str = "",
+    authors: str = "",
+    journal: str = "",
+    date: str = "",
+    doi: str = "",
+    fulltext: str = "",
+    prefix: str = "",
+    max_fulltext_chars: int = 0,
+) -> tuple[str, str]:
+    """Render a prompt whose total length never exceeds MAX_PROMPT_CHARS.
+
+    Unlike fit_text_to_prompt this counts the rendered template plus all
+    (already size-capped) metadata and the wrapped full-text delimiters, so a
+    long title/author list cannot push the request over the hard cap. Only the
+    fulltext can be truncated; prefix (e.g. a figure-cap notice) is kept
+    verbatim. Returns (fulltext_used, prompt).
+    """
+
+    def render(text: str) -> str:
+        body = f"{prefix}\n\n{text}" if prefix else text
+        return format_template(
+            template,
+            title=title,
+            authors=authors,
+            journal=journal,
+            date=date,
+            doi=doi,
+            fulltext=body,
+        )
+
+    overhead = len(render(""))
+    budget = MAX_PROMPT_CHARS - overhead
+    if max_fulltext_chars > 0:
+        budget = min(budget, max_fulltext_chars)
+    budget = max(0, budget)
+    text = fulltext[:budget]
+    prompt = render(text)
+    for _ in range(10):
+        if len(prompt) <= MAX_PROMPT_CHARS:
+            return text, prompt
+        overflow = len(prompt) - MAX_PROMPT_CHARS
+        if len(text) <= overflow:
+            break
+        text = text[: len(text) - overflow]
+        prompt = render(text)
+    return "", render("")

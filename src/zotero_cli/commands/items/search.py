@@ -72,15 +72,24 @@ def search_cmd(
         except ValueError as e:
             emit_error("validation_error", str(e), output_json=json_out)
         detail = ctx.obj.get("detail", "standard")
+        extra_meta: dict = {}
+        limited = getattr(result, "fulltext_limited", None)
+        if limited is not None:
+            extra_meta["fulltext_limited"] = limited
+        if limited and not json_out:
+            click.echo(
+                "Note: full-text search was bounded; some indexed attachment text may not have been searched.",
+                err=True,
+            )
         if stream:
-            click.echo(stream_items(result.items, detail=detail, total=result.total))
+            click.echo(stream_items(result.items, detail=detail, total=result.total, meta=extra_meta or None))
             return
         if not result.items:
             if json_out:
-                click.echo(format_items([], output_json=True))
+                click.echo(format_items([], output_json=True, meta=extra_meta or None))
             else:
                 click.echo("No results found.", err=True)
             return
-        click.echo(format_items(result.items, output_json=json_out, detail=detail))
+        click.echo(format_items(result.items, output_json=json_out, detail=detail, meta=extra_meta or None))
     finally:
         reader.close()

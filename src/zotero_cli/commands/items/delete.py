@@ -1,4 +1,4 @@
-"""zot delete: move items to the trash."""
+"""zot delete: PERMANENTLY delete items through the Web API (irreversible)."""
 
 from __future__ import annotations
 
@@ -12,21 +12,26 @@ from zotero_cli.config import load_config, resolve_write_credentials
 from zotero_cli.core.zotero.idempotency import (
     PendingMutationError,
     begin_mutation,
+    failure_definitely_rejected,
     release_rejected_mutation,
     request_scope,
-    response_definitely_rejected,
     store_cached,
 )
 from zotero_cli.core.zotero.writer import SYNC_REMINDER, ZoteroWriter
 from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
-from zotero_cli.output.envelope import envelope_error, envelope_ok, envelope_partial
-from zotero_cli.output.exit_codes import EXIT_RUNTIME, emit_error
+from zotero_cli.output.envelope import envelope_error, envelope_ok, envelope_partial_data
+from zotero_cli.output.exit_codes import emit_error, exit_code_for
+
+PERMANENT_DELETE_WARNING = (
+    "Permanently deleted remotely. Zotero's Web API DELETE is irreversible: the item is not moved to "
+    "the Zotero trash, and 'zot trash restore' cannot recover it."
+)
 
 
 @click.command("delete")
 @click.argument("keys", nargs=-1, required=True)
 @click.option("--yes", is_flag=True, help="Skip confirmation")
-@click.option("--dry-run", is_flag=True, help="Show what would be deleted without executing")
+@click.option("--dry-run", is_flag=True, help="Show what would be permanently deleted without executing")
 @click.option("--idempotency-key", default=None, help="Key so retries are safe; same key returns the original result")
 @click.pass_context
 def delete_cmd(
@@ -36,19 +41,28 @@ def delete_cmd(
     dry_run: bool,
     idempotency_key: str | None,
 ) -> None:
-    """Delete one or more items (move to trash). MUTATES LIBRARY.
+    """Permanently delete one or more items. MUTATES LIBRARY; IRREVERSIBLE.
 
-    Accepts multiple keys: zot delete KEY1 KEY2 KEY3
+    Zotero's Web API DELETE permanently removes the item on the server. It does
+    not move the item to the Zotero trash, and 'zot trash restore' cannot bring
+    it back. The local database only reflects the removal after Zotero Desktop
+    syncs.
+
+    \b
+    Examples:
+      zot delete ABC123 --yes
+      zot --json delete KEY1 KEY2 --yes
+      zot delete ABC123 --dry-run
     """
     cfg = load_config(profile=ctx.obj.get("profile"))
     json_out = ctx.obj.get("json", False)
     if dry_run:
-        data = {"would_delete": list(keys), "count": len(keys)}
+        data = {"would_delete": list(keys), "count": len(keys), "permanent": True}
         if json_out:
-            click.echo(json.dumps(envelope_ok(data, extra={"dry_run": True}), indent=2, ensure_ascii=False))
+            click.echo(json.dumps(envelope_ok(data, dry_run=True), indent=2, ensure_ascii=False))
         else:
             for key in keys:
-                click.echo(f"[dry-run] Would delete item '{key}' (move to trash)")
+                click.echo(f"[dry-run] Would permanently delete item '{key}' (irreversible)")
         return
     library_type = ctx.obj.get("library_type", "user")
     group_id = ctx.obj.get("group_id")
@@ -61,21 +75,22 @@ def delete_cmd(
             hint="Run 'zot config init' to set up API credentials",
             context="delete",
         )
-    # H-05: destructive commands require explicit --yes. --no-interaction only
-    # suppresses prompts, it never authorizes a destructive write.
+    # Destructive commands require explicit --yes. --no-interaction never
+    # authorizes permanent deletion.
     if not yes:
         if ctx.obj.get("no_interaction", False) or not sys.stdin.isatty():
             emit_error(
                 "confirmation_required",
-                f"Refusing to delete {len(keys)} item(s) without confirmation on non-interactive stdin",
+                f"Permanently deleting {len(keys)} item(s) requires --yes on non-interactive stdin",
                 output_json=json_out,
-                hint="Pass --yes to confirm or use --dry-run to preview",
+                retryable=False,
+                hint="Pass --yes to confirm permanent deletion; --dry-run only previews",
                 context="delete",
             )
         label = ", ".join(keys)
-        if not click.confirm(f"Delete {len(keys)} item(s): {label}?"):
+        if not click.confirm(f"Permanently delete {len(keys)} item(s): {label}? This cannot be undone."):
             if json_out:
-                click.echo(json.dumps(envelope_ok({"cancelled": True}), indent=2, ensure_ascii=False))
+                click.echo(json.dumps(envelope_ok({"cancelled": True, "permanent": True}), indent=2))
             else:
                 click.echo("Cancelled.", err=True)
             return
@@ -96,7 +111,7 @@ def delete_cmd(
         except (OSError, sqlite3.Error):
             emit_error(
                 "configuration_error",
-                "Could not durably reserve the delete; no write attempted",
+                "Could not durably reserve the permanent delete; no write attempted",
                 output_json=json_out,
                 retryable=False,
                 hint="Check the idempotency state directory and database",
@@ -106,60 +121,97 @@ def delete_cmd(
             if json_out:
                 click.echo(json.dumps(cached, indent=2, ensure_ascii=False))
             else:
-                click.echo(f"Deleted {len(keys)} item(s) (cached).")
+                click.echo(f"Deleted {len(keys)} item(s) permanently (cached).")
             return
 
     writer = ZoteroWriter(library_id=library_id, api_key=api_key, library_type=library_type)
-    succeeded: list[dict] = []
+    succeeded: list[str] = []
     failed: list[dict] = []
     rejected_count = 0
-    unknown_outcome = False
     for key in keys:
         try:
             writer.delete_item(key)
-            succeeded.append({"key": key})
+            succeeded.append(key)
             if not json_out:
-                click.echo(f"Item '{key}' moved to trash.")
+                click.echo(f"Item '{key}' permanently deleted.")
         except ZoteroWriteError as e:
+            rejected = False
             if idempotency_key:
-                if response_definitely_rejected(writer._zot.request):
+                rejected = failure_definitely_rejected(
+                    response=writer._zot.request,
+                    code=e.code,
+                    retryable=e.retryable,
+                    committed=e.committed,
+                )
+                if rejected:
                     rejected_count += 1
-                else:
-                    unknown_outcome = True
-            failed.append({"key": key, "error": {"code": e.code, "message": str(e), "retryable": e.retryable}})
+            failed.append(
+                {
+                    "key": key,
+                    "code": e.code,
+                    "message": str(e),
+                    "retryable": e.retryable,
+                    "committed": e.committed,
+                    "definitely_rejected": rejected or not e.committed,
+                }
+            )
             if not json_out:
-                click.echo(f"Error: delete failed for '{key}': {e}", err=True)
-    if idempotency_key and rejected_count == len(failed) and not unknown_outcome:
+                click.echo(f"Error: permanent delete failed for '{key}': {e}", err=True)
+    retry_blocked = bool(
+        idempotency_key and failed and not (rejected_count == len(failed) and all(not f["committed"] for f in failed))
+    )
+    if idempotency_key and failed and rejected_count == len(failed) and all(not f["committed"] for f in failed):
         try:
             release_rejected_mutation(cache_scope, idempotency_key)
         except (OSError, sqlite3.Error):
             pass
-    blocked_by_reservation = bool(idempotency_key and failed and not rejected_count and unknown_outcome)
-    if json_out:
-        if failed and succeeded:
-            env = envelope_partial(succeeded, failed, meta={"sync_required": True})
-        elif failed:
-            env = envelope_error(
-                "api_error",
-                f"{len(failed)} delete(s) failed",
-                retryable=not blocked_by_reservation,
-                failed=failed,
-            )
-            click.echo(json.dumps(env, indent=2, ensure_ascii=False))
-            raise SystemExit(EXIT_RUNTIME)
-        else:
-            env = envelope_ok(
-                {"deleted": [s["key"] for s in succeeded], "sync_required": True},
-                extra={"next": ["zot trash list", "zot trash empty --yes"]},
-            )
-        if idempotency_key and not failed:
+
+    if not failed:
+        env = envelope_ok(
+            {"permanently_deleted": succeeded, "permanent": True, "sync_required": True},
+        )
+        if idempotency_key:
             try:
                 store_cached(cache_scope, idempotency_key, env)
             except (OSError, sqlite3.Error) as exc:
                 click.echo(f"Warning: delete result could not be cached: {exc}", err=True)
-        click.echo(json.dumps(env, indent=2, ensure_ascii=False))
-    else:
-        if not failed:
+        if json_out:
+            click.echo(json.dumps(env, indent=2, ensure_ascii=False))
+        else:
+            click.echo(PERMANENT_DELETE_WARNING, err=True)
             click.echo(SYNC_REMINDER, err=True)
-        if failed:
-            raise SystemExit(EXIT_RUNTIME)
+        return
+
+    first = failed[0]
+    exit_code = exit_code_for(first["code"])
+    if succeeded:
+        env = envelope_partial_data(
+            {
+                "permanently_deleted": succeeded,
+                "failed": failed,
+                "permanent": True,
+                "sync_required": True,
+            },
+        )
+        if json_out:
+            click.echo(json.dumps(env, indent=2, ensure_ascii=False))
+        else:
+            click.echo(f"Permanently deleted {len(succeeded)} item(s); {len(failed)} failed.", err=True)
+        raise SystemExit(exit_code)
+    committed_extra = {"committed": True} if first["committed"] else {}
+    env = envelope_error(
+        first["code"],
+        f"Permanent delete failed for {len(failed)} item(s): {first['message']}",
+        retryable=False if retry_blocked else bool(first["retryable"]),
+        **committed_extra,
+        failed=failed,
+        hint=(
+            "The outcome is unknown for at least one item; reconcile through the Web API before retrying"
+            if retry_blocked or any(f["committed"] for f in failed)
+            else "Check the item keys and API credentials"
+        ),
+        context="delete",
+    )
+    if json_out:
+        click.echo(json.dumps(env, indent=2, ensure_ascii=False))
+    raise SystemExit(exit_code)

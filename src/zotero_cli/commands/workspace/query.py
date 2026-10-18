@@ -11,7 +11,7 @@ from zotero_cli.commands.workspace._output import (
     output_json,
     workspace_directory_or_exit,
 )
-from zotero_cli.commands.workspace.indexing import _vector_store_for
+from zotero_cli.commands.workspace.indexing import open_vector_store_for_read
 from zotero_cli.config import load_embedding_config, load_rerank_config, load_semantic_search_config
 from zotero_cli.core.rag import embed_texts, filter_ranked_results_by_pdf_kind, weighted_reciprocal_rank_fusion
 from zotero_cli.core.rag.index import RagIndex
@@ -24,7 +24,7 @@ from zotero_cli.output.renderers import format_workspace_query
 
 def _search_run(
     idx: RagIndex,
-    vector_store: QdrantVectorStore,
+    vector_store: QdrantVectorStore | None,
     question: str,
     *,
     candidate_k: int,
@@ -35,7 +35,12 @@ def _search_run(
 ) -> tuple[list[tuple[int, float, dict]], str, list[str], bool]:
     """Run retrieval and return (merged, executed_mode, degradation_notes, semantic_available)."""
     degradation: list[str] = []
-    has_vectors = vector_store.count() > 0
+    has_vectors = False
+    if vector_store is not None:
+        try:
+            has_vectors = vector_store.count() > 0
+        except (OSError, RuntimeError, ValueError) as exc:
+            degradation.append(f"vector store unavailable ({type(exc).__name__}); BM25 results are used")
     effective_mode = ("hybrid" if has_vectors else "bm25") if mode == "auto" else mode
     semantic_available = has_vectors
     bm25_results: list[tuple[int, float, dict]] = []
@@ -51,7 +56,7 @@ def _search_run(
             if not emb_cfg.is_configured:
                 semantic_available = False
                 degradation.append("embedding provider is not configured; semantic retrieval was skipped")
-            else:
+            elif vector_store is not None:
                 try:
                     q_vecs = embed_texts([question], emb_cfg, input_type="query")
                     if q_vecs and q_vecs[0]:
@@ -143,7 +148,7 @@ def workspace_query(
 
     ss_cfg = load_semantic_search_config()
     idx = RagIndex(idx_path)
-    vector_store = _vector_store_for(ws_name)
+    vector_store = open_vector_store_for_read(ws_name)
     try:
         if top_k is None:
             top_k = ss_cfg.top_k
@@ -163,6 +168,7 @@ def workspace_query(
                 f"all {len(merged)} candidate chunk(s) were non-PDF chunks and were excluded by --pdf-kind {pdf_kind}"
             )
         rerank_applied = False
+        rerank_requested = bool(rerank and filtered)
         if rerank and filtered:
             rerank_cfg = load_rerank_config(apply_env_overrides=True)
             if not rerank_cfg.is_configured:
@@ -186,6 +192,8 @@ def workspace_query(
             if reranked:
                 filtered = reranked
                 rerank_applied = True
+            else:
+                degradation.append("reranker provider returned no ranking; retrieval ordering is used")
         top = filtered[:top_k]
         display_mode = executed_mode + ("+rerank" if rerank_applied else "")
         for note in degradation:
@@ -206,6 +214,7 @@ def workspace_query(
             "requested_mode": mode,
             "degraded": bool(degradation),
             "semantic_available": semantic_available,
+            "rerank_requested": rerank_requested,
             "rerank_applied": rerank_applied,
         }
         if degradation:
@@ -225,5 +234,6 @@ def workspace_query(
             meta=meta,
         )
     finally:
-        vector_store.close()
+        if vector_store is not None:
+            vector_store.close()
         idx.close()

@@ -69,11 +69,15 @@ def list_cmd(
         except ValueError as e:
             emit_error("validation_error", str(e), output_json=ctx.obj.get("json", False))
         detail = ctx.obj.get("detail", "standard")
+        # Bounded full-text search can miss matches beyond its cache budget; the
+        # reader exposes that as SearchResult.fulltext_limited when available.
+        limited = getattr(result, "fulltext_limited", None)
+        extra_meta = {"fulltext_limited": bool(limited)} if limited is not None else None
         if stream:
             # --stream always emits NDJSON (one item per line + summary), even under
             # --no-json: the streaming mode is the requested machine contract.
-            click.echo(stream_items(result.items, detail=detail, total=result.total))
+            click.echo(stream_items(result.items, detail=detail, total=result.total, meta=extra_meta))
             return
-        click.echo(format_items(result.items, output_json=ctx.obj.get("json", False), detail=detail))
+        click.echo(format_items(result.items, output_json=ctx.obj.get("json", False), detail=detail, meta=extra_meta))
     finally:
         reader.close()

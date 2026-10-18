@@ -50,7 +50,13 @@ def emit_progress(
     sys.stderr.flush()
 
 
-def stream_items(items: list[Item], detail: str = "standard", *, total: int | None = None) -> str:
+def stream_items(
+    items: list[Item],
+    detail: str = "standard",
+    *,
+    total: int | None = None,
+    meta: dict | None = None,
+) -> str:
     """Emit items as NDJSON: one JSON envelope per line, then a summary line.
 
     Designed for agents processing long result sets incrementally: they can
@@ -69,7 +75,7 @@ def stream_items(items: list[Item], detail: str = "standard", *, total: int | No
     summary = {
         "ok": True,
         "summary": {"count": len(items), "has_more": total is not None and total > len(items)},
-        "meta": base_meta(),
+        "meta": {**base_meta(), **(meta or {})},
     }
     lines.append(json.dumps(summary, ensure_ascii=False))
     return "\n".join(lines)

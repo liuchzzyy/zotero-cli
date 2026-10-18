@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import patch
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
 from tests.support import invoke_agent_cli as _run
 
 from zotero_cli.cli import _hoist_global_flags, main
 from zotero_cli.config import AiNoteConfig
-from zotero_cli.output.envelope import envelope_error, envelope_ok, envelope_partial
+from zotero_cli.core.zotero.reader import ZoteroSchemaError
+from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
+from zotero_cli.models import Item
+from zotero_cli.output.envelope import envelope_error, envelope_ok, envelope_partial, envelope_partial_data
 from zotero_cli.output.exit_codes import (
     EXIT_AUTH,
     EXIT_NOT_FOUND,
@@ -55,6 +60,37 @@ class TestEnvelopeShape:
         assert env["ok"] is not False
         assert env["data"]["succeeded"][0]["key"] == "A"
         assert env["data"]["failed"][0]["key"] == "B"
+
+    def test_envelope_ok_official_next_and_dry_run(self):
+        env = envelope_ok({"x": 1}, next=["zot read X"], dry_run=True)
+        assert env["ok"] is True
+        assert env["next"] == ["zot read X"]
+        assert env["dry_run"] is True
+        assert set(env) == {"ok", "data", "next", "dry_run", "meta"}
+        # Empty hint lists are omitted rather than emitting an empty next list.
+        assert "next" not in envelope_ok({"x": 1}, next=[])
+
+    def test_envelope_ok_rejects_undocumented_extras_and_bad_next(self):
+        with pytest.raises(ValueError):
+            envelope_ok({"x": 1}, extra={"bogus": True})
+        with pytest.raises(ValueError):
+            envelope_ok({"x": 1}, next="zot read X")  # type: ignore[arg-type]
+        with pytest.raises(ValueError):
+            envelope_ok({"x": 1}, next=[""])
+        with pytest.raises(ValueError):
+            envelope_error("runtime_error", "boom", next=["zot read X"])
+
+    def test_envelope_partial_data_shape(self):
+        env = envelope_partial_data({"key": "K1", "attachment_error": "upload failed"}, next=["zot read K1"])
+        assert env["ok"] == "partial"
+        assert env["data"]["key"] == "K1"
+        assert env["next"] == ["zot read K1"]
+        assert "error" not in env
+
+    def test_envelope_extra_compat_shim_maps_to_official_keys(self):
+        env = envelope_ok({"x": 1}, extra={"dry_run": True, "next": ["zot read X"]})
+        assert env["dry_run"] is True
+        assert env["next"] == ["zot read X"]
 
 
 class TestTTYAutoDetect:
@@ -217,6 +253,13 @@ class TestSchemaCommand:
         assert "read" in subs
         assert "schema" in subs
 
+    def test_schema_root_name_is_cli_binary(self):
+        result = _run(["schema"])
+        env = json.loads(result.output)
+        # The root node names the CLI binary, not the Python function ("main").
+        assert env["data"]["name"] == "zot"
+        assert env["data"]["safety_tier"] == "read"
+
     def test_schema_for_single_command(self):
         result = _run(["schema", "search"])
         assert result.exit_code == EXIT_OK
@@ -319,7 +362,17 @@ class TestSchemaDiff:
         env = json.loads(result.output)
         assert env["error"]["code"] == "validation_error"
 
-    @pytest.mark.parametrize("payload", ["[]", "null", '"a string"', '{"data": []}'])
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            "[]",
+            "null",
+            '"a string"',
+            '{"data": []}',
+            '{"data": {"name": "zot", "params": [1, 2]}}',
+            '{"data": {"params": []}, "meta": "not-a-dict"}',
+        ],
+    )
     def test_diff_with_non_tree_json_returns_validation_error(self, tmp_path, payload):
         bad = tmp_path / "not-a-tree.json"
         bad.write_text(payload, encoding="utf-8")
@@ -431,6 +484,15 @@ class TestGlobalFlagHoisting:
     def test_value_global_flags_after_subcommand(self):
         assert _hoist_global_flags(["list", "--detail", "minimal"], main) == ["--detail", "minimal", "list"]
         assert _hoist_global_flags(["list", "--detail=minimal"], main) == ["--detail=minimal", "list"]
+
+    def test_missing_detail_value_does_not_swallow_following_tokens(self):
+        # No valid value follows: hoist an explicit empty value so Click reports a
+        # validation error for --detail instead of eating --json or the subcommand.
+        assert _hoist_global_flags(["list", "--detail", "--json"], main) == ["--detail=", "--json", "list"]
+        assert _hoist_global_flags(["list", "--detail"], main) == ["--detail=", "list"]
+        assert _hoist_global_flags(["--detail", "--json", "list"], main) == ["--detail=", "--json", "list"]
+        # A non-choice value is still forwarded so Click reports it precisely.
+        assert _hoist_global_flags(["list", "--detail", "bogus"], main) == ["--detail", "bogus", "list"]
 
     def test_boolean_globals_after_subcommand(self):
         assert _hoist_global_flags(["list", "--no-interaction", "--verbose"], main) == [
@@ -569,3 +631,214 @@ class TestTopLevelErrorBoundary:
         assert result.exit_code == EXIT_NOT_FOUND
         env = json.loads(result.output)
         assert env["error"]["code"] == "not_found"
+
+    def test_unsupported_zotero_schema_is_configuration_error(self):
+        exc = ZoteroSchemaError(130)
+        with patch("zotero_cli.commands.items.stats.load_config", side_effect=exc):
+            result = _run(["--json", "stats"])
+        assert result.exit_code == EXIT_VALIDATION
+        env = json.loads(result.stdout)
+        assert env["error"]["code"] == "configuration_error"
+        assert "schema" in env["error"]["message"].lower()
+        assert "Update zotero-cli" in env["error"]["hint"]
+
+    def test_zot_debug_env_prints_traceback(self):
+        with patch("zotero_cli.commands.items.stats.load_config", side_effect=RuntimeError("boom")):
+            result = _run(["--json", "stats"], env={"ZOT_DEBUG": "1"})
+        assert result.exit_code == 1
+        assert json.loads(result.stdout)["error"]["code"] == "internal_error"
+        assert "Traceback" in result.stderr
+        assert "RuntimeError: boom" in result.stderr
+
+    def test_option_value_looking_like_verbose_does_not_enable_tracebacks(self):
+        # Diagnostics come from the parsed flag / ZOT_DEBUG, never raw argv text.
+        with patch("zotero_cli.commands.items.stats.load_config", side_effect=RuntimeError("boom")):
+            result = _run(["--json", "stats"])
+        assert result.exit_code == 1
+        assert "Traceback" not in result.stderr
+
+    def test_committed_write_error_carries_committed_flag(self):
+        exc = ZoteroWriteError("maybe committed", code="api_error", committed=True)
+        with patch("zotero_cli.commands.items.stats.load_config", side_effect=exc):
+            result = _run(["--json", "stats"])
+        assert result.exit_code == 1
+        error = json.loads(result.stdout)["error"]
+        assert error["committed"] is True
+
+    def test_uncommitted_write_error_omits_committed_flag(self):
+        exc = ZoteroWriteError("rejected", code="validation_error", committed=False)
+        with patch("zotero_cli.commands.items.stats.load_config", side_effect=exc):
+            result = _run(["--json", "stats"])
+        assert result.exit_code == 3
+        assert "committed" not in json.loads(result.stdout)["error"]
+
+
+class TestCiteJsonMode:
+    def test_json_cite_emits_envelope_and_skips_clipboard(self):
+        with patch("zotero_cli.commands.items.cite._copy_to_clipboard") as copy:
+            result = _run(["--json", "cite", "ATTN001", "--no-copy"])
+        assert result.exit_code == EXIT_OK, result.output
+        env = json.loads(result.stdout)
+        assert env["ok"] is True
+        assert env["data"]["style"] == "apa"
+        assert env["data"]["copied"] is False
+        assert "Vaswani" in env["data"]["citation"]
+        copy.assert_not_called()
+
+    def test_json_cite_never_writes_clipboard_even_without_no_copy(self):
+        with patch("zotero_cli.commands.items.cite._copy_to_clipboard") as copy:
+            result = _run(["--json", "cite", "ATTN001"])
+        assert result.exit_code == EXIT_OK
+        assert json.loads(result.stdout)["data"]["copied"] is False
+        copy.assert_not_called()
+
+
+class TestOpenJsonMode:
+    def test_json_open_item_url_envelope(self):
+        with patch("zotero_cli.commands.items.open_item._open_path") as open_path:
+            result = _run(["--json", "open", "ATTN001", "--url"])
+        assert result.exit_code == EXIT_OK, result.output
+        env = json.loads(result.stdout)
+        assert env["data"]["kind"] == "url"
+        assert env["data"]["gui"] is True
+        assert env["data"]["target"].startswith("http")
+        open_path.assert_called_once()
+
+    def test_open_url_argument_is_opened_directly(self):
+        with patch("zotero_cli.commands.items.open_item._open_path") as open_path:
+            result = _run(["--json", "open", "--url", "https://example.com/paper"])
+        assert result.exit_code == EXIT_OK, result.output
+        env = json.loads(result.stdout)
+        assert env["data"] == {"target": "https://example.com/paper", "kind": "url", "gui": True}
+        open_path.assert_called_once_with("https://example.com/paper")
+
+    def test_open_rejects_non_http_scheme(self):
+        result = _run(["--json", "open", "--url", "ftp://example.com/file"])
+        assert result.exit_code == EXIT_VALIDATION
+        env = json.loads(result.stdout)
+        assert env["error"]["code"] == "validation_error"
+
+
+def _preprint_item() -> Item:
+    return Item(
+        key="ATTN001",
+        item_type="preprint",
+        title="A preprint",
+        creators=[],
+        abstract=None,
+        date="2024",
+        url="http://arxiv.org/abs/2401.00001",
+        doi=None,
+        tags=[],
+        collections=[],
+        date_added="2024-01-01",
+        date_modified="2024-01-02",
+    )
+
+
+def _update_status_reader():
+    reader = MagicMock()
+    reader.get_item.return_value = _preprint_item()
+    return reader
+
+
+def _update_status_client():
+    client = MagicMock()
+    client.check_publication.return_value = SimpleNamespace(
+        is_published=True,
+        venue="Journal",
+        journal_name="Journal",
+        doi="10.1/x",
+        publication_date="2024-02-01",
+    )
+    return client
+
+
+def _update_status_env_patches():
+    return (
+        patch(
+            "zotero_cli.commands.items.update_status.load_config",
+            return_value=SimpleNamespace(default_limit=50, semantic_scholar_api_key=None),
+        ),
+        patch("zotero_cli.commands.items.update_status.get_data_dir", return_value=Path("/tmp/fixture")),
+        patch("zotero_cli.commands.items.update_status.resolve_library_id", return_value=1),
+        patch(
+            "zotero_cli.commands.items.update_status.ZoteroReader",
+            return_value=_update_status_reader(),
+        ),
+        patch(
+            "zotero_cli.commands.items.update_status.SemanticScholarClient",
+            return_value=_update_status_client(),
+        ),
+    )
+
+
+class TestUpdateStatusPartialFailures:
+    def test_apply_network_write_failure_returns_partial_and_exit_5(self):
+        error = ZoteroWriteError("Network error: boom", code="network_error", retryable=True)
+        patches = _update_status_env_patches()
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patch("zotero_cli.commands.items.update_status.resolve_write_credentials", return_value=("1", "key")),
+            patch("zotero_cli.commands.items.update_status.ZoteroWriter") as writer,
+        ):
+            writer.return_value.update_item.side_effect = error
+            result = _run(["--json", "update-status", "ATTN001", "--apply"])
+        assert result.exit_code == 5, result.output
+        env = json.loads(result.stdout)
+        assert env["ok"] == "partial"
+        assert "error" not in env
+        assert env["data"]["updated"] == 0
+        assert len(env["data"]["update_failed"]) == 1
+
+    def test_apply_api_write_failure_returns_partial_and_exit_1(self):
+        error = ZoteroWriteError("API error: boom", code="api_error", retryable=True)
+        patches = _update_status_env_patches()
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patch("zotero_cli.commands.items.update_status.resolve_write_credentials", return_value=("1", "key")),
+            patch("zotero_cli.commands.items.update_status.ZoteroWriter") as writer,
+        ):
+            writer.return_value.update_item.side_effect = error
+            result = _run(["--json", "update-status", "ATTN001", "--apply"])
+        assert result.exit_code == 1, result.output
+        assert json.loads(result.stdout)["ok"] == "partial"
+
+    def test_apply_success_returns_success_envelope(self):
+        patches = _update_status_env_patches()
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patch("zotero_cli.commands.items.update_status.resolve_write_credentials", return_value=("1", "key")),
+            patch("zotero_cli.commands.items.update_status.ZoteroWriter"),
+        ):
+            result = _run(["--json", "update-status", "ATTN001", "--apply"])
+        assert result.exit_code == EXIT_OK, result.output
+        env = json.loads(result.stdout)
+        assert env["ok"] is True
+        assert env["data"]["updated"] == 1
+
+    def test_preview_marks_dry_run_without_writes(self):
+        patches = _update_status_env_patches()
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+        ):
+            result = _run(["--json", "update-status", "ATTN001"])
+        assert result.exit_code == EXIT_OK, result.output
+        env = json.loads(result.stdout)
+        assert env["dry_run"] is True

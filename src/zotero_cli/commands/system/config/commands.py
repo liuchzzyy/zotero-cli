@@ -118,23 +118,27 @@ def config_init(
         elif not (dd / "zotero.sqlite").exists():
             warnings.append(f"zotero.sqlite not found in {dd}")
 
+    backup: Path | None = None
     try:
         merged, changed = merge_config_data(existing_data, cfg, profile=profile, allow_new_profile=True)
         if not dry_run:
-            write_config_data(path, merged)
+            backup = write_config_data(path, merged)
     except ConfigError as exc:
         _emit_config_error(ctx, exc)
         return
 
-    backup_path = str(path.with_name(path.name + ".bak")) if path.exists() else ""
+    merged_default = merged.get("default", {})
+    effective_profile = profile or (
+        str(merged_default.get("profile", "")).strip() if isinstance(merged_default, dict) else ""
+    )
     payload = {
         "config_path": str(path),
-        "profile": profile or "",
+        "profile": effective_profile,
         "data_dir": cfg.data_dir,
         "library_id": cfg.library_id,
         "api_key_set": bool(cfg.api_key),
         "changed": changed,
-        "backup_path": backup_path,
+        "backup_path": str(backup) if backup is not None else "",
         "warnings": warnings,
     }
     if json_out:
@@ -144,6 +148,8 @@ def config_init(
 
     prefix = "Would save" if dry_run else "Configuration saved to"
     click.echo(f"{prefix} {path}")
+    if effective_profile:
+        click.echo(f"  Profile: {effective_profile}")
     click.echo(f"  Data directory: {cfg.data_dir or '(auto-detect)'}")
     for warning in warnings:
         click.echo(click.style(f"  WARNING: {warning}", fg="yellow"))

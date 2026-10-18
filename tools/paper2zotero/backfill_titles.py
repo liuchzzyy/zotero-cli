@@ -24,13 +24,14 @@ import zh_text
 from zotero_cli.config import load_config, resolve_write_credentials, state_dir
 from zotero_cli.core.zotero.writer import ZoteroWriter
 
-SCIENTIST_HOME = Path("/Users/liuchzzyy/.hermes/profiles/scientist")
+_DEFAULT_SCIENTIST_HOME = Path.home() / ".hermes" / "profiles" / "scientist"
+SCIENTIST_HOME = Path(os.environ.get("ZOT_PAPER2ZOTERO_HERMES_HOME") or _DEFAULT_SCIENTIST_HOME).expanduser()
 PAPER2ZOTERO_STATE_SUBDIR = "paper2zotero"
 
 
 def default_state_file() -> Path:
     """Checkpoint under the git-ignored repo state dir, never the tracked tools tree."""
-    return state_dir() / PAPER2ZOTERO_STATE_SUBDIR / "backfill_titles_state.json"
+    return Path(state_dir()) / PAPER2ZOTERO_STATE_SUBDIR / "backfill_titles_state.json"
 
 
 TRANSLATED_TITLE_RE = re.compile(r"^\s*translated[- ]title\s*:", re.I | re.M)
@@ -291,7 +292,7 @@ def run_backfill(
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="为 Zotero 全库缺少中文翻译的标题补写 translated-title")
-    parser.add_argument("--collection", help="目标集合名称或 key（例如 '00 | 收件箱' 或 'AG7NQ5UW'）")
+    parser.add_argument("--collection", help="目标集合名称或 key（例如 'Inbox' 或 'COLLECTIONKEY'）")
     parser.add_argument("--apply", action="store_true", help="实际写入；默认只统计")
     args = parser.parse_args(argv)
     config = load_config()
