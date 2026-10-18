@@ -11,7 +11,8 @@ import pytest
 from click.testing import CliRunner
 
 from zotero_cli.cli import _hoist_global_flags, main
-from zotero_cli.commands.workspace import commands as workspace_crud
+from zotero_cli.commands.workspace import _output as workspace_output
+from zotero_cli.commands.workspace import commands as workspace_commands
 from zotero_cli.config import AppConfig
 
 
@@ -49,9 +50,9 @@ def test_flag_like_option_values_do_not_disable_dry_run(
 @pytest.mark.parametrize("value", ["--json", "--no-json"])
 @pytest.mark.parametrize("option", ["--description", "-d"])
 def test_nested_option_values_are_preserved(monkeypatch: pytest.MonkeyPatch, option: str, value: str) -> None:
-    monkeypatch.setattr(workspace_crud, "workspace_exists", Mock(return_value=False))
+    monkeypatch.setattr(workspace_output, "workspace_exists", Mock(return_value=False))
     save = Mock()
-    monkeypatch.setattr(workspace_crud, "save_workspace", save)
+    monkeypatch.setattr(workspace_commands, "save_workspace", save)
 
     result = CliRunner().invoke(main, ["workspace", "new", "flag-safety", option, value])
 

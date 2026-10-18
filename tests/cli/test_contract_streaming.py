@@ -42,6 +42,22 @@ class TestNDJSONStream:
         assert "meta" in last
         assert "request_id" in last["meta"]
 
+    def test_stream_ignores_no_json_flag(self):
+        # --stream requests the NDJSON machine contract and takes precedence over --no-json.
+        result = _run(["--no-json", "list", "--stream", "--limit", "2"])
+        assert result.exit_code == EXIT_OK
+        lines = _parse_ndjson(result.output)
+        assert len(lines) >= 2
+        assert "summary" in lines[-1]
+
+    def test_recent_stream_reports_has_more(self):
+        result = _run(["recent", "--days", "9999", "--limit", "2", "--stream"])
+        assert result.exit_code == EXIT_OK
+        lines = _parse_ndjson(result.output)
+        summary = lines[-1]["summary"]
+        assert summary["count"] == 2
+        assert summary["has_more"] is True
+
 
 class TestSchemaMetadata:
     def test_schema_has_safety_tier(self):
@@ -75,6 +91,33 @@ class TestSchemaMetadata:
     def test_schema_nested_collection_list_stays_read(self):
         env = json.loads(_run(["schema", "collection", "list"]).output)
         assert env["data"]["safety_tier"] == "read"
+
+    # H-03: local-state-mutating nested config/workspace commands are classified.
+    def test_schema_nested_config_init_is_write(self):
+        env = json.loads(_run(["schema", "config", "init"]).output)
+        assert env["data"]["safety_tier"] == "write"
+
+    def test_schema_nested_config_profile_set_is_write(self):
+        env = json.loads(_run(["schema", "config", "profile", "set"]).output)
+        assert env["data"]["safety_tier"] == "write"
+
+    def test_schema_nested_config_cache_clear_is_destructive(self):
+        env = json.loads(_run(["schema", "config", "cache", "clear"]).output)
+        assert env["data"]["safety_tier"] == "destructive"
+
+    def test_schema_nested_workspace_mutations_are_write(self):
+        for subcommand in ("new", "add", "remove", "import", "index", "reindex", "embed"):
+            env = json.loads(_run(["schema", "workspace", subcommand]).output)
+            assert env["data"]["safety_tier"] == "write", subcommand
+
+    def test_schema_nested_workspace_delete_is_destructive(self):
+        env = json.loads(_run(["schema", "workspace", "delete"]).output)
+        assert env["data"]["safety_tier"] == "destructive"
+
+    def test_schema_nested_workspace_reads_stay_read(self):
+        for subcommand in ("list", "show", "search", "query"):
+            env = json.loads(_run(["schema", "workspace", subcommand]).output)
+            assert env["data"]["safety_tier"] == "read", subcommand
 
     def test_schema_collection_move_has_source_option(self):
         env = json.loads(_run(["schema", "collection", "move"]).output)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from typing import Any
 
 import click
@@ -12,10 +13,12 @@ from zotero_cli.config import get_data_dir, load_config, resolve_library_id, res
 from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.core.zotero.writer import SYNC_REMINDER, ZoteroWriter
 from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
-from zotero_cli.models import ErrorInfo
+from zotero_cli.models import Collection, ErrorInfo
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import EXIT_RUNTIME, emit_error
 from zotero_cli.output.renderers import format_collections, format_items, format_success, print_error
+
+_COLLECTION_HINT = "Use 'zot collection list' to list available collections"
 
 
 def _emit_json_or_text(data: Any, *, output_json: bool, human_text: str, meta: dict[str, Any] | None = None) -> None:
@@ -28,6 +31,45 @@ def _emit_sync_success(data: Any, *, output_json: bool, human_text: str, meta: d
         return
     click.echo(human_text)
     click.echo(SYNC_REMINDER)
+
+
+def _emit_dry_run(ctx: click.Context, data: Any, *, human_text: str, meta: dict[str, Any] | None = None) -> None:
+    if ctx.obj.get("json", False):
+        extra = {"dry_run": True}
+        click.echo(json.dumps(envelope_ok(data, meta=meta, extra=extra), indent=2, ensure_ascii=False))
+    else:
+        click.echo(human_text)
+
+
+def _flatten_collection_keys(collections: list[Collection]) -> set[str]:
+    keys: set[str] = set()
+    for collection in collections:
+        keys.add(collection.key)
+        keys.update(_flatten_collection_keys(collection.children))
+    return keys
+
+
+def _known_collection_keys(ctx: click.Context) -> set[str]:
+    cfg = load_config(profile=ctx.obj.get("profile"))
+    data_dir = get_data_dir(cfg)
+    db_path = data_dir / "zotero.sqlite"
+    library_id = resolve_library_id(db_path, ctx.obj)
+    reader = ZoteroReader(db_path, library_id=library_id)
+    try:
+        return _flatten_collection_keys(reader.get_collections())
+    finally:
+        reader.close()
+
+
+def _validate_collection_key(ctx: click.Context, key: str, *, context: str) -> None:
+    if key not in _known_collection_keys(ctx):
+        emit_error(
+            "not_found",
+            f"Collection '{key}' not found",
+            output_json=ctx.obj.get("json", False),
+            hint=_COLLECTION_HINT,
+            context=context,
+        )
 
 
 @collection_group.command("list")
@@ -51,6 +93,7 @@ def collection_list(ctx: click.Context) -> None:
 @click.pass_context
 def collection_items(ctx: click.Context, key: str) -> None:
     """List items in a collection."""
+    _validate_collection_key(ctx, key, context="collection items")
     cfg = load_config(profile=ctx.obj.get("profile"))
     data_dir = get_data_dir(cfg)
     db_path = data_dir / "zotero.sqlite"
@@ -66,9 +109,17 @@ def collection_items(ctx: click.Context, key: str) -> None:
 @collection_group.command("create")
 @click.argument("name")
 @click.option("--parent", default=None, help="Parent collection key")
+@click.option("--dry-run", is_flag=True, help="Preview the collection without creating it")
 @click.pass_context
-def collection_create(ctx: click.Context, name: str, parent: str | None) -> None:
+def collection_create(ctx: click.Context, name: str, parent: str | None, dry_run: bool) -> None:
     """Create a new collection."""
+    if dry_run:
+        _emit_dry_run(
+            ctx,
+            {"name": name, "parent_key": parent, "would_create": True},
+            human_text=f"[dry-run] Would create collection '{name}'" + (f" under parent {parent}" if parent else ""),
+        )
+        return
     cfg = load_config(profile=ctx.obj.get("profile"))
     json_out = ctx.obj.get("json", False)
     library_type = ctx.obj.get("library_type", "user")
@@ -112,9 +163,31 @@ def collection_create(ctx: click.Context, name: str, parent: str | None) -> None
     default=None,
     help="Source collection key to remove. Without this, the item is only added to the target collection.",
 )
+@click.option("--dry-run", is_flag=True, help="Preview the move without changing any collection")
 @click.pass_context
-def collection_move(ctx: click.Context, item_key: str, collection_key: str, source_collection: str | None) -> None:
+def collection_move(
+    ctx: click.Context, item_key: str, collection_key: str, source_collection: str | None, dry_run: bool
+) -> None:
     """Add an item to a collection, or move it from a source collection."""
+    if dry_run:
+        action = "moved" if source_collection else "added"
+        human = (
+            f"[dry-run] Would move item {item_key} from collection {source_collection} to {collection_key}"
+            if source_collection
+            else f"[dry-run] Would add item {item_key} to collection {collection_key}"
+        )
+        _emit_dry_run(
+            ctx,
+            {
+                "item_key": item_key,
+                "collection_key": collection_key,
+                "source_collection_key": source_collection,
+                "action": action,
+                "would_change": True,
+            },
+            human_text=human,
+        )
+        return
     cfg = load_config(profile=ctx.obj.get("profile"))
     json_out = ctx.obj.get("json", False)
     library_type = ctx.obj.get("library_type", "user")
@@ -157,19 +230,30 @@ def collection_move(ctx: click.Context, item_key: str, collection_key: str, sour
 
 @collection_group.command("delete")
 @click.argument("key")
-@click.option("--dry-run", is_flag=True, help="Show what would be deleted without executing")
+@click.option("--yes", is_flag=True, help="Skip confirmation")
+@click.option("--dry-run", is_flag=True, help="Validate and show what would be deleted without deleting")
 @click.pass_context
-def collection_delete(ctx: click.Context, key: str, dry_run: bool) -> None:
+def collection_delete(ctx: click.Context, key: str, yes: bool, dry_run: bool) -> None:
     """Delete a collection."""
-    cfg = load_config(profile=ctx.obj.get("profile"))
     json_out = ctx.obj.get("json", False)
     if dry_run:
-        if json_out:
-            data = {"key": key, "would_delete": True}
-            click.echo(json.dumps(envelope_ok(data, extra={"dry_run": True}), indent=2, ensure_ascii=False))
-        else:
-            click.echo(f"[dry-run] Would delete collection '{key}'")
+        _validate_collection_key(ctx, key, context="collection delete")
+        _emit_dry_run(ctx, {"key": key, "would_delete": True}, human_text=f"[dry-run] Would delete collection '{key}'")
         return
+    cfg = load_config(profile=ctx.obj.get("profile"))
+    no_interaction = bool(ctx.obj.get("no_interaction", False))
+    if not yes:
+        if no_interaction or not sys.stdin.isatty():
+            emit_error(
+                "confirmation_required",
+                f"Refusing to delete collection '{key}' without confirmation on non-interactive stdin",
+                output_json=json_out,
+                hint="Pass --yes to confirm or use --dry-run to preview",
+                context="collection delete",
+            )
+        if not click.confirm(f"Delete collection '{key}'?"):
+            _emit_json_or_text({"key": key, "cancelled": True}, output_json=json_out, human_text="Cancelled.")
+            return
     library_type = ctx.obj.get("library_type", "user")
     group_id = ctx.obj.get("group_id")
     library_id, api_key = resolve_write_credentials(cfg, library_type=library_type, group_id=group_id)
@@ -204,9 +288,17 @@ def collection_delete(ctx: click.Context, key: str, dry_run: bool) -> None:
 @collection_group.command("rename")
 @click.argument("key")
 @click.argument("new_name")
+@click.option("--dry-run", is_flag=True, help="Preview the rename without renaming the collection")
 @click.pass_context
-def collection_rename(ctx: click.Context, key: str, new_name: str) -> None:
+def collection_rename(ctx: click.Context, key: str, new_name: str, dry_run: bool) -> None:
     """Rename a collection."""
+    if dry_run:
+        _emit_dry_run(
+            ctx,
+            {"key": key, "new_name": new_name, "would_rename": True},
+            human_text=f"[dry-run] Would rename collection {key} to '{new_name}'",
+        )
+        return
     cfg = load_config(profile=ctx.obj.get("profile"))
     json_out = ctx.obj.get("json", False)
     library_type = ctx.obj.get("library_type", "user")

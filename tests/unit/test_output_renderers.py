@@ -1,7 +1,18 @@
 import json
 
+import pytest
+
 from zotero_cli.models import Collection, Creator, Item, Note
-from zotero_cli.output.renderers import format_collections, format_error, format_item_detail, format_items, format_notes
+from zotero_cli.output.renderers import (
+    format_collections,
+    format_error,
+    format_item_detail,
+    format_items,
+    format_notes,
+    format_pdf_text,
+    format_workspace_query,
+    sanitize_text,
+)
 
 
 def _make_item(key="K1", title="Test") -> Item:
@@ -147,3 +158,68 @@ def test_format_item_detail_full():
     assert "abstract" in data
     assert "notes" in data
     assert "extra" in data
+
+
+def test_sanitize_text_strips_ansi_and_control_characters():
+    assert sanitize_text("a\x1b[31mred\x1b[0m") == "ared"
+    assert sanitize_text("a\x00b\x07c") == "abc"
+    # Layout characters survive so multi-paragraph notes keep their shape.
+    assert sanitize_text("line1\nline2\tend") == "line1\nline2\tend"
+    assert sanitize_text(None) == ""
+    assert sanitize_text(42) == "42"
+
+
+def test_format_notes_text_strips_terminal_escapes():
+    notes = [Note(key="N1", parent_key="P1", content="\x1b[2Jclear\x1b[31mred", tags=[])]
+    result = format_notes(notes, output_json=False)
+    assert "\x1b" not in result
+    assert "clearred" in result
+
+
+def test_format_notes_text_keeps_rich_markup_literal():
+    notes = [Note(key="N1", parent_key="P1", content="[bold red]not markup[/bold red]", tags=[])]
+    result = format_notes(notes, output_json=False)
+    # Rich Text objects are used for untrusted content, so bracket markup is literal.
+    assert "[bold red]not markup[/bold red]" in result
+
+
+def test_format_item_detail_text_sanitizes_abstract_and_notes():
+    item = _make_item()
+    item.abstract = "abstract\x1b[31m\nsecond line"
+    notes = [Note(key="N1", parent_key="K1", content="note\x1b[2Jcontent", tags=[])]
+    result = format_item_detail(item, notes, output_json=False, detail="full")
+    assert "\x1b" not in result
+    assert "second line" in result
+
+
+def test_format_pdf_text_text_sanitizes_content():
+    result = format_pdf_text("KEY", section=1, content="pdf\x1b[31mbody", output_json=False)
+    assert "\x1b" not in result
+    assert "pdfbody" in result
+
+
+def test_format_error_text_sanitizes_message_and_hint():
+    from zotero_cli.models import ErrorInfo
+
+    result = format_error(ErrorInfo(message="bad \x1b[31mthing", hint="hint\x00here"), output_json=False)
+    assert "\x1b" not in result
+    assert "\x00" not in result
+
+
+def test_format_workspace_query_json_preserves_small_bm25_scores():
+    results = [
+        (0, 1.2e-6, {"item_key": "A", "source": "text", "content": "chunk a"}),
+        (1, 2.5e-6, {"item_key": "B", "source": "text", "content": "chunk b"}),
+    ]
+    data = json.loads(format_workspace_query(results, "hybrid", output_json=True))["data"]
+    assert data["results"][0]["score"] == pytest.approx(1.2e-6)
+    assert data["results"][1]["score"] == pytest.approx(2.5e-6)
+    assert data["results"][0]["score"] > 0
+
+
+def test_format_workspace_query_text_does_not_collapse_small_scores():
+    results = [(0, 1.2e-6, {"item_key": "A", "source": "text", "content": "chunk a\nline two"})]
+    result = format_workspace_query(results, "hybrid", output_json=False)
+    assert "0.00" not in result
+    assert "1.2e-06" in result
+    assert "\n" not in result.splitlines()[0] or "chunk a" in result

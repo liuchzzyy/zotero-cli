@@ -1,4 +1,4 @@
-"""`zot config init` / `zot config show` — create and inspect the config file."""
+"""`zot config init` / `zot config show` - create and inspect the config file."""
 
 from __future__ import annotations
 
@@ -9,12 +9,37 @@ import click
 
 from zotero_cli.config import (
     AppConfig,
-    config_file_path,
+    ConfigError,
     detect_zotero_data_dir,
+    get_data_dir,
+    list_profiles,
     load_config,
-    save_config,
+    merge_config_data,
+    read_config_data,
+    resolve_config_path,
+    write_config_data,
 )
 from zotero_cli.output.envelope import envelope_ok
+from zotero_cli.output.exit_codes import emit_error
+
+
+def _json_out(ctx: click.Context) -> bool:
+    return bool(ctx.obj.get("json", False)) if ctx.obj else False
+
+
+def _profile(ctx: click.Context) -> str | None:
+    profile = ctx.obj.get("profile") if ctx.obj else None
+    return str(profile) if profile else None
+
+
+def _emit_config_error(ctx: click.Context, exc: ConfigError) -> None:
+    emit_error(
+        "configuration_error",
+        str(exc),
+        output_json=_json_out(ctx),
+        hint="Fix the config file or run 'zot config init'.",
+        context="config",
+    )
 
 
 @click.command("init")
@@ -22,6 +47,7 @@ from zotero_cli.output.envelope import envelope_ok
 @click.option("--data-dir", "data_dir", default=None, help="Zotero data directory (auto-detected if not set)")
 @click.option("--library-id", default=None, help="Zotero library ID")
 @click.option("--api-key", default=None, help="Zotero API key")
+@click.option("--dry-run", is_flag=True, help="Preview the merged configuration without writing")
 @click.pass_context
 def config_init(
     ctx: click.Context,
@@ -29,27 +55,46 @@ def config_init(
     data_dir: str | None,
     library_id: str | None,
     api_key: str | None,
+    dry_run: bool,
 ) -> None:
-    """Initialize configuration interactively."""
-    path = Path(config_path) if config_path else config_file_path()
-    no_interaction = ctx.obj.get("no_interaction", False) if ctx.obj else False
+    """Initialize or update configuration, preserving existing sections and profiles."""
+    json_out = _json_out(ctx)
+    profile = _profile(ctx)
+    no_interaction = bool(ctx.obj.get("no_interaction", False)) if ctx.obj else False
+
+    try:
+        path = resolve_config_path(config_path)
+        existing_data = read_config_data(path) if path.exists() else {}
+        existing_profiles = list_profiles(path) if path.exists() else []
+        if path.exists() and (profile is None or profile in existing_profiles):
+            existing = load_config(path, profile=profile)
+        else:
+            existing = AppConfig()
+    except ConfigError as exc:
+        _emit_config_error(ctx, exc)
+        return
 
     detected_dir = detect_zotero_data_dir(AppConfig())
+    interactive = not no_interaction and not json_out
 
-    if no_interaction:
-        library_id = library_id or ""
-        api_key = api_key or ""
-        data_dir = data_dir or str(detected_dir)
-    else:
-        library_id = library_id or click.prompt("Zotero library ID", default="")
-        api_key = api_key or click.prompt("Zotero API key", default="")
-        if data_dir is None:
-            data_dir = click.prompt(
-                "Zotero data directory",
-                default=str(detected_dir),
+    if interactive:
+        if library_id is None:
+            library_id = click.prompt("Zotero library ID", default=existing.library_id)
+        if api_key is None:
+            api_key = (
+                click.prompt("Zotero API key (leave blank to keep current)", default="", hide_input=True)
+                or existing.api_key
             )
+        if data_dir is None:
+            data_dir = click.prompt("Zotero data directory", default=existing.data_dir or str(detected_dir))
+    else:
+        if library_id is None:
+            library_id = existing.library_id
+        if api_key is None:
+            api_key = existing.api_key
+        if data_dir is None:
+            data_dir = existing.data_dir or str(detected_dir)
 
-    # Normalize path (resolve ~, convert to absolute) to avoid Windows backslash issues
     if data_dir:
         data_dir = str(Path(data_dir).expanduser().resolve())
 
@@ -57,18 +102,51 @@ def config_init(
         data_dir=data_dir or "",
         library_id=library_id or "",
         api_key=api_key or "",
+        semantic_scholar_api_key=existing.semantic_scholar_api_key,
+        crossref_mailto=existing.crossref_mailto,
+        default_format=existing.default_format,
+        default_limit=existing.default_limit,
+        default_export_style=existing.default_export_style,
+        prefs_js_path=existing.prefs_js_path,
     )
-    save_config(cfg, path)
-    click.echo(f"Configuration saved to {path}")
-    click.echo(f"  Data directory: {cfg.data_dir or '(auto-detect)'}")
 
-    # Validate the data directory
+    warnings: list[str] = []
     if cfg.data_dir:
         dd = Path(cfg.data_dir)
         if not dd.exists():
-            click.echo(click.style(f"  WARNING: Directory does not exist: {dd}", fg="yellow"))
+            warnings.append(f"Directory does not exist: {dd}")
         elif not (dd / "zotero.sqlite").exists():
-            click.echo(click.style(f"  WARNING: zotero.sqlite not found in {dd}", fg="yellow"))
+            warnings.append(f"zotero.sqlite not found in {dd}")
+
+    try:
+        merged, changed = merge_config_data(existing_data, cfg, profile=profile, allow_new_profile=True)
+        if not dry_run:
+            write_config_data(path, merged)
+    except ConfigError as exc:
+        _emit_config_error(ctx, exc)
+        return
+
+    backup_path = str(path.with_name(path.name + ".bak")) if path.exists() else ""
+    payload = {
+        "config_path": str(path),
+        "profile": profile or "",
+        "data_dir": cfg.data_dir,
+        "library_id": cfg.library_id,
+        "api_key_set": bool(cfg.api_key),
+        "changed": changed,
+        "backup_path": backup_path,
+        "warnings": warnings,
+    }
+    if json_out:
+        extra = {"dry_run": True} if dry_run else None
+        click.echo(json.dumps(envelope_ok(payload, extra=extra), indent=2, ensure_ascii=False))
+        return
+
+    prefix = "Would save" if dry_run else "Configuration saved to"
+    click.echo(f"{prefix} {path}")
+    click.echo(f"  Data directory: {cfg.data_dir or '(auto-detect)'}")
+    for warning in warnings:
+        click.echo(click.style(f"  WARNING: {warning}", fg="yellow"))
 
 
 @click.command("show")
@@ -76,42 +154,54 @@ def config_init(
 @click.pass_context
 def config_show(ctx: click.Context, config_path: str | None) -> None:
     """Show current configuration."""
-    from zotero_cli.config import get_data_dir
+    json_out = _json_out(ctx)
+    profile = _profile(ctx)
+    try:
+        path = resolve_config_path(config_path, must_exist=config_path is not None)
+        cfg = load_config(path, profile=profile)
+    except ConfigError as exc:
+        _emit_config_error(ctx, exc)
+        return
 
-    json_out = ctx.obj.get("json", False) if ctx.obj else False
-    path = Path(config_path) if config_path else config_file_path()
-    cfg = load_config(path)
     data_dir = get_data_dir(cfg)
     db_file = data_dir / "zotero.sqlite"
     data_dir_exists = data_dir.exists()
     database_ok = db_file.exists()
+    data = {
+        "config_path": str(path),
+        "profile": profile or "",
+        "library_id": cfg.library_id,
+        "api_key_set": bool(cfg.api_key),
+        "api_key_tail": cfg.api_key[-4:] if len(cfg.api_key) > 4 else "",
+        "data_dir": cfg.data_dir or "(auto-detect)",
+        "resolved_data_dir": str(data_dir),
+        "default_format": cfg.default_format,
+        "default_limit": cfg.default_limit,
+        "default_export_style": cfg.default_export_style,
+        "database_path": str(db_file),
+        "data_dir_exists": data_dir_exists,
+        "database_ok": database_ok,
+    }
     if json_out:
-        data = {
-            "config_path": str(path),
-            "library_id": cfg.library_id,
-            "api_key_set": bool(cfg.api_key),
-            "api_key_tail": cfg.api_key[-4:] if len(cfg.api_key) > 4 else "",
-            "data_dir": cfg.data_dir or "(auto-detect)",
-            "resolved_data_dir": str(data_dir),
-            "default_format": cfg.default_format,
-            "default_limit": cfg.default_limit,
-            "default_export_style": cfg.default_export_style,
-            "database_path": str(db_file),
-            "data_dir_exists": data_dir_exists,
-            "database_ok": database_ok,
-        }
         click.echo(json.dumps(envelope_ok(data), indent=2, ensure_ascii=False))
         return
 
     click.echo(f"Config:     {path}")
+    if profile:
+        click.echo(f"Profile:    {profile}")
     click.echo(f"Library ID: {cfg.library_id}")
-    click.echo(f"API Key:    {'***' + cfg.api_key[-4:] if len(cfg.api_key) > 4 else '(not set)'}")
+    if len(cfg.api_key) > 4:
+        api_key_display = "***" + cfg.api_key[-4:]
+    elif cfg.api_key:
+        api_key_display = "***"
+    else:
+        api_key_display = "(not set)"
+    click.echo(f"API Key:    {api_key_display}")
     click.echo(f"Data Dir:   {cfg.data_dir or '(auto-detect)'}")
     click.echo(f"Format:     {cfg.default_format}")
     click.echo(f"Limit:      {cfg.default_limit}")
     click.echo(f"Export:     {cfg.default_export_style}")
 
-    # Path validation
     if not data_dir_exists:
         click.echo(click.style(f"\nWARNING: Data directory not found: {data_dir}", fg="yellow"))
     elif not database_ok:

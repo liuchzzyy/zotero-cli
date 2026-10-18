@@ -4,16 +4,22 @@ from __future__ import annotations
 
 import re
 
-_SUPPLEMENTARY_HINTS = (
+# Covers/headers that identify a supplementary document. These are compared
+# against whole stripped lines near the top of the text, so ordinary prose that
+# merely mentions "Supporting Information" does not trigger a classification.
+_SUPPLEMENTARY_COVER_HINTS = (
     "electronic supplementary material",
+    "electronic supplementary information",
     "supplementary material",
     "supplementary information",
     "supporting information",
     "supporting info",
     "supporting data",
-    "figure s1",
-    "table s1",
+    "supplementary data",
+    "electronic annex",
+    "si appendix",
 )
+_SUPPLEMENTARY_HINTS = _SUPPLEMENTARY_COVER_HINTS + ("figure s1", "table s1")
 
 _MAIN_PAPER_HINTS = (
     "cite this:",
@@ -24,6 +30,18 @@ _MAIN_PAPER_HINTS = (
     "abstract",
     "introduction",
 )
+
+# Attachment filenames are a reliable supplementary signal ("..._SI.pdf",
+# "supplementary-material.pdf"); tokens are matched between non-alphanumerics so
+# ordinary words such as "sodium" or "spin" are not misread as "si".
+_SUPPLEMENTARY_FILENAME_RE = re.compile(
+    r"(?:^|[^a-z0-9])(?:si|esi|supp|suppl|supplementary|supporting)(?:[^a-z0-9]|$)",
+    re.IGNORECASE,
+)
+
+
+def _supplementary_filename(filename: str) -> bool:
+    return bool(filename) and bool(_SUPPLEMENTARY_FILENAME_RE.search(filename))
 
 
 def tokenize(text: str) -> list[str]:
@@ -49,8 +67,10 @@ def infer_pdf_kind(text: str, filename: str = "") -> str:
     head = f"{filename}\n{text[:2500]}".lower()
     extended = f"{filename}\n{text[:10000]}".lower()
     lead = f"{filename}\n{text[:500]}".lower()
+    if _supplementary_filename(filename) and "cite this:" not in lead:
+        return "supplementary"
     if (
-        any(line.strip(" #\t\r.:") in _SUPPLEMENTARY_HINTS[:6] for line in lead.splitlines())
+        any(line.strip(" #\t\r.:") in _SUPPLEMENTARY_COVER_HINTS for line in lead.splitlines())
         and "cite this:" not in lead
     ):
         return "supplementary"
@@ -85,6 +105,19 @@ def filter_ranked_results_by_pdf_kind(
     return filtered
 
 
+def _decode_numeric_entity(match: re.Match[str], *, base: int) -> str:
+    raw = match.group(1)
+    try:
+        codepoint = int(raw, base)
+    except ValueError:
+        return match.group(0)
+    # Reject NUL, surrogate code points, and values outside Unicode; malformed
+    # entities are kept literally instead of crashing the caller.
+    if codepoint <= 0 or codepoint > 0x10FFFF or 0xD800 <= codepoint <= 0xDFFF:
+        return match.group(0)
+    return chr(codepoint)
+
+
 def clean_html(text: str) -> str:
     text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
     text = re.sub(r"</p>", "\n\n", text, flags=re.IGNORECASE)
@@ -98,8 +131,8 @@ def clean_html(text: str) -> str:
     text = re.sub(r"<li[^>]*>(.*?)</li>", r"\n- \1", text, flags=re.IGNORECASE)
     text = re.sub(r"</li>", "", text, flags=re.IGNORECASE)
     text = re.sub(r"<[^>]+>", "", text)
-    text = re.sub(r"&#(\d+);", lambda m: chr(int(m.group(1))), text)
-    text = re.sub(r"&#x([0-9a-fA-F]+);", lambda m: chr(int(m.group(1), 16)), text)
+    text = re.sub(r"&#(\d+);", lambda match: _decode_numeric_entity(match, base=10), text)
+    text = re.sub(r"&#x([0-9a-fA-F]+);", lambda match: _decode_numeric_entity(match, base=16), text)
     text = re.sub(r"&nbsp;", " ", text)
     text = re.sub(r"&amp;", "&", text)
     text = re.sub(r"&lt;", "<", text)

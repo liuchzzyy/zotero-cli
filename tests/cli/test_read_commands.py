@@ -112,9 +112,25 @@ class TestExport:
     def test_export_json(self, test_db_path):
         result = _invoke(["export", "ATTN001", "--format", "json"], test_db_path)
         assert result.exit_code == 0
-        # `export --format json` outputs the raw item dict, not an envelope.
+        # Text mode keeps the historical raw item dict so it can be piped directly.
         data = json.loads(result.output)
         assert "title" in data
+
+    def test_export_json_envelope_under_json_flag(self, test_db_path):
+        result = _invoke(["export", "ATTN001", "--format", "json"], test_db_path, json_output=True)
+        assert result.exit_code == 0
+        envelope = json.loads(result.output)
+        assert envelope["ok"] is True
+        assert envelope["data"]["title"] == "Attention Is All You Need"
+        assert envelope["meta"]["format"] == "json"
+
+    def test_export_citation_envelope_under_json_flag(self, test_db_path):
+        result = _invoke(["export", "ATTN001", "--format", "ris"], test_db_path, json_output=True)
+        assert result.exit_code == 0
+        envelope = json.loads(result.output)
+        assert envelope["ok"] is True
+        assert envelope["data"]["format"] == "ris"
+        assert "TY  - JOUR" in envelope["data"]["citation"]
 
 
 class TestCiteCommand:

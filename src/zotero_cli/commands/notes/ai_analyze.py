@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import sys
 
 import click
@@ -18,6 +19,13 @@ from zotero_cli.config import (
 from zotero_cli.core.notes.client import AiClient
 from zotero_cli.core.notes.errors import NoteAnalysisError
 from zotero_cli.core.notes.pipeline import analyze_item
+from zotero_cli.core.zotero.idempotency import (
+    PendingMutationError,
+    begin_mutation,
+    release_rejected_mutation,
+    request_scope,
+    store_cached,
+)
 from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.core.zotero.writer import ZoteroWriter
 from zotero_cli.output.envelope import envelope_ok
@@ -26,7 +34,11 @@ from zotero_cli.output.exit_codes import emit_error
 
 @click.command("ai_analyze")
 @click.argument("key")
-@click.option("--dry-run", is_flag=True, help="只输出分类结果与将发给 AI 的输入，不调用 AI 分析、不写 note")
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="只输出分类结果与将发给 AI 的输入，不调用 AI 分析、不写 note（无需 AI 配置）",
+)
 @click.option("--force", is_flag=True, help="已打 ai/noted 也重跑")
 @click.option("--no-tag", is_flag=True, help="写 note 但不打 ai/noted tag")
 @click.option("--no-short-note", is_flag=True, help="不生成关键词（简记 short-note），只生成 note")
@@ -36,6 +48,11 @@ from zotero_cli.output.exit_codes import emit_error
     help="只根据已有 AI note 生成关键词并写入 Extra short-note（回填模式，不重新生成 note）",
 )
 @click.option("--progress-lines", is_flag=True, help="按行输出进度（适合日志）")
+@click.option(
+    "--idempotency-key",
+    default=None,
+    help="Replay confirmed success; in-flight or unknown outcomes require reconciliation",
+)
 @click.pass_context
 def ai_analyze_cmd(
     ctx: click.Context,
@@ -46,12 +63,21 @@ def ai_analyze_cmd(
     no_short_note: bool,
     short_note_only: bool,
     progress_lines: bool,
+    idempotency_key: str | None,
 ) -> None:
-    """用 MinerU + AI 分析一个 Zotero 条目及其 PDF，生成 HTML note 并写回。"""
+    """用 MinerU + AI 分析一个 Zotero 条目及其 PDF，生成 HTML note 并写回。
+
+    \b
+    Examples:
+      zot ai_analyze ABC123 --dry-run               Preview without AI config
+      zot ai_analyze ABC123                         Analyze and write a note
+      zot ai_analyze ABC123 --idempotency-key k1    Retry-safe write
+    """
     json_out = ctx.obj.get("json", False)
 
     ai_cfg = load_ai_note_config()
-    if not (ai_cfg.api_key and ai_cfg.base_url and ai_cfg.model):
+    ai_configured = bool(ai_cfg.api_key and ai_cfg.base_url and ai_cfg.model)
+    if not dry_run and not ai_configured:
         emit_error(
             "configuration_error",
             "AI note 配置不完整",
@@ -88,15 +114,61 @@ def ai_analyze_cmd(
             api_key=writer_api_key,
             library_type=ctx.obj.get("library_type", "user"),
         )
-    ai_client = AiClient(ai_cfg)
+    ai_client = AiClient(ai_cfg) if ai_configured else None
+
+    cache_scope: str | None = None
+    idem_key = idempotency_key or ""
+    if not dry_run and idempotency_key:
+        cache_scope = request_scope(
+            "ai_analyze",
+            ctx.obj.get("library_type", "user"),
+            str(writer_library_id),
+            {
+                "key": key,
+                "force": force,
+                "no_tag": no_tag,
+                "no_short_note": no_short_note,
+                "short_note_only": short_note_only,
+            },
+        )
+        try:
+            cached = begin_mutation(cache_scope, idem_key)
+        except PendingMutationError as exc:
+            reader.close()
+            emit_error(
+                "conflict",
+                str(exc),
+                output_json=json_out,
+                retryable=False,
+                hint="Reconcile the item's notes before proceeding; do not bypass this with a new key",
+                context="ai_analyze",
+            )
+        except (OSError, sqlite3.Error):
+            reader.close()
+            emit_error(
+                "configuration_error",
+                "Could not durably reserve the analysis; no write attempted",
+                output_json=json_out,
+                retryable=False,
+                hint="Check the idempotency state directory and database",
+                context="ai_analyze",
+            )
+        if cached is not None:
+            reader.close()
+            if json_out:
+                click.echo(json.dumps(cached, indent=2, ensure_ascii=False))
+            else:
+                click.echo(f"条目 {key} 已有成功结果（cached）：{cached.get('data', {}).get('status', '?')}")
+            return
 
     def progress(event: str, message: str) -> None:
         if json_out:
             return
-        if progress_lines:
-            click.echo(f"  [{event}] {message}", err=True)
+        line = f"  [{event}] {message}"
+        if progress_lines or not _stderr_is_tty():
+            click.echo(line, err=True)
         else:
-            sys.stderr.write(f"\r  [{event}] {message}\r")
+            sys.stderr.write(f"\r{line}\r")
             sys.stderr.flush()
 
     try:
@@ -113,19 +185,50 @@ def ai_analyze_cmd(
             progress=progress,
         )
     except NoteAnalysisError as exc:
-        reader.close()
-        emit_error(exc.code, str(exc), output_json=json_out, retryable=exc.retryable, context="ai_analyze")
+        committed = bool(getattr(exc, "committed", False))
+        if cache_scope is not None and not committed:
+            try:
+                release_rejected_mutation(cache_scope, idem_key)
+            except (OSError, sqlite3.Error):
+                pass  # Preserve the reservation if its durable release failed.
+        emit_error(
+            exc.code,
+            str(exc),
+            output_json=json_out,
+            retryable=exc.retryable and not committed,
+            context="ai_analyze",
+        )
     finally:
         reader.close()
 
-    if not json_out and not progress_lines:
+    if not json_out and not progress_lines and _stderr_is_tty():
         sys.stderr.write(f"\r{' ' * 60}\r")
         sys.stderr.flush()
 
+    env = envelope_ok(result)
+    if cache_scope is not None:
+        try:
+            store_cached(cache_scope, idem_key, env)
+        except (OSError, sqlite3.Error):
+            emit_error(
+                "configuration_error",
+                "分析已完成，但重试结果无法保存",
+                output_json=json_out,
+                retryable=False,
+                hint="Reconcile this item before retrying; the pending reservation still blocks blind retries",
+                context="ai_analyze",
+            )
     if json_out:
-        click.echo(json.dumps(envelope_ok(result), indent=2, ensure_ascii=False))
+        click.echo(json.dumps(env, indent=2, ensure_ascii=False))
     else:
         _print_human(result)
+
+
+def _stderr_is_tty() -> bool:
+    try:
+        return bool(sys.stderr.isatty())
+    except (AttributeError, ValueError):
+        return False
 
 
 def _print_human(result: dict) -> None:

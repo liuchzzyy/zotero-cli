@@ -8,6 +8,8 @@ import click
 
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id
 from zotero_cli.core.zotero.reader import ZoteroReader
+from zotero_cli.output.envelope import envelope_ok
+from zotero_cli.output.renderers import sanitize_text
 
 
 @click.command("stats")
@@ -29,7 +31,7 @@ def stats_cmd(ctx: click.Context) -> None:
     try:
         stats = reader.get_stats()
         if json_out:
-            click.echo(json.dumps(stats, indent=2, ensure_ascii=False))
+            click.echo(json.dumps(envelope_ok(stats), indent=2, ensure_ascii=False))
         else:
             click.echo(f"Total items: {stats['total_items']}")
             click.echo(f"PDF attachments: {stats['pdf_attachments']}")
@@ -37,14 +39,14 @@ def stats_cmd(ctx: click.Context) -> None:
             click.echo()
             click.echo("Items by type:")
             for name, cnt in stats["by_type"].items():
-                click.echo(f"  {name}: {cnt}")
+                click.echo(f"  {sanitize_text(name)}: {cnt}")
             click.echo()
             click.echo(f"Collections ({len(stats['collections'])}):")
             for name, cnt in stats["collections"].items():
-                click.echo(f"  {name}: {cnt} items")
+                click.echo(f"  {sanitize_text(name)}: {cnt} items")
             click.echo()
             click.echo(f"Top tags ({len(stats['top_tags'])}):")
             for name, cnt in stats["top_tags"].items():
-                click.echo(f"  {name}: {cnt}")
+                click.echo(f"  {sanitize_text(name)}: {cnt}")
     finally:
         reader.close()

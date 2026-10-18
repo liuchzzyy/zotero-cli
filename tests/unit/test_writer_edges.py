@@ -12,12 +12,22 @@ from unittest.mock import Mock
 import httpx
 import pytest
 from pyzotero import zotero
-from pyzotero.zotero_errors import PyZoteroError, UnsupportedParamsError, UserNotAuthorisedError
+from pyzotero.zotero_errors import (
+    ConflictError,
+    CouldNotReachURLError,
+    HTTPError,
+    PreConditionFailedError,
+    PyZoteroError,
+    TooManyRequestsError,
+    TooManyRetriesError,
+    UnsupportedParamsError,
+    UserNotAuthorisedError,
+)
 
 from zotero_cli.core.zotero import writer as writer_module
 from zotero_cli.core.zotero.short_note_merge import merge_short_note_into_extra
 from zotero_cli.core.zotero.writer import ZoteroWriter
-from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
+from zotero_cli.core.zotero.writer_errors import ZoteroWriteError, _friendly_api_error
 
 ITEM_KEY = "ITEM0001"
 COLLECTION_KEY = "COLL0001"
@@ -507,3 +517,60 @@ def test_forbidden_create_reports_auth_invalid(offline_writer: tuple[ZoteroWrite
         writer.add_item(doi="10.1234/new")
     assert caught.value.code == "auth_invalid"
     assert caught.value.retryable is False
+
+
+# --- M-03: pyzotero error translation ---
+
+
+@pytest.mark.parametrize(
+    ("error", "code", "retryable", "retry_after"),
+    [
+        (UserNotAuthorisedError("403"), "auth_invalid", False, None),
+        (TooManyRequestsError("429 too many requests Retry-After: 7"), "rate_limited", True, 7),
+        (TooManyRetriesError("backoff window exceeded"), "rate_limited", True, None),
+        (ConflictError("409 library locked"), "conflict", False, None),
+        (PreConditionFailedError("412 version changed"), "conflict", False, None),
+        (HTTPError("Code: 500 server error"), "api_error", True, None),
+        (CouldNotReachURLError("connection dropped"), "network_error", True, None),
+        (UnsupportedParamsError("Invalid user ID"), "validation_error", False, None),
+        (UnsupportedParamsError("unsupported field"), "validation_error", False, None),
+        (PyZoteroError("unknown"), "api_error", False, None),
+    ],
+)
+def test_pyzotero_errors_map_to_typed_write_errors(
+    error: PyZoteroError, code: str, retryable: bool, retry_after: int | None
+) -> None:
+    mapped = _friendly_api_error(error)
+    assert mapped.code == code
+    assert mapped.retryable is retryable
+    assert mapped.retry_after_seconds == retry_after
+
+
+def test_rate_limited_create_reports_rate_limited(offline_writer: tuple[ZoteroWriter, OfflineZotero]) -> None:
+    writer, api = offline_writer
+    api.create_status = 429
+    with pytest.raises(ZoteroWriteError) as caught:
+        writer.add_item(doi="10.1234/new")
+    assert caught.value.code == "rate_limited"
+    assert caught.value.retryable is True
+
+
+@pytest.mark.parametrize("status", [409, 412])
+def test_write_conflicts_report_conflict(
+    offline_writer: tuple[ZoteroWriter, OfflineZotero], attachment_file: Path, status: int
+) -> None:
+    writer, api = offline_writer
+    api.write_status = status
+    with pytest.raises(ZoteroWriteError) as caught:
+        writer.update_item(ITEM_KEY, {"title": "New title"})
+    assert caught.value.code == "conflict"
+    assert caught.value.retryable is False
+
+
+def test_server_errors_are_retryable(offline_writer: tuple[ZoteroWriter, OfflineZotero], attachment_file: Path) -> None:
+    writer, api = offline_writer
+    api.write_status = 500
+    with pytest.raises(ZoteroWriteError) as caught:
+        writer.update_item(ITEM_KEY, {"title": "New title"})
+    assert caught.value.code == "api_error"
+    assert caught.value.retryable is True

@@ -26,6 +26,9 @@ _MIME_BY_SUFFIX = {
 # MinerU also emits rules and logos as images; skip the tiny ones.
 _MIN_BYTES = 4096
 _MAX_BYTES = 5 * 1024 * 1024
+# One request must not carry an unbounded image payload: 12 x 5MB figures would
+# otherwise be ~80MB of base64. Keep the aggregate raw bytes well below that.
+_MAX_TOTAL_BYTES = 20 * 1024 * 1024
 
 
 def mark_figures(markdown: str, raw_dir: Path, start: int = 1) -> tuple[str, list[tuple[int, Path]]]:
@@ -55,14 +58,23 @@ def mark_figures(markdown: str, raw_dir: Path, start: int = 1) -> tuple[str, lis
     return _IMAGE_REF.sub(replace, markdown), figures
 
 
-def load_figures(refs: list[tuple[int, Path]], limit: int) -> list[tuple[int, str]]:
-    """Resolve ``(number, path)`` pairs to ``(number, data_url)``, up to ``limit``.
+def load_figures(
+    refs: list[tuple[int, Path]],
+    limit: int,
+    *,
+    max_total_bytes: int | None = None,
+) -> list[tuple[int, str]]:
+    """Resolve (number, path) pairs to (number, data_url), up to limit.
 
     A reference that is missing, unreadable, or outside the accepted size window
     is skipped rather than failing the analysis: a partial figure set still beats
-    none, and the caller reports how many were kept.
+    none, and the caller reports how many were kept. The aggregate raw bytes are
+    capped (default _MAX_TOTAL_BYTES) so a corrupt parse package cannot build an
+    unbounded multimodal request.
     """
+    cap = _MAX_TOTAL_BYTES if max_total_bytes is None else max_total_bytes
     figures: list[tuple[int, str]] = []
+    total_bytes = 0
     for number, path in refs:
         if len(figures) >= limit:
             break
@@ -76,8 +88,11 @@ def load_figures(refs: list[tuple[int, Path]], limit: int) -> list[tuple[int, st
             size = metadata.st_size
             if size < _MIN_BYTES or size > _MAX_BYTES:
                 continue
+            if total_bytes + size > cap:
+                continue
             encoded = base64.b64encode(path.read_bytes()).decode("ascii")
         except OSError:
             continue
+        total_bytes += size
         figures.append((number, f"data:{mime};base64,{encoded}"))
     return figures

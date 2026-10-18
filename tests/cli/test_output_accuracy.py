@@ -42,6 +42,14 @@ def _item() -> Item:
         (("collection", "list"), "read"),
         (("trash", "restore"), "write"),
         (("config", "profile", "list"), "read"),
+        (("config", "init"), "write"),
+        (("config", "profile", "set"), "write"),
+        (("config", "cache", "clear"), "destructive"),
+        (("workspace", "list"), "read"),
+        (("workspace", "new"), "write"),
+        (("workspace", "index"), "write"),
+        (("workspace", "embed"), "write"),
+        (("workspace", "delete"), "destructive"),
     ],
 )
 def test_schema_dotted_paths_match_spaced_paths(path: tuple[str, ...], tier: str) -> None:

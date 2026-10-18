@@ -15,13 +15,21 @@ logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = "你是一位专业的科研文献分析助手，擅长深入分析学术论文并提取关键信息。"
 
-# Providers word the same limitation differently; match loosely.
+# Providers word the same limitation differently; match only capability
+# rejections. Generic errors that merely mention "image" (payload size, bad URL)
+# must not silently downgrade the request to text-only.
 _IMAGE_REJECTION_HINTS = (
-    "image",
-    "vision",
-    "multimodal",
-    "unsupported content",
+    "image input is not supported",
+    "image input not supported",
+    "does not support image",
+    "doesn't support image",
+    "image_url is not supported",
+    "unsupported image input",
+    "vision is not supported",
+    "multimodal is not supported",
+    "unsupported content type",
     "invalid content type",
+    "content type not supported",
 )
 
 
@@ -30,13 +38,20 @@ class AiClient:
 
     def __init__(self, config: AiNoteConfig) -> None:
         self.config = config
+        # Config-owned request bounds (env ZOT_AI_TIMEOUT / ZOT_AI_MAX_RETRIES).
+        timeout_seconds = float(config.timeout_seconds)
+        max_retries = int(config.max_retries)
+        self.timeout_seconds = timeout_seconds
+        self.max_retries = max_retries
         base_url = (config.base_url or "").strip()
         is_local = "127.0.0.1" in base_url or "localhost" in base_url
-        http_client = httpx.Client(trust_env=not is_local) if is_local else None
+        http_client = httpx.Client(trust_env=False, timeout=timeout_seconds) if is_local else None
         self._client = OpenAI(
             base_url=config.base_url,
             api_key=config.api_key,
             http_client=http_client,
+            timeout=timeout_seconds,
+            max_retries=max_retries,
         )
 
     def get_model_chain(self) -> list[str]:

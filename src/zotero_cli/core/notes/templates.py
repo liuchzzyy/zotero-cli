@@ -11,6 +11,7 @@ import re
 from pathlib import Path
 
 from zotero_cli.config import project_root
+from zotero_cli.core.notes.constants import MAX_PROMPT_CHARS, PROMPT_RESERVE_CHARS
 
 
 def _candidate_template_dirs() -> list[Path]:
@@ -77,3 +78,11 @@ def format_template(
         "fulltext": fulltext,
     }
     return re.sub(r"\{(title|authors|journal|date|doi|fulltext)\}", lambda match: values[match.group(1)], template)
+
+
+def fit_text_to_prompt(template: str, text: str) -> str:
+    """Truncate untrusted prompt text so template + text stays under the hard cap."""
+    budget = MAX_PROMPT_CHARS - len(template) - PROMPT_RESERVE_CHARS
+    if budget <= 0:
+        return ""
+    return text[:budget]

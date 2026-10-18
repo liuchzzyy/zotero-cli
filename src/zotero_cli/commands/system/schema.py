@@ -1,4 +1,4 @@
-"""`zot schema` — emit machine-readable schema for every command.
+"""zot schema — emit machine-readable schema for every command.
 
 Derived from the Click command tree so the schema cannot drift from the actual CLI.
 """
@@ -6,7 +6,7 @@ Derived from the Click command tree so the schema cannot drift from the actual C
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, NoReturn
 
 import click
 
@@ -150,18 +150,53 @@ def compute_schema_diff(before: dict, after: dict) -> dict[str, Any]:
     }
 
 
+def _validate_cached_tree(tree: object, path: str = "(root)") -> None:
+    """Validate the shape of a cached schema tree before diffing.
+
+    Raises ValueError with a human-actionable message for anything that is not
+    a schema tree, so the command can emit a typed validation_error instead of
+    crashing on malformed-but-valid JSON (arrays, null, scalar leaf nodes).
+    """
+    if not isinstance(tree, dict):
+        raise ValueError(f"{path} must be a JSON object, got {type(tree).__name__}")
+    subcommands = tree.get("subcommands")
+    if subcommands is not None:
+        if not isinstance(subcommands, dict):
+            raise ValueError(f"{path}.subcommands must be a JSON object")
+        for name, child in subcommands.items():
+            if not isinstance(child, dict):
+                raise ValueError(f"{path}.subcommands[{name!r}] must be a JSON object")
+            _validate_cached_tree(child, f"{path}.subcommands[{name!r}]")
+    params = tree.get("params")
+    if params is not None and not isinstance(params, list):
+        raise ValueError(f"{path}.params must be a JSON array")
+
+
 def _load_cached_schema(path: str) -> tuple[dict, dict[str, str]]:
     """Read a previously-emitted schema file. Accepts a full envelope or a bare data tree."""
     with open(path, encoding="utf-8") as f:
         loaded = json.load(f)
-    if isinstance(loaded, dict) and "data" in loaded and isinstance(loaded["data"], dict):
+    if not isinstance(loaded, dict):
+        raise ValueError(f"cached schema must be a JSON object, got {type(loaded).__name__}")
+    if "data" in loaded:
+        data = loaded["data"]
+        if not isinstance(data, dict):
+            raise ValueError("cached schema envelope 'data' must be a JSON object")
         meta = loaded.get("meta") or {}
         version_info = {
             "schema_version": meta.get("schema_version", "unknown"),
             "cli_version": meta.get("cli_version", "unknown"),
         }
-        return loaded["data"], version_info
+        _validate_cached_tree(data)
+        return data, version_info
+    _validate_cached_tree(loaded)
     return loaded, {"schema_version": "unknown", "cli_version": "unknown"}
+
+
+def _emit_schema_error(code: str, message: str, *, hint: str, exit_code: int) -> NoReturn:
+    env = envelope_error(code=code, message=message, retryable=False, hint=hint)
+    click.echo(json.dumps(env, indent=2, ensure_ascii=False))
+    raise SystemExit(exit_code)
 
 
 @click.command("schema")
@@ -169,7 +204,7 @@ def _load_cached_schema(path: str) -> tuple[dict, dict[str, str]]:
 @click.option(
     "--diff",
     "diff_path",
-    type=click.Path(exists=True, dir_okay=False, path_type=str),
+    type=click.Path(dir_okay=False, path_type=str),
     default=None,
     help="Path to a previously-emitted schema. Output a structural diff against the current schema.",
 )
@@ -185,20 +220,32 @@ def schema_cmd(ctx: click.Context, command_path: tuple[str, ...], diff_path: str
       zot schema --diff prev.json      # structural diff vs cached schema
     """
     root = ctx.find_root().command
+    if command_path and diff_path is not None:
+        _emit_schema_error(
+            "validation_error",
+            "COMMAND_PATH cannot be combined with --diff",
+            hint="Run 'zot schema --diff prev.json' to diff full schema trees, or 'zot schema <command>' without --diff",
+            exit_code=3,
+        )
 
     if command_path:
         joined = " ".join(command_path)
         normalized_path = joined.replace(".", " ").split()
+        if not normalized_path:
+            _emit_schema_error(
+                "validation_error",
+                "Invalid command path: provide a command name or dot-separated path",
+                hint="Run 'zot schema' for the full tree or 'zot schema <command>' for one command",
+                exit_code=3,
+            )
         target = _resolve_command(root, normalized_path)
         if target is None:
-            env = envelope_error(
-                code="not_found",
-                message=f"Command '{joined}' not found",
-                retryable=False,
+            _emit_schema_error(
+                "not_found",
+                f"Command '{joined}' not found",
                 hint="Run 'zot schema' to list all commands",
+                exit_code=4,
             )
-            click.echo(json.dumps(env, indent=2, ensure_ascii=False))
-            raise SystemExit(4)
         data = _command_to_dict(target, normalized_path)
     else:
         data = _command_to_dict(root, [])
@@ -206,15 +253,13 @@ def schema_cmd(ctx: click.Context, command_path: tuple[str, ...], diff_path: str
     if diff_path is not None:
         try:
             before, before_versions = _load_cached_schema(diff_path)
-        except (OSError, json.JSONDecodeError) as e:
-            env = envelope_error(
-                code="validation_error",
-                message=f"Could not read cached schema at {diff_path!r}: {e}",
-                retryable=False,
-                hint="Provide a JSON file produced by `zot schema`",
+        except (OSError, ValueError, json.JSONDecodeError) as e:
+            _emit_schema_error(
+                "validation_error",
+                f"Could not read cached schema at {diff_path!r}: {e}",
+                hint="Provide a JSON file produced by 'zot schema'",
+                exit_code=3,
             )
-            click.echo(json.dumps(env, indent=2, ensure_ascii=False))
-            raise SystemExit(3) from e
         data = {
             "from": before_versions,
             "to": {"schema_version": SCHEMA_VERSION, "cli_version": __version__},

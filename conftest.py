@@ -34,5 +34,12 @@ def isolate_runtime_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     isolated_config = tmp_path / ".zot" / "config.toml"
     monkeypatch.setattr(config.paths, "config_file_path", lambda start=None: isolated_config)
     monkeypatch.setattr(idempotency, "state_dir", lambda: tmp_path / ".zot" / "state")
-    monkeypatch.setattr(workspace, "project_root", lambda: tmp_path)
-    monkeypatch.setattr(workspace, "state_dir", lambda *_args: tmp_path / ".zot" / "state")
+    monkeypatch.setattr(workspace, "workspace_root", lambda: tmp_path / ".workspace")
+    monkeypatch.setattr(workspace, "state_dir", lambda: tmp_path / ".zot" / "state")
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Tag standalone batch-helper tests collected from tools/ as `tools`."""
+    for item in items:
+        if "tools" in Path(str(item.path)).parts:
+            item.add_marker(pytest.mark.tools)

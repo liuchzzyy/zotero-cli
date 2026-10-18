@@ -6,6 +6,7 @@ from unittest.mock import patch
 from tests.support import invoke_agent_cli
 
 from zotero_cli.core.zotero import idempotency
+from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
 
 
 def test_update_same_key_different_payload_or_library_is_not_cached(tmp_path):
@@ -25,3 +26,104 @@ def test_update_same_key_different_payload_or_library_is_not_cached(tmp_path):
     assert json.loads(b.output)["data"]["fields"]["title"] == "second"
     assert json.loads(c.output)["meta"]["request_id"] != json.loads(a.output)["meta"]["request_id"]
     assert json.loads(d.output)["meta"]["request_id"] == json.loads(a.output)["meta"]["request_id"]
+
+
+# --- M-04: every idempotent mutation reserves before writing ---
+
+ENV = {"ZOT_LIBRARY_ID": "123", "ZOT_API_KEY": "fake"}
+
+
+def test_update_unknown_outcome_blocks_retry_with_conflict(tmp_path):
+    with (
+        patch("zotero_cli.core.zotero.idempotency.state_dir", return_value=tmp_path),
+        patch("zotero_cli.commands.items.update.ZoteroWriter") as writer,
+    ):
+        writer.return_value.update_item.side_effect = ZoteroWriteError(
+            "network lost after submit", code="network_error", retryable=True
+        )
+        first = invoke_agent_cli(["update", "ABC", "--title", "x", "--idempotency-key", "k"], env=ENV)
+        retry = invoke_agent_cli(["update", "ABC", "--title", "x", "--idempotency-key", "k"], env=ENV)
+    assert first.exit_code == 5
+    assert json.loads(first.output)["error"]["retryable"] is False
+    assert retry.exit_code == 6
+    assert json.loads(retry.output)["error"]["code"] == "conflict"
+    assert writer.return_value.update_item.call_count == 1
+
+
+def test_update_definite_rejection_releases_the_reservation(tmp_path):
+    with (
+        patch("zotero_cli.core.zotero.idempotency.state_dir", return_value=tmp_path),
+        patch("zotero_cli.commands.items.update.ZoteroWriter") as writer,
+    ):
+        writer.return_value.update_item.side_effect = ZoteroWriteError(
+            "Item 'ABC' not found", code="not_found", retryable=False
+        )
+        first = invoke_agent_cli(["update", "ABC", "--title", "x", "--idempotency-key", "k"], env=ENV)
+        retry = invoke_agent_cli(["update", "ABC", "--title", "x", "--idempotency-key", "k"], env=ENV)
+    assert first.exit_code == 4
+    assert retry.exit_code == 4
+    assert writer.return_value.update_item.call_count == 2
+
+
+def test_add_success_is_replayed_without_a_second_write(tmp_path):
+    with (
+        patch("zotero_cli.core.zotero.idempotency.state_dir", return_value=tmp_path),
+        patch("zotero_cli.commands.items.add.ZoteroWriter") as writer,
+    ):
+        writer.return_value.add_item.return_value = "NEW00001"
+        args = ["add", "--doi", "10.1000/x", "--no-resolve", "--idempotency-key", "k"]
+        first = invoke_agent_cli(args, env=ENV)
+        retry = invoke_agent_cli(args, env=ENV)
+    assert first.exit_code == 0, first.output
+    assert retry.exit_code == 0, retry.output
+    assert json.loads(retry.output)["data"]["key"] == "NEW00001"
+    assert writer.return_value.add_item.call_count == 1
+
+
+def test_add_unknown_outcome_blocks_retry_with_conflict(tmp_path):
+    with (
+        patch("zotero_cli.core.zotero.idempotency.state_dir", return_value=tmp_path),
+        patch("zotero_cli.commands.items.add.ZoteroWriter") as writer,
+    ):
+        writer.return_value.add_item.side_effect = ZoteroWriteError(
+            "timeout after POST", code="network_error", retryable=True
+        )
+        args = ["add", "--doi", "10.1000/x", "--no-resolve", "--idempotency-key", "k"]
+        first = invoke_agent_cli(args, env=ENV)
+        retry = invoke_agent_cli(args, env=ENV)
+    assert first.exit_code == 5
+    assert retry.exit_code == 6
+    assert writer.return_value.add_item.call_count == 1
+
+
+def test_attach_success_is_replayed_without_a_second_upload(tmp_path):
+    pdf = tmp_path / "paper.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    with (
+        patch("zotero_cli.core.zotero.idempotency.state_dir", return_value=tmp_path),
+        patch("zotero_cli.commands.attachments.attach.ZoteroWriter") as writer,
+    ):
+        writer.return_value.upload_attachment.return_value = "ATT00001"
+        args = ["attach", "ABC", "--file", str(pdf), "--idempotency-key", "k"]
+        first = invoke_agent_cli(args, env=ENV)
+        retry = invoke_agent_cli(args, env=ENV)
+    assert first.exit_code == 0, first.output
+    assert json.loads(retry.output)["data"]["attachment_key"] == "ATT00001"
+    assert writer.return_value.upload_attachment.call_count == 1
+
+
+def test_delete_unknown_outcome_blocks_retry_with_conflict(tmp_path):
+    with (
+        patch("zotero_cli.core.zotero.idempotency.state_dir", return_value=tmp_path),
+        patch("zotero_cli.commands.items.delete.ZoteroWriter") as writer,
+    ):
+        writer.return_value.delete_item.side_effect = ZoteroWriteError(
+            "connection reset", code="network_error", retryable=True
+        )
+        args = ["delete", "ABC", "--yes", "--idempotency-key", "k"]
+        first = invoke_agent_cli(args, env=ENV)
+        retry = invoke_agent_cli(args, env=ENV)
+    assert first.exit_code == 1  # partial/total delete failure envelope
+    assert retry.exit_code == 6
+    assert json.loads(retry.output)["error"]["code"] == "conflict"
+    assert writer.return_value.delete_item.call_count == 1

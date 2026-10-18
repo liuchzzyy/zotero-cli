@@ -1,10 +1,11 @@
 """SQLite-backed replay cache and opt-in durable mutation reservations.
 
-The success cache alone cannot protect a write that committed remotely but
-lost its response. Callers using only get_cached/store_cached do NOT have an
-exactly-once guarantee. Note creation additionally reserves (scope, key)
-before sending: an in-flight or uncertain attempt blocks blind resends, even
-after the cache TTL. Reservations require reconciliation, not time-based expiry.
+Every idempotent mutation (add, update, delete, attach, note creation) reserves
+(scope, key) before sending: an in-flight or unknown outcome blocks blind
+resends, even after the cache TTL. Callers may keep using get_cached/
+store_cached directly, but that pair alone does NOT provide an exactly-once
+guarantee - use begin_mutation/release_rejected_mutation for writes whose
+outcome matters. Reservations require reconciliation, not time-based expiry.
 
 Scopes bind the command, library and request without including credentials.
 """
@@ -18,9 +19,16 @@ import time
 from contextlib import closing
 from pathlib import Path
 
+import httpx
+
 from zotero_cli.config import state_dir
 
 TTL_SECONDS = 24 * 60 * 60
+
+# Statuses that prove the server rejected the write; the reservation can be
+# released safely. Anything else (5xx, timeouts, 412) leaves the outcome
+# unknown and keeps the reservation in place.
+_REJECTED_STATUS_CODES = frozenset({400, 401, 403, 404, 409, 413, 422, 428, 429})
 
 
 class PendingMutationError(Exception):
@@ -32,6 +40,46 @@ def request_scope(command: str, library_type: str, library_id: str, payload: obj
     serialized = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
     digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
     return f"{command}:{library_type}:{library_id}:{digest}"
+
+
+def response_definitely_rejected(response: object) -> bool:
+    """Return True only when the response proves the remote write did not land.
+
+    pyzotero keeps the response of the last write request on the client, so
+    callers can distinguish an explicit rejection (safe to release the
+    reservation) from an unknown outcome (network drop, 412, 5xx, bad JSON).
+    """
+    if not isinstance(response, httpx.Response) or response.request.method not in {"POST", "PATCH", "PUT", "DELETE"}:
+        return False
+    if response.status_code in _REJECTED_STATUS_CODES:
+        return True
+    if response.status_code != 200:
+        return False
+    try:
+        payload = response.json()
+    except ValueError:
+        return False
+    if not isinstance(payload, dict) or any(payload.get(field) for field in ("successful", "success", "unchanged")):
+        return False
+    failed = payload.get("failed")
+    failure = failed.get("0") if isinstance(failed, dict) else None
+    code = failure.get("code") if isinstance(failure, dict) else None
+    return isinstance(code, int) and code in _REJECTED_STATUS_CODES
+
+
+_DEFINITIVE_FAILURE_CODES = frozenset({"not_found", "validation_error", "auth_invalid"})
+
+
+def failure_definitely_rejected(*, response: object, code: str, retryable: bool) -> bool:
+    """Return True when a write error proves the remote mutation did not land.
+
+    Uses the last HTTP response when available; otherwise falls back to error
+    codes that cannot represent an unknown outcome (a rejected key or invalid
+    payload never commits). Conflicts, 5xx and network errors stay ambiguous.
+    """
+    if response_definitely_rejected(response):
+        return True
+    return code in _DEFINITIVE_FAILURE_CODES and not retryable
 
 
 def _db_path() -> Path:
@@ -52,6 +100,8 @@ def _connect() -> sqlite3.Connection:
         "scope TEXT NOT NULL, key TEXT NOT NULL, created_at INTEGER NOT NULL, "
         "PRIMARY KEY (scope, key))"
     )
+    conn.execute("DELETE FROM cache WHERE created_at < ?", (int(time.time()) - TTL_SECONDS,))
+    conn.commit()
     return conn
 
 

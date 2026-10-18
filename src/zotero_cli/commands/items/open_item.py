@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 
@@ -13,11 +14,17 @@ from zotero_cli.output.exit_codes import emit_error
 
 
 def _open_path(path: str) -> None:
-    """Open a file or URL with the system default handler."""
+    """Open a file or URL with the system default handler.
+
+    Uses one fixed, argument-only invocation per platform (no shell): on macOS
+    "open", on Linux "xdg-open", and on Windows the native os.startfile API
+    (which takes a filename, never a command string, so no shell quoting is
+    involved).
+    """
     if sys.platform == "darwin":
         subprocess.run(["open", path], check=True)
     elif sys.platform == "win32":
-        subprocess.run(["start", path], shell=True, check=True)
+        os.startfile(path)  # type: ignore[attr-defined]  # Windows-only API
     else:
         subprocess.run(["xdg-open", path], check=True)
 

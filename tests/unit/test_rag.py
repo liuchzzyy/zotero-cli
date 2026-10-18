@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from zotero_cli.config import EmbeddingConfig
 from zotero_cli.core.rag import (
     build_metadata_chunk,
     chunk_mineru_content,
     chunk_text,
+    clean_html,
     embed_texts,
     filter_ranked_results_by_pdf_kind,
     get_pdf_kind_from_source,
@@ -291,3 +294,99 @@ class TestRRF:
         ids = [cid for cid, _, _ in fused]
         assert set(ids) == {1, 2}
         assert ids[0] == 2
+
+
+class TestMetadataCleaning:
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("&#65;", "A"),
+            ("&#x41;", "A"),
+            ("&#1114112;", "&#1114112;"),
+            ("&#x110000;", "&#x110000;"),
+            ("&#xD800;", "&#xD800;"),
+            ("&#0;", "&#0;"),
+            ("&#999999999999999999999;", "&#999999999999999999999;"),
+        ],
+    )
+    def test_numeric_entities_never_crash(self, raw, expected):
+        assert clean_html(raw) == expected
+
+    def test_well_formed_entities_still_decode(self):
+        assert clean_html("&amp; &lt; &gt; &quot; &apos;") == "& < > \" '"
+
+
+class TestEmbeddingInputType:
+    def _response(self, embeddings, *, ok=True, status_code=200, text=""):
+        resp = MagicMock()
+        resp.ok = ok
+        resp.status_code = status_code
+        resp.text = text
+        resp.json.return_value = {"data": [{"embedding": vector} for vector in embeddings]}
+        return resp
+
+    def test_query_input_type_is_sent_to_the_provider(self):
+        cfg = EmbeddingConfig(url="https://ai.gitee.com/v1", api_key="key", model="bge-m3")
+        with patch(
+            "zotero_cli.core.rag.providers.gitee.requests.post",
+            return_value=self._response([[1.0, 2.0]]),
+        ) as mock_post:
+            assert embed_texts(["query text"], cfg, input_type="query") == [[1.0, 2.0]]
+        payload = mock_post.call_args.kwargs["json"]
+        assert payload["input_type"] == "query"
+        assert payload["input"] == ["query text"]
+
+    def test_document_input_type_keeps_request_shape(self):
+        cfg = EmbeddingConfig(url="https://ai.gitee.com/v1", api_key="key", model="bge-m3")
+        with patch(
+            "zotero_cli.core.rag.providers.gitee.requests.post",
+            return_value=self._response([[1.0]]),
+        ) as mock_post:
+            assert embed_texts(["document text"], cfg) == [[1.0]]
+        payload = mock_post.call_args.kwargs["json"]
+        assert "input_type" not in payload
+        assert payload["input"] == ["document text"]
+
+    def test_query_input_type_falls_back_when_provider_rejects_field(self):
+        cfg = EmbeddingConfig(url="https://ai.gitee.com/v1", api_key="key", model="bge-m3")
+        rejected = MagicMock(ok=False, status_code=400, text="unknown field input_type")
+        accepted = self._response([[0.5]])
+        with patch(
+            "zotero_cli.core.rag.providers.gitee.requests.post",
+            side_effect=[rejected, accepted],
+        ) as mock_post:
+            assert embed_texts(["query text"], cfg, input_type="query") == [[0.5]]
+        assert mock_post.call_count == 2
+        assert "input_type" not in mock_post.call_args_list[1].kwargs["json"]
+
+    def test_unsupported_provider_is_not_silently_sent_to_gitee(self, capsys):
+        cfg = EmbeddingConfig(url="https://example.invalid/v1", api_key="key", model="model", provider="other")
+        with patch("zotero_cli.core.rag.providers.gitee.requests.post") as mock_post:
+            assert embed_texts(["text"], cfg) is None
+        mock_post.assert_not_called()
+        assert "Unsupported embedding provider" in capsys.readouterr().err
+
+    def test_invalid_input_type_is_rejected(self):
+        from zotero_cli.core.rag.providers.gitee import GiteeEmbeddingProvider
+
+        with pytest.raises(ValueError, match="input_type"):
+            GiteeEmbeddingProvider(api_key="key").embed(["text"], input_type="other")
+
+
+class TestRRFValidation:
+    def test_weights_must_match_rankings(self):
+        ranking = [(1, 0.9, {"id": 1})]
+        with pytest.raises(ValueError, match="one entry per ranking"):
+            weighted_reciprocal_rank_fusion([ranking], weights=[1.0, 2.0], k=60)
+        with pytest.raises(ValueError, match="one entry per ranking"):
+            weighted_reciprocal_rank_fusion([ranking, ranking], weights=[1.0], k=60)
+
+    @pytest.mark.parametrize("k", [0, -1, -60, True, 1.5])
+    def test_k_must_be_a_positive_integer(self, k):
+        with pytest.raises(ValueError, match="k must be a positive integer"):
+            weighted_reciprocal_rank_fusion([[]], k=k)
+
+    @pytest.mark.parametrize("weight", [float("nan"), float("inf"), -1.0, True, "1"])
+    def test_weights_must_be_finite_non_negative_numbers(self, weight):
+        with pytest.raises(ValueError):
+            weighted_reciprocal_rank_fusion([[]], weights=[weight], k=60)

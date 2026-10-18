@@ -168,8 +168,8 @@ class TestRendererSpacing:
 
 class TestShortNoteSpacing:
     def test_normalize_keeps_punctuation_rules_unpadded(self):
-        # normalize_short_note must stay a punctuation/newline normaliser: the
-        # 500-char budget is validated before padding is applied.
+        # normalize_short_note must stay a punctuation/newline normaliser; the
+        # final 500-char budget is validated on the padded value that is stored.
         out = normalize_short_note("Na预插层δ-MnO2 | 界面主导存储 | 疑问: 界面容量未分离")
         assert out == "Na预插层δ-MnO2 | 界面主导存储 | 疑问：界面容量未分离"
         assert validate_short_note(out) is None
@@ -180,6 +180,12 @@ class TestShortNoteSpacing:
         )
         assert validate_short_note(padded) is None
         assert "Na 预插层层状 δ-MnO2 与双直径 CNT" in padded
+
+    def test_padded_over_limit_short_note_is_rejected(self):
+        padded = prepare("中A" * 100 + " | " + "中A" * 100 + " | 疑问：中A")
+        assert len(padded) > 500
+        error = validate_short_note(padded)
+        assert error is not None and "too long" in error
 
 
 class TestTemplateSpacingRule:

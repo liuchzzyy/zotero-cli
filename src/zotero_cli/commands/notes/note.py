@@ -72,7 +72,15 @@ def note_cmd(
     cfg = load_config(profile=ctx.obj.get("profile"))
     json_out = ctx.obj.get("json", False)
 
-    if content:
+    if content is not None:
+        if not content.strip():
+            emit_error(
+                "validation_error",
+                "Note content must not be empty",
+                output_json=json_out,
+                hint="Pass a non-empty string after --add",
+                context="note",
+            )
         if dry_run:
             data = {"would": {"parent": key, "content_preview": content[:200]}}
             if json_out:
@@ -192,6 +200,14 @@ def note_cmd(
         try:
             notes = reader.get_notes(key)
             if not notes:
+                if reader.get_item(key) is None:
+                    emit_error(
+                        "not_found",
+                        f"Item '{key}' not found",
+                        output_json=json_out,
+                        hint="Check the item key (zot search / zot recent)",
+                        context="note",
+                    )
                 emit_error(
                     "not_found",
                     f"No notes found for '{key}'",

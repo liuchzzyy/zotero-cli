@@ -3,20 +3,25 @@
 Chinese-metadata and DOI-intake helpers for the user's Zotero library. They are
 maintained scripts, not `zot` subcommands; they import `zotero_cli` from this
 checkout and follow the CLI's central rule: the local `zotero.sqlite` is only
-read, and every mutation goes through the Zotero Web API and is verified by
-readback before it is reported as done.
+read, and every Zotero mutation goes through the Zotero Web API and is verified
+by readback before it is reported as done.
 
 ## Requirements
 
 - Run from the repository root with `uv run python tools/paper2zotero/<script>.py`
   so the package and the repo-local config resolve.
 - `.zot/config.toml` (env overrides win: `env > profile > defaults`) with
-  `data_dir`, `prefs_js_path`, and user-library write credentials
-  (`library_id` + `api_key`). Relevant env vars: `ZOT_DATA_DIR`,
-  `ZOT_LIBRARY_ID`, `ZOT_API_KEY`, `ZOT_PROFILE`; `ZOT_CROSSREF_MAILTO`
-  overrides the Crossref polite-pool contact read by zotero-cli's shared
-  Crossref resolver. `zot config show` prints the effective path without
-  exposing the key; never print keys or tokens.
+  `data_dir`, `prefs_js_path`, and Zotero library credentials
+  (`library_id` + `api_key`; `ZOT_LIBRARY_ID` / `ZOT_API_KEY` override the
+  file). Relevant env vars: `ZOT_DATA_DIR`, `ZOT_LIBRARY_ID`, `ZOT_API_KEY`,
+  `ZOT_PROFILE`; `ZOT_CROSSREF_MAILTO` overrides the Crossref polite-pool
+  contact (the tools resolve it through zotero-cli's shared
+  `resolve_crossref_mailto`, so both the file value and the env override work).
+  `zot config show` prints the effective path without exposing the full key;
+  never print keys or tokens.
+- Preview modes still read the remote library through the Web API and therefore
+  need the configured Zotero API credentials; they never write. Whatever the
+  key's write permission, `--apply` is what performs mutations.
 - Network access to `api.crossref.org`, OpenAlex, and the translation backend.
   Tests mock all of them; do not run a real import from a test.
 - Two translation backends are in use and are not interchangeable:
@@ -28,6 +33,16 @@ readback before it is reported as done.
 - `zotero_inbox.py` reads the producer CSV from the hard-coded
   `/Users/liuchzzyy/CodeSpace/PaperCrossref` directory (`SCRIPT_DIR`); update
   that constant if the producer moves.
+- Checkpoints live under the git-ignored repo state dir,
+  `.zot/state/paper2zotero/`, never in the tracked tools tree:
+  - `backfill_titles_state.json`
+  - `translate_abstracts_state.json` (override per run with `--state-file`)
+  - `zh_state_<collection_key>.json` (override per run with `--state-file`)
+
+  Migration note: checkpoints previously written next to the scripts in
+  `tools/paper2zotero/` are **not** moved automatically. Move the old file(s) into
+  `.zot/state/paper2zotero/` once to keep resuming an in-progress run; otherwise
+  the tool starts a fresh checkpoint (only re-translation cost, no data loss).
 
 ## Scripts
 
@@ -54,15 +69,22 @@ uv run python tools/paper2zotero/zotero_inbox.py --dry-run
 uv run python tools/paper2zotero/zotero_inbox.py --date 2026-10-17
 ```
 
+`--dry-run` only reads the CSV and lists candidate DOIs; it does not touch the
+Zotero Web API.
+
 ### `backfill_titles.py` — library-wide translated-title backfill
 
 Inventories the *remote* user library through the Web API (optionally limited to
 `--collection`), selects titled items without a `translated-title:` line,
-stages exact `key`/`title` -> Chinese title translations through Hermes
-(`backfill_titles_state.json` next to the script), and optionally writes one
-Extra line per item. It never overwrites an existing `translated-title`,
-re-reads each key before writing, and verifies title/DOI/Extra by readback.
-Dry-run is the default; `--apply` performs the writes.
+stages exact `key`/`title` -> Chinese title translations through Hermes, and
+optionally writes one Extra line per item. The checkpoint is
+`.zot/state/paper2zotero/backfill_titles_state.json`; staging is checkpointed
+after every completed batch, so an interrupted run resumes without re-translating
+finished batches. It never overwrites an existing `translated-title`, re-reads
+each key before writing, verifies title/DOI/Extra by readback, and refuses to
+silently rebuild an unreadable checkpoint. Dry-run is the default (it requires
+the Zotero API credentials + network for the inventory read, but performs no
+writes); `--apply` performs the writes.
 
 ```bash
 uv run python tools/paper2zotero/backfill_titles.py
@@ -73,11 +95,21 @@ uv run python tools/paper2zotero/backfill_titles.py --collection "00 | 收件箱
 
 Translates English `abstractNote` values to Chinese for `--collection`,
 repeatable `--key`, or `--all`. Items without an abstract are skipped, and
-already-Chinese abstracts are skipped unless `--force` is passed. Translation
-batches go through Hermes; the resumable checkpoint is
-`translate_abstracts_state.json` (override with `--state-file`). Every write is
-read back to assert the stored `abstractNote` matches the normalised text.
-Dry-run/preview is the default; `--apply` writes.
+already-Chinese abstracts are skipped unless `--force` is passed. `--force`
+re-includes already-Chinese abstracts in the translation staging, but the final
+write guard still refuses to overwrite a different valid Chinese abstract (it
+only reports `already_up_to_date` when the text is identical); the flag cannot
+silently replace existing translations.
+
+Translation batches go through Hermes; the resumable checkpoint is
+`.zot/state/paper2zotero/translate_abstracts_state.json` (override with
+`--state-file`) and is written after every completed batch, so an interrupted
+run resumes the remaining batches. An unreadable or malformed checkpoint is
+refused (fail closed) instead of being silently rebuilt. Every write is read
+back to assert the stored `abstractNote` matches the normalised text.
+Dry-run/preview is the default: it inventories candidates and needs the Zotero
+API credentials, but performs no model translation and no writes; `--apply`
+stages translations and writes them.
 
 ```bash
 uv run python tools/paper2zotero/translate_abstracts.py --collection "00 | 收件箱"
@@ -91,12 +123,21 @@ Syncs one collection (given by key or exact/unique name) in two fields:
 title is translated into an Extra `translated-title:` line. Existing
 translations and already-Chinese text are skipped, never overwritten. Missing
 English abstracts are recovered from Crossref, the local Zotero
-`.zotero-ft-cache` PDF text layer, or OpenAlex before translation. Translations
-run through `zotero_cli`'s `AiClient` (`[ai_notes]`) and are normalised by
-`zh_text`. The state file (`zh_state_<collection_key>.json`, or
-`--state-file`) is checkpointed atomically after every batch. Without
-`--apply` the script only inventories and stages translations; `--apply`
-writes through the Web API and verifies each field by readback.
+`.zotero-ft-cache` PDF text layer, or OpenAlex before translation; recovery
+failures are reported on stderr. Items whose publisher blocks automated
+retrieval can be supplied locally with `ZOT_PAPER2ZOTERO_MANUAL_ABSTRACTS`: a
+JSON file outside the repository mapping Zotero item keys to
+`[abstract_text, source_label]` pairs (or `{"abstract": ..., "source": ...}`
+objects). No library-specific abstract data is committed in the tool source.
+
+Translations run through `zotero_cli`'s `AiClient` (`[ai_notes]`) and are
+normalised by `zh_text`. The state file
+(`.zot/state/paper2zotero/zh_state_<collection_key>.json`, or `--state-file`)
+is checkpointed atomically after every batch; an unreadable checkpoint is
+refused instead of being rebuilt. Without `--apply` the script still inventories
+the remote library, recovers abstracts over the network, runs the configured AI
+translation and stages the state file — it is a staging run, not a free preview.
+`--apply` then writes through the Web API and verifies each field by readback.
 
 ```bash
 uv run python tools/paper2zotero/batch_translate_metadata.py --collection "00 | 收件箱"
@@ -121,8 +162,9 @@ re-implementing the rules in a new script.
   default and takes `--dry-run`; preview before the first real run.
 - Every write is re-read from the Web API and compared field by field; an
   uncertain response is surfaced rather than blindly retried.
-- State files and processed CSVs are local run state. Keep them to resume, and
-  do not commit library data or credentials.
+- Checkpoints are written atomically with unique temp names and live under the
+  git-ignored `.zot/state/paper2zotero/`. Keep them to resume; do not commit
+  library data or credentials.
 - Zotero Desktop must sync before `zot read`/`zot list` show a Web API write.
 
 ## Tests

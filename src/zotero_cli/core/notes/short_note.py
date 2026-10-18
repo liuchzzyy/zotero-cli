@@ -1,20 +1,21 @@
 """Generate, normalise and validate the compact Extra short-note keywords.
 
 The model answers with a pipe-separated short-note string. It is normalised
-(common punctuation and newline quirks), validated against the length and
-segment contract, and only then flattened for Zotero: the budget must measure
-the content the model produced, not the separators the normaliser inserts.
+(common punctuation and newline quirks), flattened for Zotero (super/subscripts
+and CJK/Latin spacing), and validated against the length and segment contract on
+the exact value that will be written, so inserted padding counts toward the
+documented 500-character budget.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 
-from zotero_cli.core.notes.classification import _chat, extract_json_object
+from zotero_cli.core.notes.classification import _chat, extract_json_object, wrap_untrusted
 from zotero_cli.core.notes.client import AiClient
 from zotero_cli.core.notes.constants import PARSE_RETRY_SUFFIX
 from zotero_cli.core.notes.errors import NoteAnalysisError
-from zotero_cli.core.notes.templates import format_template, load_template
+from zotero_cli.core.notes.templates import fit_text_to_prompt, format_template, load_template
 from zotero_cli.core.notes.text import prepare
 
 _SHORT_NOTE_MAX_CHARS = 500
@@ -63,7 +64,8 @@ def _generate_short_note(
     progress: Callable[[str, str], None] | None,
 ) -> str:
     template = load_template("short-note")
-    prompt = format_template(template, fulltext=note_text)
+    source_text = fit_text_to_prompt(template, note_text)
+    prompt = format_template(template, fulltext=wrap_untrusted(source_text, "ai-note"))
     if progress:
         progress("keywords", "生成关键词（short-note）")
     answer = _chat(ai_client, prompt, temperature=0.1, progress=progress)
@@ -75,9 +77,9 @@ def _generate_short_note(
         data = extract_json_object(_chat(ai_client, prompt + PARSE_RETRY_SUFFIX, temperature=0.1, progress=progress))
     short_note = str(data.get("short_note") or "").strip()
     normalized = normalize_short_note(short_note)
-    error = validate_short_note(normalized)
+    # Padding adds characters, so validate the exact value written to Extra.
+    padded = prepare(normalized)
+    error = validate_short_note(padded)
     if error:
         raise NoteAnalysisError(f"关键词格式不合规：{error}", code="runtime_error")
-    # Flatten after validation: the length budget must measure the content the
-    # model produced, not the separators this inserts.
-    return prepare(normalized)
+    return padded

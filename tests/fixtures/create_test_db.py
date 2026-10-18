@@ -7,11 +7,27 @@ FIXTURE_DIR = Path(__file__).parent
 DB_PATH = FIXTURE_DIR / "zotero.sqlite"
 
 
-def create_test_db() -> None:
-    if DB_PATH.exists():
-        DB_PATH.unlink()
+FULLTEXT_CACHE_FILENAME = ".zotero-ft-cache"
 
-    conn = sqlite3.connect(str(DB_PATH))
+
+def write_fulltext_caches() -> None:
+    """Write Zotero v130-style per-attachment full-text caches for the fixture."""
+    caches = {
+        "ATCH005": "Attention Is All You Need transformer architecture mechanism",
+        "GRPATT10": "protein folding group paper",
+    }
+    for attachment_key, text in caches.items():
+        cache_dir = FIXTURE_DIR / "storage" / attachment_key
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        (cache_dir / FULLTEXT_CACHE_FILENAME).write_text(text, encoding="utf-8")
+
+
+def create_test_db(db_path: Path | None = None) -> None:
+    target = db_path if db_path is not None else DB_PATH
+    if target.exists():
+        target.unlink()
+
+    conn = sqlite3.connect(str(target))
     c = conn.cursor()
 
     # Core schema (simplified from Zotero source)
@@ -84,8 +100,15 @@ def create_test_db() -> None:
         CREATE TABLE relationPredicates (predicateID INTEGER PRIMARY KEY, predicate TEXT NOT NULL UNIQUE);
         INSERT INTO relationPredicates VALUES (1, 'dc:relation');
 
-        CREATE TABLE fulltextItemWords (wordID INT NOT NULL, itemID INT NOT NULL, PRIMARY KEY (wordID, itemID));
-        CREATE TABLE fulltextWords (wordID INTEGER PRIMARY KEY, word TEXT NOT NULL UNIQUE);
+        CREATE TABLE fulltextItems (
+            itemID INTEGER PRIMARY KEY,
+            indexedPages INT NOT NULL DEFAULT 0,
+            totalPages INT NOT NULL DEFAULT 0,
+            indexedChars INT NOT NULL DEFAULT 0,
+            totalChars INT NOT NULL DEFAULT 0,
+            version INT NOT NULL DEFAULT 0,
+            synced INT NOT NULL DEFAULT 0
+        );
 
         CREATE TABLE deletedItems (
             itemID INTEGER PRIMARY KEY,
@@ -95,7 +118,7 @@ def create_test_db() -> None:
         CREATE INDEX deletedItems_dateDeleted ON deletedItems(dateDeleted);
 
         CREATE TABLE version (schema TEXT PRIMARY KEY, version INT NOT NULL);
-        INSERT INTO version VALUES ('userdata', 120);
+        INSERT INTO version VALUES ('userdata', 130);
     """)
 
     # Test data: 2 journal articles, 1 book
@@ -180,13 +203,9 @@ def create_test_db() -> None:
     # Relations: item 1 and item 2 are related
     c.execute("INSERT INTO itemRelations VALUES (1, 1, 'http://zotero.org/users/local/BERT002')")
 
-    # Fulltext index for item 1
-    c.execute("INSERT INTO fulltextWords VALUES (1, 'transformer')")
-    c.execute("INSERT INTO fulltextWords VALUES (2, 'attention')")
-    c.execute("INSERT INTO fulltextWords VALUES (3, 'mechanism')")
-    c.execute("INSERT INTO fulltextItemWords VALUES (1, 5)")  # attachment itemID
-    c.execute("INSERT INTO fulltextItemWords VALUES (2, 5)")
-    c.execute("INSERT INTO fulltextItemWords VALUES (3, 5)")
+    # Fulltext index for item 1 (v130 keeps extraction state only; the text
+    # lives in storage/ATCH005/.zotero-ft-cache, written by write_fulltext_caches())
+    c.execute("INSERT INTO fulltextItems VALUES (5, 1, 1, 60, 60, 0, 0)")
 
     # Item 7: Trashed item "Old Survey Paper"
     c.execute("INSERT INTO items VALUES (7, 2, '2023-06-01', '2023-06-02', '2023-06-02', 1, 'TRSH007')")
@@ -217,8 +236,7 @@ def create_test_db() -> None:
     # Item 10: Attachment for group item (for fulltext search isolation test)
     c.execute("INSERT INTO items VALUES (10, 3, '2024-06-01', '2024-06-02', '2024-06-02', 2, 'GRPATT10')")
     c.execute("INSERT INTO itemAttachments VALUES (10, 9, 0, 'application/pdf', NULL, 'storage:protein.pdf')")
-    c.execute("INSERT INTO fulltextWords VALUES (4, 'protein')")
-    c.execute("INSERT INTO fulltextItemWords VALUES (4, 10)")  # group attachment
+    c.execute("INSERT INTO fulltextItems VALUES (10, 1, 1, 25, 25, 0, 0)")  # group attachment
 
     # Group collection
     c.execute("INSERT INTO collections VALUES (3, 'Group Papers', NULL, 2, 'GRPCOL03')")
@@ -226,7 +244,9 @@ def create_test_db() -> None:
 
     conn.commit()
     conn.close()
-    print(f"Created test DB at {DB_PATH}")
+    if db_path is None:
+        write_fulltext_caches()
+    print(f"Created test DB at {target}")
 
 
 if __name__ == "__main__":

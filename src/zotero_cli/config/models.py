@@ -74,8 +74,8 @@ class AiNoteConfig:
     model: str = "deepseek-flash"
     fallback_models: list[str] = field(default_factory=lambda: ["gemini-3.8-flash-high", "gpt-5.6-sol"])
     reasoning_effort: str = "max"
-    api_mode: str = "auto"
-    chat_token_param: str = "auto"
     temperature: float = 0.7
     max_tokens: int = 0
     max_extracted_chars: int = 180000
+    timeout_seconds: float = 180.0
+    max_retries: int = 2

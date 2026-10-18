@@ -1,8 +1,11 @@
 """Offline tests for per-collection Chinese abstract + title sync."""
 
+import io
 import json
+import os
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -59,13 +62,13 @@ class ResolveCollectionTests(unittest.TestCase):
 class InventoryTests(unittest.TestCase):
     cfg = Mock(data_dir=Path("/nonexistent"), crossref_mailto="")
 
-    def _inventory(self, items):
+    def _inventory(self, items, overrides=None):
         api = _api([], items)
-        with (
-            patch.dict(sync.MANUAL_ABSTRACT_OVERRIDES, {"OVERRIDE": (EN, "publisher")}, clear=False),
-            patch.object(sync, "recover_missing_abstract", return_value=(None, "none")) as recover,
-        ):
-            candidates, stats = sync.inventory_collection(api, Mock(), self.cfg, collection_key="COLL0001")
+        overrides = {"OVERRIDE": (EN, "publisher")} if overrides is None else overrides
+        with patch.object(sync, "recover_missing_abstract", return_value=(None, "none")) as recover:
+            candidates, stats = sync.inventory_collection(
+                api, Mock(), self.cfg, collection_key="COLL0001", manual_overrides=overrides
+            )
         api.collection_items.assert_called_once_with("COLL0001")
         return candidates, stats, recover
 
@@ -235,16 +238,114 @@ class ApplyTests(unittest.TestCase):
 
 
 class StateFileTests(unittest.TestCase):
-    def test_default_state_file_is_per_collection(self):
-        path = str(sync.DEFAULT_STATE_FILE_TEMPLATE).format(key="COLL0001")
-        self.assertTrue(path.endswith("zh_state_COLL0001.json"))
+    def test_default_state_file_lives_under_gitignored_state_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(sync, "state_dir", return_value=Path(tmp)):
+                path = sync.default_state_path("COLL0001")
+            self.assertEqual(path, Path(tmp) / "paper2zotero" / "zh_state_COLL0001.json")
 
-    def test_manual_overrides_are_abstract_source_pairs(self):
-        for key, value in sync.MANUAL_ABSTRACT_OVERRIDES.items():
-            abstract, source = value
-            self.assertRegex(key, r"^[A-Z0-9]{8}$")
-            self.assertGreater(len(abstract), 200)
-            self.assertTrue(source)
+    def test_corrupt_checkpoint_is_not_silently_rebuilt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "state.json"
+            state_path.write_text("{unfinished", encoding="utf-8")
+            with self.assertRaisesRegex(sync.AbstractTranslationError, "拒绝覆盖"):
+                sync.load_state_map(state_path)
+            self.assertEqual(state_path.read_text(encoding="utf-8"), "{unfinished")
+
+            state_path.write_text(json.dumps([{"no_key": True}]), encoding="utf-8")
+            with self.assertRaisesRegex(sync.AbstractTranslationError, "拒绝覆盖"):
+                sync.load_state_map(state_path)
+
+    def test_write_state_cleans_temp_when_replace_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "nested" / "state.json"
+
+            def failing_replace(self, target):
+                raise OSError("disk full")
+
+            with patch.object(Path, "replace", failing_replace):
+                with self.assertRaises(OSError):
+                    sync.write_state(state_path, [{"key": "A"}])
+            self.assertEqual(list(state_path.parent.glob("*.tmp")), [])
+
+    def test_manual_overrides_are_loaded_from_a_local_env_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            override_path = Path(tmp) / "manual.json"
+            override_path.write_text(
+                json.dumps(
+                    {
+                        "KEY00001": [EN, "publisher"],
+                        "KEY00002": {"abstract": EN, "source": "manual"},
+                        "BROKEN": ["only-one"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stderr = io.StringIO()
+            with (
+                patch.dict(os.environ, {sync.MANUAL_ABSTRACTS_ENV: str(override_path)}),
+                redirect_stderr(stderr),
+            ):
+                overrides = sync.load_manual_abstract_overrides()
+        self.assertEqual(overrides["KEY00001"], (EN, "publisher"))
+        self.assertEqual(overrides["KEY00002"], (EN, "manual"))
+        self.assertNotIn("BROKEN", overrides)
+        self.assertIn("忽略无效的手动摘要覆盖项", stderr.getvalue())
+
+    def test_missing_manual_override_file_only_warns(self):
+        stderr = io.StringIO()
+        with (
+            patch.dict(os.environ, {sync.MANUAL_ABSTRACTS_ENV: "/nonexistent/manual.json"}),
+            redirect_stderr(stderr),
+        ):
+            overrides = sync.load_manual_abstract_overrides()
+        self.assertEqual(overrides, {})
+        self.assertIn("[warn]", stderr.getvalue())
+
+    def test_recovery_failures_are_logged_not_swallowed(self):
+        reader = Mock()
+        reader.get_pdf_attachments.return_value = []
+        stderr = io.StringIO()
+        with (
+            patch.object(sync.urllib.request, "urlopen", side_effect=RuntimeError("offline")),
+            redirect_stderr(stderr),
+        ):
+            abstract, source = sync.recover_missing_abstract(
+                "KEY00001", "10.1000/x", "Title", reader, Path("/nonexistent"), "cfg@example.invalid"
+            )
+        self.assertEqual((abstract, source), (None, "none"))
+        self.assertIn("[warn] Crossref 摘要恢复失败", stderr.getvalue())
+        self.assertIn("offline", stderr.getvalue())
+
+    def test_recovery_uses_configured_mailto_in_user_agent(self):
+        requests = []
+
+        def capture(request, **_kwargs):
+            requests.append(request)
+            raise RuntimeError("stop after capture")
+
+        reader = Mock()
+        reader.get_pdf_attachments.return_value = []
+        with patch.object(sync.urllib.request, "urlopen", capture):
+            sync.recover_missing_abstract(
+                "KEY00001", "10.1000/x", "Title", reader, Path("/nonexistent"), "cfg@example.invalid"
+            )
+        user_agent = requests[0].get_header("User-agent") or ""
+        self.assertIn("cfg@example.invalid", user_agent)
+        self.assertNotIn("liuchzzyy@gmail.com", user_agent)
+
+    def test_recovery_without_mailto_has_no_personal_address(self):
+        requests = []
+
+        def capture(request, **_kwargs):
+            requests.append(request)
+            raise RuntimeError("stop after capture")
+
+        reader = Mock()
+        reader.get_pdf_attachments.return_value = []
+        with patch.object(sync.urllib.request, "urlopen", capture):
+            sync.recover_missing_abstract("KEY00001", "10.1000/x", "Title", reader, Path("/nonexistent"))
+        self.assertEqual(requests[0].get_header("User-agent"), "ZoteroCli/2.0")
 
 
 if __name__ == "__main__":

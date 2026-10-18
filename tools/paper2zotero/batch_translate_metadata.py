@@ -33,6 +33,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -54,71 +55,59 @@ from translate_abstracts import (  # noqa: E402
     validate_translation,
 )
 
-from zotero_cli.config import load_ai_note_config, load_config, resolve_write_credentials  # noqa: E402
+from zotero_cli.config import (  # noqa: E402
+    load_ai_note_config,
+    load_config,
+    resolve_crossref_mailto,
+    resolve_write_credentials,
+    state_dir,
+)
 from zotero_cli.core.notes.client import AiClient  # noqa: E402
 from zotero_cli.core.zotero.reader import ZoteroReader  # noqa: E402
 from zotero_cli.core.zotero.writer import ZoteroWriter  # noqa: E402
 
-DEFAULT_STATE_FILE_TEMPLATE = TOOLS_DIR / "zh_state_{key}.json"
+PAPER2ZOTERO_STATE_SUBDIR = "paper2zotero"
+MANUAL_ABSTRACTS_ENV = "ZOT_PAPER2ZOTERO_MANUAL_ABSTRACTS"
 
 ABS_DONE = {"updated", "already_up_to_date"}
 TITLE_DONE = {"updated", "already_translated"}
 
-# Manual abstracts for items whose publisher page blocks automated retrieval,
-# keyed by Zotero item key: {key: (abstract_text, source_label)}.
-MANUAL_ABSTRACT_OVERRIDES: dict[str, tuple[str, str]] = {
-    "ZK8TQ474": (
-        "Layer-structured metal oxides are promising cathode materials for potassium-ion batteries (PIBs) "
-        "due to their high specific capacity, low cost, and environmental friendliness. However, the redox activity "
-        "and behaviors of different metal ions in such oxides remain inadequately understood. Herein, the redox behaviors "
-        "of various transition metal dopants (Fe, Co, Ni, and Cu) in P3-type K0.5MnO2 cathodes for PIBs are systematically "
-        "investigated. Although these doped elements are typically redox-active in sodium-ion battery cathodes, synchrotron "
-        "X-ray absorption spectroscopy reveals their minimal valence changes during electrochemical cycling in PIBs, "
-        "indicating unexpected redox-inert behavior. Density functional theory calculations elucidate the underlying "
-        "mechanism: doping with Fe or Cu substantially suppresses their 3d-orbital conduction bands, while Co or Ni doping "
-        "leads to larger band gaps compared to that of Mn. This electronic structure rationalizes the observed Mn-dominated "
-        "redox activity. Electrochemical tests further show that Fe- and Co-doped samples deliver higher specific capacities "
-        "than their Ni- and Cu-doped counterparts, consistent with reduced bandgaps in the Mn density of states. These findings "
-        "provide fundamental insights into the unexpected redox-inert role of variable-valence dopants in KxMnO2 cathodes, "
-        "offering guidance for designing high-performance PIB cathodes.",
-        "acs_pubs",
-    ),
-    "46ZMA4F2": (
-        "Spinel-type ZnMn2O4 cathodes for aqueous zinc-ion batteries (AZIBs) offer high theoretical capacity and elemental "
-        "abundance, yet their electrochemical performance is fundamentally hindered by Mn dissolution-induced structural instability "
-        "and sluggish Zn2+ diffusion kinetics. Herein, we propose a tunable cationic vacancy engineering strategy for ZnMn2O4 cathodes, "
-        "enabling selective introduction of Zn2+ or Mn3+ vacancies via a facile chemical coprecipitation method. Comprehensive "
-        "characterizations confirm that these cationic vacancies significantly enhance electronic conductivity and accelerate Zn2+ "
-        "diffusion kinetics. Specifically, the Zn-vacant Zn1-xMn2O4 cathode outperforms its Mn-vacant counterpart, leveraging "
-        "strengthened Mn-O bonding and reduced electrostatic repulsion during Zn2+ insertion, delivers a high reversible capacity "
-        "of 276.4 mAh g^-1 at 0.5 A g^-1, exceptional rate capability (retain 134.4 mAh g^-1 at 2 A g^-1), and long-term cyclability "
-        "with 92% capacity retention after 2000 cycles at 2 A g^-1. Furthermore, a prototype pouch cell incorporating this engineered "
-        "cathode achieves a superior capacity of 150 mAh g^-1 at 0.5 A g^-1, demonstrating its great potential for practical high-performance AZIBs.",
-        "acs_pubs",
-    ),
-    "5265A2NI": (
-        "Rechargeable aqueous zinc-manganese batteries have been receiving inclusive attention due to their high energy density, "
-        "low cost and environmental friendliness. However, the development of manganese dioxide as the cathode for aqueous "
-        "Zn-ion batteries (ZIBs) is restricted by the speedy capacity attenuation and low rate performance. Herein, a new cathode "
-        "material α-MnO2@In2O3 is proposed. After a uniform coating of In2O3 on the α-MnO2 nanotubes, the cycling stability and "
-        "rate performance have all got great improvement due to the enhancement of the electrical conductivity according to the "
-        "electrochemical kinetical investigation result. α-MnO2@In2O3 exhibits a high capacity of 425 mA h g^-1 after 100 cycles "
-        "at 100 mA g^-1, and it can still maintain 115 mA h g^-1 at a high current density of 2000 mA g^-1 after a long-term cycling "
-        "of 1300 cycles. Besides, a specific capacity of 75 mA h g^-1 is attained at 3000 mA g^-1 for 3000 cycles without significant "
-        "decay. The overall electrochemical performance are superior to most other reported cathode materials so far. This study brings "
-        "a new coating strategy of using In2O3 to the improvement of the intrinsic poor conductivity of cathode materials other than carbon coating.",
-        "iopscience",
-    ),
-    "JUHB6RVF": (
-        "Chalcophanite, ZnMn3O7·3H2O, crystallizes in the triclinic system with a = 7.54 Å, b = 7.54 Å, c = 8.22 Å, "
-        "α = 90°, β = 117.2°, γ = 120°; the space group is P-1 with two formula units in the unit cell. "
-        "The structure contains sheets of edge-sharing [MnO6] octahedra, with one out of every seven octahedral sites "
-        "vacant, ordered in a superlattice. The Zn atoms are situated above and below these vacancies, coordinated to "
-        "three oxygens of the sheet and three water molecules. The water molecules form a double layer between the "
-        "sheets, held together by hydrogen bonds.",
-        "acta_cryst",
-    ),
-}
+
+def default_state_path(collection_key: str) -> Path:
+    """Checkpoint under the git-ignored repo state dir, never the tracked tools tree."""
+    return state_dir() / PAPER2ZOTERO_STATE_SUBDIR / f"zh_state_{collection_key}.json"
+
+
+def load_manual_abstract_overrides() -> dict[str, tuple[str, str]]:
+    """Load optional local abstracts for publisher-blocked items.
+
+    ``ZOT_PAPER2ZOTERO_MANUAL_ABSTRACTS`` points at a JSON object outside the
+    repository mapping Zotero item keys to ``[abstract_text, source_label]``
+    pairs (or ``{"abstract": ..., "source": ...}`` objects), so real library
+    data is configured locally instead of being committed in the tool source.
+    An unreadable file only warns and falls back to automated recovery.
+    """
+    raw_path = os.environ.get(MANUAL_ABSTRACTS_ENV, "").strip()
+    if not raw_path:
+        return {}
+    path = Path(raw_path).expanduser()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        print(f"[warn] 无法读取手动摘要覆盖文件 {path}: {exc}", file=sys.stderr)
+        return {}
+    if not isinstance(data, dict):
+        print(f"[warn] 手动摘要覆盖文件格式无效（应为 JSON 对象）: {path}", file=sys.stderr)
+        return {}
+    overrides: dict[str, tuple[str, str]] = {}
+    for key, value in data.items():
+        if isinstance(value, (list, tuple)) and len(value) == 2 and all(isinstance(item, str) for item in value):
+            overrides[str(key)] = (value[0], value[1])
+        elif isinstance(value, dict) and isinstance(value.get("abstract"), str):
+            overrides[str(key)] = (value["abstract"], str(value.get("source") or "manual"))
+        else:
+            print(f"[warn] 忽略无效的手动摘要覆盖项: {key}", file=sys.stderr)
+    return overrides
 
 
 def recover_missing_abstract(
@@ -127,14 +116,20 @@ def recover_missing_abstract(
     title: str,
     reader: ZoteroReader,
     storage_dir: Path,
-    mailto: str = "liuchzzyy@gmail.com",
+    mailto: str = "",
 ) -> tuple[str | None, str]:
-    """Recover missing abstract from Crossref, local PDF cache, or OpenAlex."""
+    """Recover missing abstract from Crossref, local PDF cache, or OpenAlex.
+
+    ``mailto`` only feeds the polite-pool User-Agent; callers pass the configured
+    contact so no personal address is baked into the tool. Recovery failures are
+    reported on stderr instead of being silently treated as "no abstract".
+    """
+    user_agent = f"ZoteroCli/2.0 (mailto:{mailto})" if mailto else "ZoteroCli/2.0"
     # 1. Try Crossref
     if doi:
         try:
             url = f"https://api.crossref.org/works/{urllib.parse.quote(doi)}"
-            req = urllib.request.Request(url, headers={"User-Agent": f"ZoteroCli/2.0 (mailto:{mailto})"})
+            req = urllib.request.Request(url, headers={"User-Agent": user_agent})
             with urllib.request.urlopen(req, timeout=5) as resp:
                 data = json.loads(resp.read().decode())
                 raw_ab = data.get("message", {}).get("abstract", "")
@@ -143,8 +138,8 @@ def recover_missing_abstract(
                     clean = " ".join(clean.split())
                     if len(clean) > 80:
                         return clean, "crossref"
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[warn] Crossref 摘要恢复失败 {doi}: {exc}", file=sys.stderr)
 
     # 2. Try local PDF .zotero-ft-cache
     try:
@@ -164,14 +159,14 @@ def recover_missing_abstract(
                         cand = " ".join(m.group(1).split())
                         if 120 < len(cand) < 3500 and "supporting information" not in cand.lower()[:50]:
                             return cand, f"pdf:{a.key}"
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[warn] 本地 PDF 缓存摘要恢复失败 {key}: {exc}", file=sys.stderr)
 
     # 3. Try OpenAlex
     if doi:
         try:
             url = f"https://api.openalex.org/works/https://doi.org/{urllib.parse.quote(doi)}"
-            req = urllib.request.Request(url, headers={"User-Agent": f"ZoteroCli/2.0 (mailto:{mailto})"})
+            req = urllib.request.Request(url, headers={"User-Agent": user_agent})
             with urllib.request.urlopen(req, timeout=5) as r:
                 d = json.loads(r.read())
                 inv = d.get("abstract_inverted_index")
@@ -183,8 +178,8 @@ def recover_missing_abstract(
                     ab = " ".join(w for w in words if w is not None)
                     if len(ab) > 100:
                         return ab, "openalex"
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[warn] OpenAlex 摘要恢复失败 {doi}: {exc}", file=sys.stderr)
 
     return None, "none"
 
@@ -215,6 +210,7 @@ def inventory_collection(
     reader: ZoteroReader,
     cfg: Any,
     collection_key: str,
+    manual_overrides: dict[str, tuple[str, str]] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     """Inventory the collection and return one candidate row per item needing work.
 
@@ -227,6 +223,8 @@ def inventory_collection(
     print(f"获取到顶层文献条目 {len(top_articles)} 篇。")
 
     storage_dir = Path(cfg.data_dir) / "storage"
+    overrides = load_manual_abstract_overrides() if manual_overrides is None else manual_overrides
+    mailto = resolve_crossref_mailto(cfg)
     candidates: list[dict[str, Any]] = []
     stats = {
         "total": len(top_articles),
@@ -269,11 +267,11 @@ def inventory_collection(
                 stats["abstract_needs_translation"] += 1
         else:
             recovered: str | None
-            override = MANUAL_ABSTRACT_OVERRIDES.get(key)
+            override = overrides.get(key)
             if override:
                 recovered, src = override
             else:
-                recovered, src = recover_missing_abstract(key, doi, title, reader, storage_dir, cfg.crossref_mailto)
+                recovered, src = recover_missing_abstract(key, doi, title, reader, storage_dir, mailto)
 
             if recovered:
                 stats["abstract_recovered"] += 1
@@ -299,24 +297,38 @@ def inventory_collection(
 
 
 def write_state(path: Path, state: list[dict[str, Any]]) -> None:
-    """Atomic state file write."""
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(path)
+    """Atomic state file write with a per-writer unique temp name.
+
+    A fixed `path + ".tmp"` is shared by concurrent writers; unique names plus
+    `replace` keep the checkpoint either the previous or a complete new value,
+    and a failed write never leaves the temp file behind.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}-{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def load_state_map(state_path: Path) -> dict[str, dict[str, Any]]:
-    """Load a staged state file as {item key: row}; an unreadable file is rebuilt."""
+    """Load a staged state file as {item key: row}; refuse to silently rebuild a corrupt one."""
     if not state_path.exists():
         return {}
     try:
         existing = json.loads(state_path.read_text(encoding="utf-8"))
-    except Exception as e:
-        print(f"读取现有暂存状态失败: {e}，将重新构建。")
-        return {}
-    if isinstance(existing, list):
-        return {row["key"]: row for row in existing if isinstance(row, dict) and row.get("key")}
-    return {}
+    except (OSError, ValueError) as exc:
+        raise AbstractTranslationError(f"暂存状态文件无法读取，拒绝覆盖: {state_path}: {exc}") from exc
+    if not isinstance(existing, list) or any(
+        not isinstance(row, dict) or not isinstance(row.get("key"), str) for row in existing
+    ):
+        raise AbstractTranslationError(f"暂存状态文件格式无效，拒绝覆盖: {state_path}")
+    state_map = {row["key"]: row for row in existing}
+    if len(state_map) != len(existing):
+        raise AbstractTranslationError(f"暂存状态文件包含重复 key，拒绝覆盖: {state_path}")
+    return state_map
 
 
 def _ordered_state(candidates: list[dict[str, Any]], state_map: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
@@ -476,7 +488,12 @@ def apply_updates_from_state(
     if not state_path.exists():
         raise AbstractTranslationError(f"暂存状态文件不存在: {state_path}")
 
-    state: list[dict[str, Any]] = json.loads(state_path.read_text(encoding="utf-8"))
+    try:
+        state: list[dict[str, Any]] = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise AbstractTranslationError(f"暂存状态文件无法读取，拒绝覆盖: {state_path}: {exc}") from exc
+    if not isinstance(state, list) or any(not isinstance(row, dict) or not row.get("key") for row in state):
+        raise AbstractTranslationError(f"暂存状态文件格式无效，拒绝覆盖: {state_path}")
     counts = {
         "abstract_updated": 0,
         "abstract_already_up_to_date": 0,
@@ -568,7 +585,7 @@ def main() -> None:
         "--state-file",
         type=Path,
         default=None,
-        help="暂存状态文件路径（默认按集合 key 命名：zh_state_<key>.json）",
+        help="暂存状态文件路径（默认 .zot/state/paper2zotero/zh_state_<key>.json）",
     )
     args = parser.parse_args()
 
@@ -582,7 +599,7 @@ def main() -> None:
     ai_client = AiClient(ai_cfg)
 
     collection_key, collection_name = resolve_collection(api, args.collection)
-    state_path = args.state_file or Path(str(DEFAULT_STATE_FILE_TEMPLATE).format(key=collection_key))
+    state_path = args.state_file or default_state_path(collection_key)
     print(f"目标集合：{collection_name} ({collection_key})")
     print(f"暂存状态文件：{state_path}")
     print(f"中文标题：{'启用' if args.with_titles else '未启用'}")
@@ -622,4 +639,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (AbstractTranslationError, backfill.BackfillError, OSError, ValueError, KeyError) as exc:
+        print(f"元数据同步中断: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc

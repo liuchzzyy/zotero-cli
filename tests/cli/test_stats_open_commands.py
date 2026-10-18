@@ -27,7 +27,10 @@ class TestStatsCmd:
             main, ["--json", "stats"], env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"}
         )
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        envelope = json.loads(result.output)
+        assert envelope["ok"] is True
+        assert envelope["meta"]["request_id"]
+        data = envelope["data"]
         assert "total_items" in data
         assert "by_type" in data
         assert "top_tags" in data
@@ -88,3 +91,41 @@ class TestGetStats:
             assert stats["notes"] >= 0
         finally:
             reader.close()
+
+
+class TestOpenPath:
+    """M-20: no shell invocation; Windows uses os.startfile."""
+
+    def test_win32_uses_os_startfile(self, monkeypatch):
+        import os
+        import sys
+
+        from zotero_cli.commands.items.open_item import _open_path
+
+        opened: list[str] = []
+        monkeypatch.setattr(sys, "platform", "win32")
+        monkeypatch.setattr(os, "startfile", lambda path: opened.append(path), raising=False)
+        with patch("zotero_cli.commands.items.open_item.subprocess.run") as run:
+            _open_path(r"C:\\papers\\paper.pdf")
+        assert opened == [r"C:\\papers\\paper.pdf"]
+        run.assert_not_called()
+
+    def test_darwin_uses_open_binary(self, monkeypatch):
+        import sys
+
+        from zotero_cli.commands.items.open_item import _open_path
+
+        monkeypatch.setattr(sys, "platform", "darwin")
+        with patch("zotero_cli.commands.items.open_item.subprocess.run") as run:
+            _open_path("/tmp/paper.pdf")
+        run.assert_called_once_with(["open", "/tmp/paper.pdf"], check=True)
+
+    def test_linux_uses_xdg_open_binary(self, monkeypatch):
+        import sys
+
+        from zotero_cli.commands.items.open_item import _open_path
+
+        monkeypatch.setattr(sys, "platform", "linux")
+        with patch("zotero_cli.commands.items.open_item.subprocess.run") as run:
+            _open_path("/tmp/paper.pdf")
+        run.assert_called_once_with(["xdg-open", "/tmp/paper.pdf"], check=True)

@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import pytest
+from qdrant_client.models import Distance, VectorParams
+
 from zotero_cli.config import VectorStoreConfig
 from zotero_cli.core.rag import weighted_reciprocal_rank_fusion
 from zotero_cli.core.rag.index import RagIndex
-from zotero_cli.core.rag.vector_store import QdrantVectorStore, resolve_vector_store_path
+from zotero_cli.core.rag.vector_store import (
+    QdrantVectorStore,
+    drop_collection,
+    prune_empty_store,
+    resolve_vector_store_path,
+)
 
 
 def test_qdrant_upsert_search_delete(tmp_path):
@@ -47,7 +55,7 @@ def test_qdrant_empty_collection_search(tmp_path):
 
 
 def test_resolve_vector_store_path_relative(tmp_path, monkeypatch):
-    monkeypatch.setattr("zotero_cli.core.rag.vector_store.project_root", lambda: tmp_path)
+    monkeypatch.setattr("zotero_cli.core.rag.vector_store.data_root", lambda: tmp_path)
     cfg = VectorStoreConfig(path=".workspace/_qdrant")
     assert resolve_vector_store_path(cfg) == tmp_path / ".workspace" / "_qdrant"
 
@@ -83,3 +91,66 @@ def test_hybrid_retrieval_fts5_plus_qdrant(tmp_path):
     finally:
         store.close()
         idx.close()
+
+
+def test_drop_collection_never_creates_missing_store(tmp_path):
+    store_path = tmp_path / "missing" / "_qdrant"
+    assert drop_collection(store_path, "ws_gone") is False
+    assert not store_path.exists()
+    assert prune_empty_store(store_path) is False
+    assert not store_path.exists()
+
+
+def test_drop_collection_removes_only_requested_collection(tmp_path):
+    store_path = tmp_path / "_qdrant"
+    keep = QdrantVectorStore(store_path, "ws_keep")
+    try:
+        keep.upsert([1], [[1.0, 0.0]])
+    finally:
+        keep.close()
+    gone = QdrantVectorStore(store_path, "ws_gone")
+    try:
+        gone.upsert([2], [[1.0, 0.0]])
+    finally:
+        gone.close()
+
+    assert drop_collection(store_path, "ws_gone") is True
+    assert drop_collection(store_path, "ws_gone") is False
+
+    check = QdrantVectorStore(store_path, "ws_keep")
+    try:
+        assert check.count() == 1
+    finally:
+        check.close()
+    assert prune_empty_store(store_path) is False
+
+
+def test_drop_collection_with_prune_removes_empty_store(tmp_path):
+    store_path = tmp_path / "_qdrant"
+    store = QdrantVectorStore(store_path, "ws_last")
+    try:
+        store.upsert([1], [[1.0]])
+    finally:
+        store.close()
+
+    assert drop_collection(store_path, "ws_last", prune_empty=True) is True
+    assert not store_path.exists()
+
+
+def test_drop_collection_validates_name(tmp_path):
+    with pytest.raises(ValueError, match="collection"):
+        drop_collection(tmp_path, "")
+    with pytest.raises(ValueError, match="collection"):
+        drop_collection(tmp_path, None)  # type: ignore[arg-type]
+
+
+def test_instance_drop_collection_deletes_named_collection(tmp_path):
+    store = QdrantVectorStore(tmp_path / "_qdrant", "ws_a")
+    try:
+        store._client.create_collection(
+            collection_name="ws_b", vectors_config=VectorParams(size=2, distance=Distance.COSINE)
+        )
+        assert store.drop_collection("ws_b") is True
+        assert store.drop_collection("ws_b") is False
+    finally:
+        store.close()

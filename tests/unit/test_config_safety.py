@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import click
 import pytest
 
-from zotero_cli.config import load_config
+from zotero_cli.config import ConfigError, load_config
 
 
 @pytest.mark.parametrize(
@@ -26,7 +25,7 @@ def test_unknown_explicit_profile_never_falls_back(tmp_path: Path, config_text: 
     if config_text is not None:
         path.write_text(config_text, encoding="utf-8")
 
-    with pytest.raises(click.ClickException, match="Unknown.*typo") as error:
+    with pytest.raises(ConfigError, match="Unknown config profile 'typo'") as error:
         load_config(path, profile="typo")
 
     assert "legacy-secret" not in str(error.value)

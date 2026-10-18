@@ -19,7 +19,15 @@ from urllib.parse import urljoin
 
 from requests import Session  # type: ignore[import-untyped]
 
-from zotero_cli.core.mineru.models import _MAX_FILE_BYTES, MinerUError, ProgressCallback
+from zotero_cli.core.mineru.models import (
+    _MAX_ARCHIVE_BYTES,
+    _MAX_ARCHIVE_ENTRIES,
+    _MAX_ARCHIVE_MEMBER_BYTES,
+    _MAX_ARCHIVE_TOTAL_BYTES,
+    _MAX_FILE_BYTES,
+    MinerUError,
+    ProgressCallback,
+)
 from zotero_cli.core.mineru.utils import _as_mineru_error, _retry, _url_origin, _validated_model_version
 
 
@@ -148,10 +156,12 @@ class MinerUClient:
             "model_version": self.model_version,
         }
         self._rate_limiter.acquire()
-        response = _retry(
-            lambda: self._session.post(
-                f"{self.api_base}/file-urls/batch", json=payload, headers=self._headers, timeout=30
-            )
+        # Batch creation is not idempotent: retrying after a lost response would
+        # create a second server-side batch and duplicate MinerU work. Let
+        # transient errors fail this batch; the per-file upload PUTs below are
+        # idempotent and are retried.
+        response = self._session.post(
+            f"{self.api_base}/file-urls/batch", json=payload, headers=self._headers, timeout=30
         )
         data = _response_data(response, "request upload URLs")
         batch_id = str(data.get("batch_id") or "")
@@ -232,9 +242,45 @@ class MinerUClient:
                 response.close()
                 continue
             if response.status_code != 200:
-                raise MinerUError(f"Failed to download MinerU result: HTTP {response.status_code} {response.text}")
-            return bytes(response.content)
+                raise MinerUError(
+                    f"Failed to download MinerU result: HTTP {response.status_code} {_error_text(response)}"
+                )
+            return _read_limited_body(response)
         raise MinerUError("Too many redirects while downloading MinerU result")
+
+
+def _error_text(response: Any) -> str:
+    text = getattr(response, "text", "") or ""
+    return text[:500]
+
+
+def _read_limited_body(response: Any) -> bytes:
+    """Read a download body without buffering more than the archive cap."""
+    headers = getattr(response, "headers", None) or {}
+    header_length = headers.get("Content-Length")
+    if header_length is not None:
+        try:
+            declared = int(header_length)
+        except (TypeError, ValueError):
+            declared = None
+        if declared is not None and declared > _MAX_ARCHIVE_BYTES:
+            raise MinerUError(f"MinerU result archive exceeds the {_MAX_ARCHIVE_BYTES // (1024 * 1024)} MB limit")
+    iter_content = getattr(response, "iter_content", None)
+    if iter_content is None:
+        data = bytes(response.content)
+        if len(data) > _MAX_ARCHIVE_BYTES:
+            raise MinerUError(f"MinerU result archive exceeds the {_MAX_ARCHIVE_BYTES // (1024 * 1024)} MB limit")
+        return data
+    chunks: list[bytes] = []
+    total = 0
+    for chunk in iter_content(chunk_size=1024 * 1024):
+        if not chunk:
+            continue
+        total += len(chunk)
+        if total > _MAX_ARCHIVE_BYTES:
+            raise MinerUError(f"MinerU result archive exceeds the {_MAX_ARCHIVE_BYTES // (1024 * 1024)} MB limit")
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _remote_file_name(pdf_path: Path) -> str:
@@ -244,11 +290,13 @@ def _remote_file_name(pdf_path: Path) -> str:
 
 def _response_data(response: Any, action: str) -> dict[str, Any]:
     if response.status_code != 200:
-        raise MinerUError(f"Failed to {action}: HTTP {response.status_code} {response.text}")
+        raise MinerUError(f"Failed to {action}: HTTP {response.status_code} {_error_text(response)}")
     try:
         payload = response.json()
     except Exception as exc:
         raise MinerUError(f"MinerU returned invalid JSON while trying to {action}") from exc
+    if not isinstance(payload, dict):
+        raise MinerUError(f"MinerU returned an invalid response while trying to {action}")
     if payload.get("code") not in (0, "0", None):
         raise MinerUError(f"MinerU rejected {action}: {payload.get('msg') or payload.get('message') or payload}")
     data = payload.get("data")
@@ -257,10 +305,30 @@ def _response_data(response: Any, action: str) -> dict[str, Any]:
     return data
 
 
+def _validate_archive_members(archive: zipfile.ZipFile) -> None:
+    infos = archive.infolist()
+    if len(infos) > _MAX_ARCHIVE_ENTRIES:
+        raise MinerUError(f"MinerU ZIP contains too many entries ({len(infos)})")
+    total = 0
+    for info in infos:
+        if info.is_dir():
+            continue
+        if info.file_size > _MAX_ARCHIVE_MEMBER_BYTES:
+            raise MinerUError(
+                f"MinerU ZIP member size exceeds the {_MAX_ARCHIVE_MEMBER_BYTES // (1024 * 1024)} MB limit"
+            )
+        total += info.file_size
+        if total > _MAX_ARCHIVE_TOTAL_BYTES:
+            raise MinerUError(
+                f"MinerU ZIP uncompressed size exceeds the {_MAX_ARCHIVE_TOTAL_BYTES // (1024 * 1024)} MB limit"
+            )
+
+
 def _read_archive(archive_bytes: bytes) -> tuple[str, Any, list[str]]:
     try:
         with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
             members = archive.namelist()
+            _validate_archive_members(archive)
             markdown_name = _find_member(members, "full.md", suffix=".md")
             content_name = _find_member(members, "content_list.json", suffix="_content_list.json")
             if markdown_name is None:
@@ -290,11 +358,25 @@ def _find_member(members: list[str], exact_basename: str, *, suffix: str) -> str
 
 def _safe_extract_zip(archive: zipfile.ZipFile, output_dir: Path) -> None:
     root = output_dir.resolve()
+    extracted = 0
+    total = 0
     for member in archive.infolist():
         if member.is_dir():
             continue
         if Path(member.filename).name.lower().endswith("_origin.pdf"):
             continue
+        if member.file_size > _MAX_ARCHIVE_MEMBER_BYTES:
+            raise MinerUError(
+                f"MinerU ZIP member size exceeds the {_MAX_ARCHIVE_MEMBER_BYTES // (1024 * 1024)} MB limit"
+            )
+        total += member.file_size
+        if total > _MAX_ARCHIVE_TOTAL_BYTES:
+            raise MinerUError(
+                f"MinerU ZIP uncompressed size exceeds the {_MAX_ARCHIVE_TOTAL_BYTES // (1024 * 1024)} MB limit"
+            )
+        extracted += 1
+        if extracted > _MAX_ARCHIVE_ENTRIES:
+            raise MinerUError(f"MinerU ZIP contains too many entries (> {_MAX_ARCHIVE_ENTRIES})")
         target = (output_dir / member.filename).resolve()
         try:
             target.relative_to(root)
@@ -306,6 +388,13 @@ def _safe_extract_zip(archive: zipfile.ZipFile, output_dir: Path) -> None:
 
 
 class _RateLimiter:
+    """Sliding-window limiter scoped to this process/instance only.
+
+    Cross-process MinerU request limiting is not attempted here: concurrent CLI
+    invocations each keep their own window, and the parse-cache lock prevents
+    duplicated work for the same PDF.
+    """
+
     def __init__(self, limit: int, window: float) -> None:
         self._limit = limit
         self._window = window

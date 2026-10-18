@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
+from tests.support import invoke_cli as _invoke
 
 from zotero_cli.cli import main
 from zotero_cli.core.zotero.writer import SYNC_REMINDER, ZoteroWriter
@@ -62,29 +63,26 @@ class TestDryRun:
         assert "2 collections to create" in result.output
 
     def test_collection_delete_dry_run(self):
-        runner = CliRunner()
-        result = runner.invoke(
-            main,
-            ["--no-json", "collection", "delete", "COL1", "--dry-run"],
-            env=WRITE_ENV,
-        )
+        # Dry-run validates the key against the local library (fixtures).
+        result = _invoke(["collection", "delete", "COLML01", "--dry-run"])
         assert result.exit_code == 0
         assert "[dry-run]" in result.output
-        assert "COL1" in result.output
+        assert "COLML01" in result.output
 
     def test_collection_delete_dry_run_json_envelope(self):
-        runner = CliRunner()
-        result = runner.invoke(
-            main,
-            ["--json", "collection", "delete", "COL1", "--dry-run"],
-            env=WRITE_ENV,
-        )
+        result = _invoke(["collection", "delete", "COLML01", "--dry-run"], json_output=True)
         assert result.exit_code == 0
-        env = json.loads(result.output)
+        env = json.loads(result.stdout)
         assert env["ok"] is True
         assert env["dry_run"] is True
-        assert env["data"]["key"] == "COL1"
+        assert env["data"]["key"] == "COLML01"
         assert env["data"]["would_delete"] is True
+
+    def test_collection_delete_dry_run_rejects_unknown_key(self):
+        result = _invoke(["collection", "delete", "NOSUCHKEY", "--dry-run"], json_output=True)
+        assert result.exit_code == 4
+        env = json.loads(result.stdout)
+        assert env["error"]["code"] == "not_found"
 
     def test_collection_reorganize_dry_run_json_envelope(self, tmp_path):
         plan = {
@@ -198,10 +196,10 @@ class TestCollectionJsonOutput:
         mock_writer_cls.return_value = mock_writer
 
         runner = CliRunner()
-        result = runner.invoke(main, ["--json", "collection", "delete", "COL1"], env=WRITE_ENV)
+        result = runner.invoke(main, ["--json", "collection", "delete", "COL1", "--yes"], env=WRITE_ENV)
 
         assert result.exit_code == 0
-        env = _parse_json_output(result.output)
+        env = _parse_json_output(result.stdout)
         assert env["ok"] is True
         assert env["data"] == {"key": "COL1", "deleted": True, "sync_required": True}
         assert SYNC_REMINDER not in result.output
@@ -265,21 +263,28 @@ class TestCompletions:
         runner = CliRunner()
         result = runner.invoke(main, ["completions", "bash"])
         assert result.exit_code == 0
+        assert result.output.strip()
+        assert "zot" in result.output
 
     def test_completions_zsh(self):
         runner = CliRunner()
         result = runner.invoke(main, ["completions", "zsh"])
         assert result.exit_code == 0
+        assert result.output.strip()
+        assert "zot" in result.output
 
     def test_completions_fish(self):
         runner = CliRunner()
         result = runner.invoke(main, ["completions", "fish"])
         assert result.exit_code == 0
+        assert result.output.strip()
+        assert "zot" in result.output
 
     def test_completions_invalid_shell(self):
         runner = CliRunner()
         result = runner.invoke(main, ["completions", "powershell"])
         assert result.exit_code != 0
+        assert "Invalid value" in result.output
 
 
 # --- Offset/pagination tests ---
@@ -503,9 +508,12 @@ class TestTimeout:
         mock_zotero_cls.return_value = mock_zot
         mock_zot.client = MagicMock()
 
+        from httpx import Timeout
+
         ZoteroWriter(library_id="123", api_key="abc", timeout=10.0)
-        # Verify timeout was set on the client
-        mock_zot.client.timeout = mock_zot.client.timeout  # just verify no error
+        # The configured timeout must reach the pyzotero HTTP client.
+        assert isinstance(mock_zot.client.timeout, Timeout)
+        assert mock_zot.client.timeout.read == 10.0
 
     @patch("zotero_cli.core.zotero.writer.zotero.Zotero")
     def test_timeout_raises_write_error(self, mock_zotero_cls):

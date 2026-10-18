@@ -9,6 +9,7 @@ import click
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id
 from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.output.envelope import envelope_ok
+from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.output.renderers import format_items
 
 
@@ -31,6 +32,14 @@ def relate_cmd(ctx: click.Context, key: str, limit: int | None) -> None:
     library_id = resolve_library_id(db_path, ctx.obj)
     reader = ZoteroReader(db_path, library_id=library_id)
     try:
+        if reader.get_item(key) is None:
+            emit_error(
+                "not_found",
+                f"Item '{key}' not found",
+                output_json=json_out,
+                hint="Run 'zot search' to find valid item keys",
+                context="relate",
+            )
         limit = limit if limit is not None else ctx.obj.get("limit", 20)
         items = reader.get_related_items(key, limit=limit)
         if not items:

@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from zotero_cli.config import AppConfig
+from zotero_cli.core.zotero import metadata as metadata_module
 from zotero_cli.core.zotero.metadata import (
     MetadataResolveError,
     _strip_jats,
@@ -168,3 +169,64 @@ class TestResolveDoi:
             resolve_doi("10.1/x")
         ua = mock_get.call_args.kwargs["headers"]["User-Agent"]
         assert "mailto:test@example.com" in ua
+
+
+# --- L-04: Crossref retries and surfaced failures ---
+
+SAMPLE_MESSAGE = {
+    "message": {
+        "title": ["A retried title"],
+        "DOI": "10.1000/retry",
+        "author": [{"given": "Jane", "family": "Doe"}],
+    }
+}
+
+
+def _response(status: int, payload: dict | None = None) -> MagicMock:
+    response = MagicMock(spec=httpx.Response)
+    response.status_code = status
+    response.json.return_value = payload or {}
+    return response
+
+
+@pytest.mark.parametrize("transient_status", [429, 500, 503])
+def test_transient_statuses_are_retried(transient_status: int, monkeypatch) -> None:
+    responses = [_response(transient_status), _response(200, SAMPLE_MESSAGE)]
+    sleeps: list[float] = []
+    monkeypatch.setattr(metadata_module.httpx, "get", MagicMock(side_effect=responses))
+    monkeypatch.setattr(metadata_module.time, "sleep", lambda seconds: sleeps.append(seconds))
+    fields = resolve_doi("10.1000/retry")
+    assert fields is not None
+    assert fields["title"] == "A retried title"
+    assert sleeps and all(seconds > 0 for seconds in sleeps)
+
+
+def test_transport_errors_are_retried(monkeypatch) -> None:
+    responses = [httpx.ConnectError("offline"), _response(200, SAMPLE_MESSAGE)]
+    monkeypatch.setattr(metadata_module.httpx, "get", MagicMock(side_effect=responses))
+    monkeypatch.setattr(metadata_module.time, "sleep", lambda seconds: None)
+    fields = resolve_doi("10.1000/retry")
+    assert fields is not None
+    assert fields["DOI"] == "10.1000/retry"
+
+
+def test_retries_are_bounded_and_raise_metadata_error(monkeypatch) -> None:
+    sleeps: list[float] = []
+    monkeypatch.setattr(
+        metadata_module.httpx,
+        "get",
+        MagicMock(side_effect=[_response(500) for _ in range(metadata_module.MAX_ATTEMPTS)]),
+    )
+    monkeypatch.setattr(metadata_module.time, "sleep", lambda seconds: sleeps.append(seconds))
+    with pytest.raises(MetadataResolveError):
+        resolve_doi("10.1000/retry")
+    assert len(sleeps) == metadata_module.MAX_ATTEMPTS - 1
+
+
+def test_non_retryable_status_is_not_retried(monkeypatch) -> None:
+    get = MagicMock(return_value=_response(400))
+    monkeypatch.setattr(metadata_module.httpx, "get", get)
+    monkeypatch.setattr(metadata_module.time, "sleep", lambda seconds: None)
+    with pytest.raises(MetadataResolveError):
+        resolve_doi("10.1000/retry")
+    assert get.call_count == 1

@@ -8,7 +8,9 @@ import click
 
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id
 from zotero_cli.core.zotero.reader import ZoteroReader
+from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
+from zotero_cli.output.renderers import sanitize_text
 
 
 @click.command("summarize")
@@ -52,23 +54,23 @@ def summarize_cmd(ctx: click.Context, key: str) -> None:
                 data["abstract"] = item.abstract
                 data["tags"] = item.tags
                 data["notes"] = [n.content[:500] for n in notes]
-            click.echo(json.dumps(data, indent=2, ensure_ascii=False))
+            click.echo(json.dumps(envelope_ok(data, meta={"detail": detail}), indent=2, ensure_ascii=False))
         else:
-            click.echo(f"Title: {item.title}")
-            click.echo(f"Authors: {', '.join(c.full_name for c in item.creators)}")
-            click.echo(f"Year: {item.date or 'N/A'}")
+            click.echo(f"Title: {sanitize_text(item.title)}")
+            click.echo(f"Authors: {', '.join(sanitize_text(c.full_name) for c in item.creators)}")
+            click.echo(f"Year: {sanitize_text(item.date or 'N/A')}")
             if item.doi:
-                click.echo(f"DOI: {item.doi}")
+                click.echo(f"DOI: {sanitize_text(item.doi)}")
             if item.url:
-                click.echo(f"URL: {item.url}")
+                click.echo(f"URL: {sanitize_text(item.url)}")
             if detail != "minimal":
                 if item.tags:
-                    click.echo(f"Tags: {', '.join(item.tags)}")
+                    click.echo(f"Tags: {', '.join(sanitize_text(t) for t in item.tags)}")
                 if item.extra:
-                    journal = item.extra.get("publicationTitle")
-                    volume = item.extra.get("volume", "")
-                    issue = item.extra.get("issue", "")
-                    pages = item.extra.get("pages", "")
+                    journal = sanitize_text(item.extra.get("publicationTitle"))
+                    volume = sanitize_text(item.extra.get("volume", ""))
+                    issue = sanitize_text(item.extra.get("issue", ""))
+                    pages = sanitize_text(item.extra.get("pages", ""))
                     parts = [
                         p
                         for p in [
@@ -82,10 +84,10 @@ def summarize_cmd(ctx: click.Context, key: str) -> None:
                     if parts:
                         click.echo(f"Source: {' '.join(parts)}")
                 if item.abstract:
-                    click.echo(f"\nAbstract:\n{item.abstract}")
+                    click.echo(f"\nAbstract:\n{sanitize_text(item.abstract)}")
                 if notes:
                     click.echo(f"\nNotes ({len(notes)}):")
                     for n in notes:
-                        click.echo(f"  {n.content[:500]}")
+                        click.echo(f"  {sanitize_text(n.content[:500])}")
     finally:
         reader.close()

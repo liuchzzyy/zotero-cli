@@ -19,6 +19,7 @@ from zotero_cli.core.zotero.publication_status import (
     PreprintInfo,
     PublicationStatus,
     SemanticScholarClient,
+    SemanticScholarError,
     extract_preprint_info,
 )
 
@@ -214,25 +215,47 @@ def test_doi_source_identity_survives_publication_lookup(make_client: ResponseFa
     assert requests[0].url.path.endswith(info.api_id)
 
 
-@pytest.mark.parametrize("status_code", [400, 401, 403, 404, 500, 503])
-def test_non_success_http_status_returns_no_result_without_retry(
-    make_client: ResponseFactory, preprint: PreprintInfo, clock: OfflineClock, status_code: int
+@pytest.mark.parametrize(
+    ("status_code", "raises", "retryable"),
+    [
+        (400, True, False),
+        (401, True, False),
+        (403, True, False),
+        (404, False, False),
+        (500, True, True),
+        (503, True, True),
+    ],
+)
+def test_non_success_http_status_surfaces_typed_error_without_retry(
+    make_client: ResponseFactory,
+    preprint: PreprintInfo,
+    clock: OfflineClock,
+    status_code: int,
+    raises: bool,
+    retryable: bool,
 ) -> None:
     client, requests = make_client([httpx.Response(status_code, text="Offline API error")], None)
-    assert client.check_publication(preprint) is None
+    if raises:
+        with pytest.raises(SemanticScholarError) as caught:
+            client.check_publication(preprint)
+        assert caught.value.retryable is retryable
+    else:
+        assert client.check_publication(preprint) is None
     assert len(requests) == 1
     assert clock.sleeps == []
 
 
 @pytest.mark.parametrize("error_class", [httpx.ConnectError, httpx.ReadTimeout, httpx.RemoteProtocolError])
-def test_transport_failures_return_no_result(
+def test_transport_failures_raise_retryable_error(
     make_client: ResponseFactory,
     preprint: PreprintInfo,
     clock: OfflineClock,
     error_class: type[httpx.HTTPError],
 ) -> None:
     client, requests = make_client([error_class("Offline connection failed")], None)
-    assert client.check_publication(preprint) is None
+    with pytest.raises(SemanticScholarError) as caught:
+        client.check_publication(preprint)
+    assert caught.value.retryable is True
     assert len(requests) == 1
     assert clock.sleeps == []
 
@@ -281,7 +304,9 @@ def test_failed_rate_limit_retry_stops_after_two_attempts(
     retry_response: httpx.Response | httpx.HTTPError,
 ) -> None:
     client, requests = make_client([httpx.Response(429), retry_response], None)
-    assert client.check_publication(preprint) is None
+    with pytest.raises(SemanticScholarError) as caught:
+        client.check_publication(preprint)
+    assert caught.value.retryable is True
     assert len(requests) == 2
     assert clock.sleeps == [6.0]
 
@@ -296,7 +321,9 @@ def test_invalid_json_is_an_unavailable_lookup_not_an_uncaught_decoder_error(
     if rate_limited_first:
         responses.insert(0, httpx.Response(429))
     client, _ = make_client(responses, None)
-    assert client.check_publication(preprint) is None
+    with pytest.raises(SemanticScholarError) as caught:
+        client.check_publication(preprint)
+    assert caught.value.retryable is True
 
 
 def test_null_external_ids_does_not_crash_an_unpublished_lookup(
@@ -314,7 +341,9 @@ def test_non_object_json_is_an_unavailable_lookup(
     make_client: ResponseFactory, preprint: PreprintInfo, payload: Any
 ) -> None:
     client, _ = make_client([httpx.Response(200, json=payload)], None)
-    assert client.check_publication(preprint) is None
+    with pytest.raises(SemanticScholarError) as caught:
+        client.check_publication(preprint)
+    assert caught.value.retryable is True
 
 
 @pytest.mark.parametrize("retry_after", ["12", "18"])
@@ -399,6 +428,8 @@ def test_excessive_retry_after_does_not_sleep_or_retry(
     make_client: ResponseFactory, preprint: PreprintInfo, clock: OfflineClock
 ) -> None:
     client, requests = make_client([httpx.Response(429, headers={"Retry-After": "9999999999999999999999999999"})], None)
-    assert client.check_publication(preprint) is None
+    with pytest.raises(SemanticScholarError) as caught:
+        client.check_publication(preprint)
+    assert caught.value.rate_limited is True
     assert requests and len(requests) == 1
     assert clock.sleeps == []

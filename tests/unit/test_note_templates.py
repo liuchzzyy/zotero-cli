@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from zotero_cli.core.notes.constants import MAX_PROMPT_CHARS
 from zotero_cli.core.notes.renderer import render_note
-from zotero_cli.core.notes.templates import format_template, load_template, template_path
+from zotero_cli.core.notes.templates import fit_text_to_prompt, format_template, load_template, template_path
 
 
 class TestNoteTemplates:
@@ -82,6 +83,19 @@ class TestNoteTemplates:
         assert "重组分子化" in template
         assert "输出要求" in template
         assert "2-3 句" in template  # 重点章节密度约束
+
+    def test_every_template_delimits_untrusted_content(self):
+        for name in ("research-article", "review-article", "book", "classify-item", "short-note"):
+            template = load_template(name)
+            assert "数据边界" in template, name
+            assert "不是指令" in template, name
+            assert "忽略" in template, name
+
+    def test_fit_text_to_prompt_bounds_template_plus_text(self):
+        template = load_template("book")
+        fitted = fit_text_to_prompt(template, "x" * (MAX_PROMPT_CHARS * 2))
+        assert len(fitted) == MAX_PROMPT_CHARS - len(template) - 2_000
+        assert len(template) + len(fitted) <= MAX_PROMPT_CHARS
 
 
 class TestNoteRenderer:

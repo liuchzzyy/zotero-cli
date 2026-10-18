@@ -277,7 +277,7 @@ def test_attach_group_credentials_use_public_group_id(sandbox: ServiceSandbox) -
 
 
 @pytest.mark.parametrize("failure", ["network", "upload", "empty"])
-def test_attach_failure_is_typed_and_not_cached(sandbox: ServiceSandbox, failure: str) -> None:
+def test_attach_failure_keeps_reservation_for_unknown_outcome(sandbox: ServiceSandbox, failure: str) -> None:
     if failure == "network":
         sandbox.zotero.attachment_simple.side_effect = httpx.ConnectError("offline upload disconnected")
         expected_code, expected_exit = "network_error", 5
@@ -293,16 +293,20 @@ def test_attach_failure_is_typed_and_not_cached(sandbox: ServiceSandbox, failure
     assert failed.exit_code == expected_exit, failed.output
     error = parse_json_output(failed.output)["error"]
     assert error["code"] == expected_code
-    assert error["retryable"] is True
-    assert "item key and file path" in error["hint"]
+    # M-04: the idempotency key is reserved before the upload. An unknown outcome
+    # keeps the reservation, so the failure is not retryable with the same key.
+    assert error["retryable"] is False
+    assert "outcome is unknown" in error["hint"].lower()
+    assert sandbox.zotero.attachment_simple.call_count == 1
     with sqlite3.connect(sandbox.state / "idempotency.db") as conn:
         assert conn.execute("SELECT COUNT(*) FROM cache").fetchone()[0] == 0
     sandbox.zotero.attachment_simple.side_effect = None
     sandbox.zotero.attachment_simple.return_value = {"success": [{"key": "RETRY001"}]}
     retried = _invoke(sandbox, args)
-    assert retried.exit_code == 0, retried.output
-    assert parse_json_output(retried.output)["data"]["attachment_key"] == "RETRY001"
-    assert sandbox.zotero.attachment_simple.call_count == 2
+    assert retried.exit_code == 6, retried.output
+    assert parse_json_output(retried.output)["error"]["code"] == "conflict"
+    # The reservation is kept: no second upload happens for the same key.
+    assert sandbox.zotero.attachment_simple.call_count == 1
 
 
 def test_attach_missing_path_is_rejected_before_credentials(sandbox: ServiceSandbox) -> None:
@@ -599,8 +603,16 @@ def test_update_status_failed_lookup_does_not_write_or_claim_published(
     else:
         sandbox.responses["arXiv:2401.00001"] = (404 if failure == "not-found" else 503, {})
     result = _invoke(sandbox, ["update-status", "ATTN001", "--apply"])
-    assert result.exit_code == 0, result.output
-    data = parse_json_output(result.output)["data"]
-    assert (data["checked"], data["published"], data["updated"], data["sync_required"]) == (1, 0, 0, False)
-    assert data["results"][0]["published"] is False
+    if failure == "not-found":
+        assert result.exit_code == 0, result.output
+        data = parse_json_output(result.output)["data"]
+        assert (data["checked"], data["published"], data["updated"], data["sync_required"]) == (1, 0, 0, False)
+        assert data["results"][0]["published"] is False
+    else:
+        # L-04: Semantic Scholar lookup failures are surfaced instead of silently
+        # reporting the item as an unpublished preprint.
+        assert result.exit_code == 5, result.output
+        error = parse_json_output(result.output)["error"]
+        assert error["code"] == "network_error"
+        assert error["retryable"] is True
     sandbox.constructor.assert_not_called()

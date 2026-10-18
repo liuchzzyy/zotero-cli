@@ -115,8 +115,10 @@ def _after_command(ctx: click.Context, *_args: object, **_kwargs: object) -> Non
     obj = ctx.obj or {}
     if obj.get("json") or obj.get("no_interaction") or not sys.stderr.isatty():
         return
-    from zotero_cli.core.version_check import check_for_update, upgrade_command
+    from zotero_cli.core.version_check import check_for_update, update_check_disabled, upgrade_command
 
+    if update_check_disabled():
+        return
     latest = check_for_update(__version__)
     if latest:
         click.echo(

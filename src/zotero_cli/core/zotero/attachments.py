@@ -15,6 +15,10 @@ from urllib.parse import unquote, urlparse
 
 from zotero_cli.core.platform_paths import is_wsl_environment, windows_to_wsl_path
 
+_WINDOWS_DRIVE_PATH_RE = re.compile(r"^[A-Za-z]:[\\/]")
+_WINDOWS_UNC_PATH_RE = re.compile(r"^\\\\[^\\/]+[\\/]")
+_WSL_DRIVE_URL_RE = re.compile(r"^/[A-Za-z]:/")
+
 
 class AttachmentResolver:
     """Resolves Zotero attachment paths to filesystem paths.
@@ -92,19 +96,35 @@ class AttachmentResolver:
             parts = [p for p in rel.split("/") if p]
             return self.storage_dir / attachment_key / Path(*parts)
 
-        # Linked file as URL: 'file:///path/to/file.pdf'
+        # Linked file as URL: 'file:///path/to/file.pdf' (or file://server/share)
         if zotero_path.startswith("file://"):
             parsed = urlparse(zotero_path)
             decoded_path = unquote(parsed.path or "")
+            netloc = parsed.netloc
+            if not decoded_path:
+                return None
+            if netloc and netloc.lower() != "localhost":
+                # Network share (UNC): keep the server component.
+                decoded_path = f"//{netloc}{decoded_path}"
             # file:///C:/... on Windows
             if os.name == "nt" and decoded_path.startswith("/") and len(decoded_path) > 2 and decoded_path[2] == ":":
                 decoded_path = decoded_path[1:]
-            if not decoded_path:
-                return None
-            result = Path(decoded_path)
             if is_wsl_environment():
-                result = Path(windows_to_wsl_path(str(result)))
-            return result
+                if netloc and netloc.lower() != "localhost":
+                    return Path(windows_to_wsl_path("\\\\" + netloc + parsed.path.replace("/", "\\")))
+                windows_candidate = decoded_path
+                if _WSL_DRIVE_URL_RE.match(windows_candidate):
+                    windows_candidate = windows_candidate[1:]
+                return Path(windows_to_wsl_path(windows_candidate.replace("/", "\\")))
+            return Path(decoded_path)
+
+        # Windows drive/UNC paths stored verbatim (Zotero on Windows, read from
+        # WSL or another POSIX host) are not os.path.isabs on POSIX, so detect
+        # them explicitly and apply WSL conversion when relevant.
+        if _WINDOWS_DRIVE_PATH_RE.match(zotero_path) or _WINDOWS_UNC_PATH_RE.match(zotero_path):
+            if is_wsl_environment():
+                return Path(windows_to_wsl_path(zotero_path))
+            return Path(zotero_path)
 
         # Linked file as absolute path: '/Users/me/papers/file.pdf'
         if os.path.isabs(zotero_path):

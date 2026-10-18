@@ -33,6 +33,12 @@ def embed_texts(
 ) -> list[list[float]] | None:
     if not config.is_configured:
         return None
+    provider_name = config.provider.strip().lower()
+    if provider_name != "gitee":
+        sys.stderr.write(
+            f"\r{' ' * 60}\r  [WARN] Unsupported embedding provider '{config.provider}'. Falling back to BM25-only.\n"
+        )
+        return None
     # Imported lazily so provider implementations can depend on this module
     # for the EmbeddingProvider contract without an import cycle.
     from zotero_cli.core.rag.providers.gitee import GiteeEmbeddingProvider

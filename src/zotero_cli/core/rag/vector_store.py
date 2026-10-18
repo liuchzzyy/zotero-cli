@@ -2,18 +2,85 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
-from zotero_cli.config import VectorStoreConfig, project_root
+from zotero_cli.config import VectorStoreConfig, data_root
 
 
 def resolve_vector_store_path(cfg: VectorStoreConfig) -> Path:
-    """Resolve the configured vector-store directory relative to the project root."""
+    """Resolve the configured vector-store directory relative to the state data root.
+
+    In a checkout this is the repository root (unchanged); for an installed CLI
+    it is the deterministic state root instead of the current directory.
+    """
     path = Path(cfg.path)
-    return path if path.is_absolute() else project_root() / path
+    return path if path.is_absolute() else data_root() / path
+
+
+def _validated_collection_name(collection: str) -> str:
+    if not isinstance(collection, str) or not collection.strip():
+        raise ValueError("collection must be a non-empty string")
+    return collection
+
+
+def _close_quietly(client: QdrantClient) -> None:
+    try:
+        client.close()
+    except Exception:
+        pass
+
+
+def drop_collection(store_path: Path, collection: str, *, prune_empty: bool = False) -> bool:
+    """Delete one collection from an existing local store without creating it.
+
+    Use this for workspace deletion: it never creates `store_path` and never
+    touches collections other than `collection`. Returns True when the
+    collection (or, with `prune_empty`, the now-empty store) was removed.
+    """
+    name = _validated_collection_name(collection)
+    if not store_path.is_dir():
+        return False
+    client = QdrantClient(path=str(store_path))
+    try:
+        removed = bool(client.collection_exists(name))
+        if removed:
+            client.delete_collection(name)
+    finally:
+        _close_quietly(client)
+    if prune_empty and removed:
+        prune_empty_store(store_path)
+    return removed
+
+
+def prune_empty_store(store_path: Path) -> bool:
+    """Remove a local store directory when it no longer contains any collections.
+
+    Never creates the store; returns False for a missing/unreadable/locked store
+    or when collections remain.
+    """
+    if not store_path.is_dir():
+        return False
+    try:
+        client = QdrantClient(path=str(store_path))
+    except Exception:
+        return False
+    try:
+        has_collections = bool(client.get_collections().collections)
+    except Exception:
+        return False
+    finally:
+        _close_quietly(client)
+    if has_collections:
+        return False
+    try:
+        shutil.rmtree(store_path)
+    except OSError:
+        return False
+    return True
 
 
 class QdrantVectorStore:
@@ -93,13 +160,18 @@ class QdrantVectorStore:
         if self._client.collection_exists(self._collection):
             self._client.delete_collection(self._collection)
 
+    def drop_collection(self, collection_name: str) -> bool:
+        """Delete another named collection in this local store; return True if it existed."""
+        name = _validated_collection_name(collection_name)
+        removed = bool(self._client.collection_exists(name))
+        if removed:
+            self._client.delete_collection(name)
+        return removed
+
     def count(self) -> int:
         if not self._client.collection_exists(self._collection):
             return 0
         return int(self._client.count(collection_name=self._collection).count)
 
     def close(self) -> None:
-        try:
-            self._client.close()
-        except Exception:
-            pass
+        _close_quietly(self._client)

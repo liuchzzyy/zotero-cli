@@ -13,7 +13,9 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -111,11 +113,22 @@ def load_state(state_file: Path) -> dict[str, Any]:
 
 
 def save_state(state_file: Path, state: dict[str, Any]) -> None:
+    """Persist the checkpoint atomically with a per-writer unique temp file.
+
+    A fixed `<state>.tmp` is shared by concurrent runs of the same collection:
+    they interleave JSON into one temp file and rename the mixture into place.
+    Unique names plus `replace` keep the checkpoint either the previous or a
+    complete new value; a failed write removes its temp file.
+    """
     state_file.parent.mkdir(parents=True, exist_ok=True)
-    temp_file = state_file.with_suffix(".tmp")
-    with open(temp_file, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2, ensure_ascii=False)
-    temp_file.replace(state_file)
+    temp_file = state_file.with_name(f"{state_file.name}.{os.getpid()}-{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        with open(temp_file, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2, ensure_ascii=False)
+        temp_file.replace(state_file)
+    except BaseException:
+        temp_file.unlink(missing_ok=True)
+        raise
 
 
 def run_batch(
@@ -159,11 +172,12 @@ def run_batch(
 
         if state_path is None:
             state_path = default_state_dir() / f"batch_ainote_{col_key}.json"
-        checkpoint_exists = state_path.exists()
         state = load_state(state_path)
 
         def checkpoint() -> None:
-            if not dry_run or not checkpoint_exists:
+            # A dry run must have zero side effects, so it keeps its preview
+            # results in memory only; a later apply is not skipped by them.
+            if not dry_run:
                 save_state(state_path, state)
 
         # Pre-populate known items from other state files if available
@@ -182,6 +196,7 @@ def run_batch(
 
         processed_count = 0
         attempted_count = 0
+        failed_count = 0
 
         for idx, item in enumerate(items, 1):
             if limit is not None and attempted_count >= limit:
@@ -212,13 +227,15 @@ def run_batch(
             if not pdfs:
                 logger.warning(f"[{idx}/{len(items)}] {key} has no PDF attachments, skipping.")
                 state[key] = {"status": "error", "error": "no_pdf", "title": title}
+                failed_count += 1
                 checkpoint()
                 continue
 
-            logger.info(f"[{idx}/{len(items)}] Processing {key} ({len(pdfs)} PDFs): {title[:50]}")
+            mode_label = "dry-run " if dry_run else ""
+            logger.info(f"[{idx}/{len(items)}] Processing {mode_label}{key} ({len(pdfs)} PDFs): {title[:50]}")
 
-            def _progress(event: str, msg: str) -> None:
-                logger.info(f"  [{key}][{event}] {msg}")
+            def _progress(event: str, msg: str, _key: str = key) -> None:
+                logger.info(f"  [{_key}][{event}] {msg}")
 
             attempted_count += 1
             try:
@@ -245,14 +262,17 @@ def run_batch(
                 }
                 checkpoint()
                 processed_count += 1
-                logger.info(f"  [{key}] Finished with status: {res.get('status')}")
+                suffix = " (dry-run, not persisted)" if dry_run else ""
+                logger.info(f"  [{key}] Finished with status: {res.get('status')}{suffix}")
             except NoteAnalysisError as exc:
                 logger.error(f"  [{key}] Analysis error: {exc}")
                 state[key] = {"status": "failed", "error": str(exc), "code": exc.code, "title": title}
+                failed_count += 1
                 checkpoint()
             except Exception as exc:
                 logger.error(f"  [{key}] Unexpected error: {exc}")
                 state[key] = {"status": "failed", "error": str(exc), "code": "unexpected", "title": title}
+                failed_count += 1
                 checkpoint()
 
         return {
@@ -260,6 +280,8 @@ def run_batch(
             "total": len(items),
             "processed": processed_count,
             "attempted": attempted_count,
+            "failed": failed_count,
+            "dry_run": dry_run,
             "state_path": str(state_path),
         }
     finally:
@@ -268,10 +290,14 @@ def run_batch(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Batch AI note analysis for a Zotero collection")
-    parser.add_argument("--collection", default="AA", help="Collection name or key (default: AA)")
+    parser.add_argument("--collection", required=True, help="Collection name or key to process")
     parser.add_argument("--no-recursive", action="store_true", help="Do not include items from subcollections")
     mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--dry-run", action="store_true", help="Preview classification and prompt without LLM write")
+    mode.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview analysis without Zotero writes or checkpoint changes (still parses PDFs via MinerU)",
+    )
     mode.add_argument("--apply", action="store_true", help="Execute writeback to Zotero Web API")
     parser.add_argument("--force", action="store_true", help="Re-analyze items even if already tagged ai/noted")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of items to process")

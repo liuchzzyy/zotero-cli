@@ -10,7 +10,14 @@ from typing import Any
 
 ProgressCallback = Callable[[str, int, int, int], None]
 
+# Local input/output limits. MinerU rejects PDFs above 200 MB; the returned
+# archive is capped before it is buffered or extracted so a hostile or buggy
+# response cannot exhaust memory or disk.
 _MAX_FILE_BYTES = 200 * 1024 * 1024
+_MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
+_MAX_ARCHIVE_MEMBER_BYTES = 200 * 1024 * 1024
+_MAX_ARCHIVE_TOTAL_BYTES = 1024 * 1024 * 1024
+_MAX_ARCHIVE_ENTRIES = 10_000
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 
 

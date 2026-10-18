@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import patch
 
 from tests.support import invoke_cli as _run
 
 from zotero_cli.core.zotero.publication_status import (
+    PreprintInfo,
     PublicationStatus,
+    SemanticScholarError,
     extract_preprint_info,
 )
 
@@ -144,3 +147,67 @@ class TestPublicationStatus:
         )
         assert s.is_published
         assert s.journal_name == "Nature Methods"
+
+
+# --- M-07 / L-04: explicit --dry-run and surfaced Semantic Scholar failures ---
+
+
+class _FailingClient:
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        pass
+
+    def check_publication(self, _info: object) -> object:
+        raise SemanticScholarError("Semantic Scholar is unavailable", retryable=True)
+
+    def close(self) -> None:
+        pass
+
+
+class _RateLimitedClient(_FailingClient):
+    def check_publication(self, _info: object) -> object:
+        raise SemanticScholarError("Semantic Scholar rate limit exceeded", retryable=True, rate_limited=True)
+
+
+def _preprint_info(**_kwargs: object) -> PreprintInfo:
+    return PreprintInfo(preprint_id="2401.12345", source="arxiv", api_id="arXiv:2401.12345")
+
+
+def test_explicit_dry_run_is_a_preview_without_writes() -> None:
+    result = _run(["--json", "update-status", "--dry-run", "--limit", "1"])
+    assert result.exit_code == 0
+    env = json.loads(result.output)
+    assert env["ok"] is True
+    assert env["dry_run"] is True
+
+
+def test_apply_and_dry_run_are_mutually_exclusive() -> None:
+    result = _run(["--json", "update-status", "--apply", "--dry-run"])
+    assert result.exit_code == 3
+    env = json.loads(result.output)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "validation_error"
+
+
+def test_semantic_scholar_failure_is_surfaced_as_network_error() -> None:
+    with (
+        patch("zotero_cli.commands.items.update_status.extract_preprint_info", side_effect=_preprint_info),
+        patch("zotero_cli.commands.items.update_status.SemanticScholarClient", _FailingClient),
+    ):
+        result = _run(["--json", "update-status", "--limit", "1"])
+    assert result.exit_code == 5
+    env = json.loads(result.output)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "network_error"
+    assert env["error"]["retryable"] is True
+
+
+def test_semantic_scholar_rate_limit_is_surfaced_distinctly() -> None:
+    with (
+        patch("zotero_cli.commands.items.update_status.extract_preprint_info", side_effect=_preprint_info),
+        patch("zotero_cli.commands.items.update_status.SemanticScholarClient", _RateLimitedClient),
+    ):
+        result = _run(["--json", "update-status", "--limit", "1"])
+    assert result.exit_code == 5
+    env = json.loads(result.output)
+    assert env["ok"] is False
+    assert env["error"]["code"] == "rate_limited"

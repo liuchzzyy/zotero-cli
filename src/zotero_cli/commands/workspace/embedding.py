@@ -3,16 +3,23 @@
 from __future__ import annotations
 
 import sys
+import threading
 import time
 
 import click
 
 from zotero_cli.commands.workspace import workspace_group
-from zotero_cli.commands.workspace.indexing import _vector_store_for
+from zotero_cli.commands.workspace._output import (
+    emit_progress,
+    emit_result,
+    load_workspace_or_exit,
+    output_json,
+)
+from zotero_cli.commands.workspace.indexing import _read_index_stats, _vector_store_for
 from zotero_cli.config import EmbeddingConfig, load_embedding_config
 from zotero_cli.core.rag import embed_texts
 from zotero_cli.core.rag.index import RagIndex
-from zotero_cli.core.workspace_store import workspace_exists, workspace_index_path
+from zotero_cli.core.workspace_store import workspace_index_path
 from zotero_cli.output.exit_codes import emit_error
 
 
@@ -59,11 +66,12 @@ def _embed_batch_with_retries(
     "--heartbeat-seconds",
     default=15.0,
     show_default=True,
-    help="Seconds between progress lines when --progress-lines is set.",
+    help="Seconds between heartbeat progress lines when --progress-lines is set; 0 disables heartbeats.",
 )
 @click.option(
     "--progress-lines", is_flag=True, help="Write progress as newline records for log-friendly real-time output."
 )
+@click.option("--dry-run", is_flag=True, help="Show what would be embedded without calling the provider")
 @click.pass_context
 def workspace_embed(
     ctx: click.Context,
@@ -74,17 +82,11 @@ def workspace_embed(
     retry_sleep: float,
     heartbeat_seconds: float,
     progress_lines: bool,
+    dry_run: bool,
 ) -> None:
     """Backfill embeddings for an existing workspace index (writes vectors to Qdrant)."""
-    json_out = ctx.obj.get("json", False)
-    if not workspace_exists(name):
-        emit_error(
-            "not_found",
-            f"Workspace '{name}' not found",
-            output_json=json_out,
-            hint="Use 'zot workspace list' to see available workspaces",
-            context="workspace embed",
-        )
+    json_out = output_json(ctx)
+    load_workspace_or_exit(ctx, name, context="workspace embed")
     idx_path = workspace_index_path(name)
     if not idx_path.exists():
         emit_error(
@@ -117,6 +119,26 @@ def workspace_embed(
         )
 
     emb_cfg = load_embedding_config(apply_env_overrides=True)
+    if dry_run:
+        stats = _read_index_stats(idx_path)
+        emit_result(
+            ctx,
+            {
+                "name": name,
+                "provider_configured": emb_cfg.is_configured,
+                "provider": emb_cfg.provider,
+                "model": emb_cfg.model,
+                "batch_size": batch_size,
+                "limit": limit,
+                "max_retries": max_retries,
+                "retry_sleep": retry_sleep,
+                "heartbeat_seconds": heartbeat_seconds,
+                **stats,
+            },
+            human_text=f"[dry-run] Would backfill embeddings for '{name}' from the existing index",
+            dry_run=True,
+        )
+        return
     if not emb_cfg.is_configured:
         emit_error(
             "configuration_error",
@@ -129,61 +151,120 @@ def workspace_embed(
     idx = RagIndex(idx_path)
     vector_store = _vector_store_for(name)
     t0 = time.monotonic()
+    counters = {"attempted": 0, "stored": 0, "skipped": 0}
+    counters_lock = threading.Lock()
+    stop_heartbeat = threading.Event()
+    heartbeat_thread: threading.Thread | None = None
+    complete = False
+    attempted = 0
+    stored = 0
+    skipped = 0
+    remaining = 0
+    elapsed = 0.0
+    if progress_lines and heartbeat_seconds > 0:
+
+        def heartbeat_writer() -> None:
+            while not stop_heartbeat.wait(heartbeat_seconds):
+                with counters_lock:
+                    counters_snapshot = dict(counters)
+                emit_progress(
+                    ctx,
+                    "  [embed] heartbeat elapsed="
+                    f"{time.monotonic() - t0:.0f}s attempted={counters_snapshot['attempted']} "
+                    f"stored={counters_snapshot['stored']} skipped={counters_snapshot['skipped']}",
+                )
+
+        heartbeat_thread = threading.Thread(target=heartbeat_writer, name="embed-heartbeat", daemon=True)
+        heartbeat_thread.start()
     try:
         existing = set(vector_store.list_ids())
         all_ids = idx.get_chunk_ids()
         missing = [cid for cid in all_ids if cid not in existing]
         if not missing:
-            click.echo(f"Embeddings for '{name}' are already complete.")
-            return
+            complete = True
+        else:
+            target = min(len(missing), limit) if limit else len(missing)
+            missing = missing[:target]
+            emit_progress(
+                ctx,
+                f"  Backfilling embeddings for '{name}': missing={len(missing)} "
+                f"provider={emb_cfg.provider} model={emb_cfg.model} batch_size={batch_size}",
+            )
 
-        target = min(len(missing), limit) if limit else len(missing)
-        missing = missing[:target]
-        attempted = 0
-        stored = 0
-        skipped = 0
-        click.echo(
-            f"Backfilling embeddings for '{name}': missing={len(missing)} "
-            f"provider={emb_cfg.provider} model={emb_cfg.model} batch_size={batch_size}"
-        )
+            for i in range(0, len(missing), batch_size):
+                batch_ids = missing[i : i + batch_size]
+                chunks = idx.get_chunks_by_ids(batch_ids)
+                texts = [chunks[cid]["content"] for cid in batch_ids if cid in chunks]
+                vectors = _embed_batch_with_retries(texts, emb_cfg, max_retries, retry_sleep)
 
-        for i in range(0, len(missing), batch_size):
-            batch_ids = missing[i : i + batch_size]
-            chunks = idx.get_chunks_by_ids(batch_ids)
-            texts = [chunks[cid]["content"] for cid in batch_ids if cid in chunks]
-            vectors = _embed_batch_with_retries(texts, emb_cfg, max_retries, retry_sleep)
+                valid_ids: list[int] = []
+                valid_vectors: list[list[float]] = []
+                valid_payloads: list[dict] = []
+                for cid, vector in zip(batch_ids, vectors):
+                    chunk = chunks.get(cid)
+                    if vector and chunk is not None:
+                        valid_ids.append(cid)
+                        valid_vectors.append(vector)
+                        valid_payloads.append({"item_key": chunk["item_key"], "source": chunk["source"]})
+                    else:
+                        skipped += 1
+                if valid_ids:
+                    vector_store.upsert(valid_ids, valid_vectors, valid_payloads)
+                    stored += len(valid_ids)
+                attempted += len(batch_ids)
+                with counters_lock:
+                    counters.update({"attempted": attempted, "stored": stored, "skipped": skipped})
 
-            valid_ids: list[int] = []
-            valid_vectors: list[list[float]] = []
-            valid_payloads: list[dict] = []
-            for cid, vector in zip(batch_ids, vectors):
-                chunk = chunks.get(cid)
-                if vector and chunk is not None:
-                    valid_ids.append(cid)
-                    valid_vectors.append(vector)
-                    valid_payloads.append({"item_key": chunk["item_key"], "source": chunk["source"]})
+                status = f"  [embed] attempted={attempted}/{len(missing)} stored={stored} skipped={skipped}"
+                if progress_lines:
+                    emit_progress(ctx, status)
                 else:
-                    skipped += 1
-            if valid_ids:
-                vector_store.upsert(valid_ids, valid_vectors, valid_payloads)
-                stored += len(valid_ids)
-            attempted += len(batch_ids)
+                    sys.stderr.write(f"\r{' ' * 100}\r{status}")
+                    sys.stderr.flush()
 
-            status = f"  [embed] attempted={attempted}/{len(missing)} stored={stored} skipped={skipped}"
-            if progress_lines:
-                click.echo(status)
-            else:
-                sys.stderr.write(f"\r{' ' * 100}\r{status}")
+            if not progress_lines:
+                sys.stderr.write(f"\r{' ' * 100}\r")
                 sys.stderr.flush()
-
-        if not progress_lines:
-            sys.stderr.write(f"\r{' ' * 100}\r")
-            sys.stderr.flush()
-        remaining = sum(1 for cid in idx.get_chunk_ids() if cid not in set(vector_store.list_ids()))
-        click.echo(
-            f"Backfilled embeddings for '{name}': attempted={attempted}, stored={stored}, "
-            f"skipped={skipped}, remaining_missing={remaining}, elapsed={time.monotonic() - t0:.1f}s"
-        )
+            remaining = sum(1 for cid in idx.get_chunk_ids() if cid not in set(vector_store.list_ids()))
+            elapsed = time.monotonic() - t0
     finally:
+        stop_heartbeat.set()
+        if heartbeat_thread is not None:
+            heartbeat_thread.join(timeout=2.0)
         vector_store.close()
         idx.close()
+
+    if complete:
+        emit_result(
+            ctx,
+            {"name": name, "missing": 0, "complete": True},
+            human_text=f"Embeddings for '{name}' are already complete.",
+            meta={"count": 0},
+        )
+        return
+    if attempted > 0 and stored == 0 and skipped > 0:
+        emit_error(
+            "network_error",
+            f"Embedding failed for all {skipped} chunk(s) in workspace '{name}'",
+            output_json=json_out,
+            retryable=True,
+            hint="Check the embedding provider configuration/network, then retry 'zot workspace embed'",
+            context="workspace embed",
+        )
+    data = {
+        "name": name,
+        "attempted": attempted,
+        "stored": stored,
+        "skipped": skipped,
+        "remaining_missing": remaining,
+        "elapsed_s": round(elapsed, 1),
+    }
+    emit_result(
+        ctx,
+        data,
+        human_text=(
+            f"Backfilled embeddings for '{name}': attempted={attempted}, stored={stored}, "
+            f"skipped={skipped}, remaining_missing={remaining}, elapsed={elapsed:.1f}s"
+        ),
+        meta={"count": stored},
+    )

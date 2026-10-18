@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from zotero_cli.core.mineru import MinerUError, MinerUParseCache, MinerUParseResult
 from zotero_cli.core.notes.classification import (
@@ -20,6 +21,7 @@ from zotero_cli.core.notes.classification import (
     _chat,
     _classify,
     extract_json_object,
+    wrap_untrusted,
 )
 from zotero_cli.core.notes.client import AiClient
 from zotero_cli.core.notes.constants import (
@@ -34,27 +36,80 @@ from zotero_cli.core.notes.constants import (
     SPARSE_RETRY_SUFFIX,
 )
 from zotero_cli.core.notes.documents import (
-    _drop_duplicate_parts,
     _item_authors,
     _item_journal,
+    _kept_duplicate_indices,
     _sections_to_text,
 )
 from zotero_cli.core.notes.errors import NoteAnalysisError
 from zotero_cli.core.notes.figures import load_figures, mark_figures
 from zotero_cli.core.notes.renderer import render_note
 from zotero_cli.core.notes.short_note import _generate_short_note
-from zotero_cli.core.notes.templates import format_template, load_template
+from zotero_cli.core.notes.templates import fit_text_to_prompt, format_template, load_template
 from zotero_cli.core.notes.text import join_spaced_digits, prepare
 from zotero_cli.core.rag import clean_html, infer_pdf_kind
 from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.core.zotero.writer import ZoteroWriter
 from zotero_cli.models import Item
 
+_MISSING_FIELD = "未知"
+
+
+def _require_ai_client(ai_client: AiClient | None) -> AiClient:
+    if ai_client is None:
+        raise NoteAnalysisError("AI note 配置不完整", code="configuration_error")
+    return ai_client
+
+
+def _writer_call(action: str, callback: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    """Run a writer mutation, translating raw failures into typed pipeline errors.
+
+    The raised error keeps the writer error code/retryable hint and marks the
+    mutation as committed, so an idempotency reservation is not released for an
+    outcome that may already have reached Zotero.
+    """
+    try:
+        return callback(*args, **kwargs)
+    except NoteAnalysisError:
+        raise
+    except Exception as exc:
+        code = str(getattr(exc, "code", "runtime_error"))
+        retryable = bool(getattr(exc, "retryable", False))
+        raise NoteAnalysisError(
+            f"{action}失败：{type(exc).__name__}: {exc}",
+            code=code,
+            retryable=retryable,
+            committed=True,
+        ) from exc
+
+
+def _wrap_field(value: str, label: str) -> str:
+    return wrap_untrusted((value or "").strip() or _MISSING_FIELD, label)
+
+
+def _keep_documents(docs: list[tuple[str, Path]]) -> list[tuple[str, Path]]:
+    """Drop duplicate document copies BEFORE figure marking/numbering."""
+    kept_indices = _kept_duplicate_indices([text for text, _ in docs])
+    return [docs[index] for index in kept_indices]
+
+
+def _mark_documents(docs: list[tuple[str, Path]], start: int) -> tuple[list[str], list[tuple[int, Path]], int]:
+    """Mark figures in document order, returning marked texts, refs and next number."""
+    texts: list[str] = []
+    refs: list[tuple[int, Path]] = []
+    next_number = start
+    for text, raw_dir in docs:
+        marked, doc_refs = mark_figures(text, raw_dir, start=next_number)
+        next_number += len(doc_refs)
+        texts.append(marked)
+        refs.extend(doc_refs)
+    return texts, refs, next_number
+
 
 def _analyze_short_note_only(
     reader: ZoteroReader,
     writer: ZoteroWriter | None,
-    ai_client: AiClient,
+    ai_client: AiClient | None,
     item: Item,
     key: str,
     progress: Callable[[str, str], None] | None,
@@ -65,9 +120,9 @@ def _analyze_short_note_only(
     notes = reader.get_notes(key)
     if not notes:
         raise NoteAnalysisError(f"条目 '{key}' 没有可用的 AI 笔记", code="validation_error")
-    # reader.get_notes 按创建顺序返回；含 "AI条目分析" 的笔记中选最新一条（我们的工作流总是后创建），
+    # reader.get_notes 按创建顺序返回；标题前缀命中 AI 条目的笔记中选最新一条（我们的工作流总是后创建），
     # 避免旧版工作流的同名笔记（可能更长）抢走选择。
-    ai_notes = [n for n in notes if "AI条目分析" in (n.content or "")]
+    ai_notes = [n for n in notes if NOTE_TITLE_PREFIX in (n.content or "")]
     if ai_notes:
         chosen = ai_notes[-1]
     else:
@@ -76,6 +131,8 @@ def _analyze_short_note_only(
     if not note_text:
         raise NoteAnalysisError(f"条目 '{key}' 的 AI 笔记内容为空", code="validation_error")
 
+    template = load_template("short-note")
+    source_text = fit_text_to_prompt(template, note_text)
     result: dict = {
         "status": "short_note_only",
         "item_key": key,
@@ -83,32 +140,57 @@ def _analyze_short_note_only(
         "note_key": chosen.key,
     }
     if dry_run:
-        prompt = format_template(load_template("short-note"), fulltext=note_text)
+        prompt = format_template(template, fulltext=wrap_untrusted(source_text, "ai-note"))
         return {
             **result,
             "status": "dry_run",
             "template": "short-note",
-            "chars": len(note_text),
+            "chars": len(source_text),
             "prompt_preview": prompt[:1200],
         }
     if writer is None:
         raise NoteAnalysisError("写入凭证未配置", code="auth_missing")
+    committed = False
     try:
-        short_note = _generate_short_note(ai_client, note_text, progress)
-        writer.update_short_note(key, short_note)
-        writer.add_tags(key, [KEYWORDS_TAG])
+        short_note = _generate_short_note(_require_ai_client(ai_client), note_text, progress)
+        committed = True
+        _writer_call("写入 Extra short-note", writer.update_short_note, key, short_note)
         result["short_note"] = "ok"
+        try:
+            _writer_call("写入 tag ai/keywords", writer.add_tags, key, [KEYWORDS_TAG])
+        except NoteAnalysisError as tag_error:
+            raise NoteAnalysisError(
+                f"short-note 已写入（item {key}），但 ai/keywords tag 写入失败：{tag_error}；"
+                "请勿直接重跑，先手工补 tag",
+                code=tag_error.code,
+                retryable=False,
+                committed=True,
+            ) from tag_error
     except Exception as exc:
-        writer.add_tags(key, [NO_KEYWORDS_TAG])
+        error = (
+            exc
+            if isinstance(exc, NoteAnalysisError)
+            else NoteAnalysisError(
+                f"生成关键词失败：{type(exc).__name__}: {exc}", code="runtime_error", committed=committed
+            )
+        )
+        error.committed = error.committed or committed
+        if error.committed:
+            raise error from exc
+        # Generation failed before any write: best-effort ai/no_keywords tag.
         result["short_note"] = "failed"
-        result["short_note_error"] = str(exc)[:160]
+        result["short_note_error"] = str(error)[:160]
+        try:
+            _writer_call("写入 tag ai/no_keywords", writer.add_tags, key, [NO_KEYWORDS_TAG])
+        except NoteAnalysisError as tag_error:
+            result["short_note_error"] = f"{error!s}; tag 写入失败：{tag_error}"[:160]
     return result
 
 
 def analyze_item(
     reader: ZoteroReader,
     writer: ZoteroWriter | None,
-    ai_client: AiClient,
+    ai_client: AiClient | None,
     key: str,
     *,
     force: bool = False,
@@ -127,7 +209,9 @@ def analyze_item(
             raise NoteAnalysisError("写入凭证未配置", code="auth_missing")
         return _analyze_short_note_only(reader, writer, ai_client, item, key, progress, dry_run=dry_run)
 
-    if ANALYZED_TAG in item.tags and not force:
+    # A dry run is a read-only preview: it must preview even an already-analyzed
+    # item instead of short-circuiting to already_analyzed.
+    if not dry_run and ANALYZED_TAG in item.tags and not force:
         return {"status": "already_analyzed", "item_key": key, "item_type": item.item_type}
 
     attachments = reader.get_pdf_attachments(key)
@@ -147,10 +231,8 @@ def analyze_item(
         code = "configuration_error" if "token not configured" in message.lower() else "network_error"
         raise NoteAnalysisError(message, code=code, retryable=code == "network_error") from exc
 
-    main_parts: list[str] = []
-    supp_parts: list[str] = []
-    main_figure_refs: list[tuple[int, Path]] = []
-    supp_figure_refs: list[tuple[int, Path]] = []
+    main_docs: list[tuple[str, Path]] = []
+    supp_docs: list[tuple[str, Path]] = []
     for att in attachments:
         if att.path is None or att.path not in pdf_parses:
             continue
@@ -160,23 +242,23 @@ def analyze_item(
         text = parsed.markdown
         if not text.strip():
             continue
-        # Figures are only meaningful where the text is actually sent, so mark
-        # them in the same pass that classifies the document. Numbers stay
-        # continuous across PDFs, so a marker is unique inside the prompt.
-        text, refs = mark_figures(text, parsed.root / "raw", start=len(main_figure_refs) + len(supp_figure_refs) + 1)
+        raw_dir = parsed.root / "raw"
         kind = infer_pdf_kind(parsed.markdown, att.filename or att.key)
-        (supp_figure_refs if kind == "supplementary" else main_figure_refs).extend(refs)
         if kind == "supplementary":
-            supp_parts.append(text)
+            supp_docs.append((text, raw_dir))
         else:
-            main_parts.append(text)
+            main_docs.append((text, raw_dir))
 
-    main_parts = _drop_duplicate_parts(main_parts)
+    # Dedupe raw document copies before numbering figures: numbering the dropped
+    # copy first would leave prompt markers aligned with refs that are no longer
+    # sent (or labels attached from the dropped copy).
+    main_docs = _keep_documents(main_docs)
+    if not main_docs and supp_docs:
+        main_docs, supp_docs = _keep_documents(supp_docs), []
+    main_parts, main_figure_refs, next_number = _mark_documents(main_docs, 1)
+    supp_parts, supp_figure_refs, _ = _mark_documents(supp_docs, next_number)
+
     main_text = "\n\n".join(main_parts)
-    if not main_text.strip() and supp_parts:
-        main_parts, supp_parts = supp_parts, []
-        main_text = "\n\n".join(main_parts)
-
     if not main_text.strip():
         failures = [str(value) for value in pdf_parses.values() if isinstance(value, Exception)]
         detail = f"：{failures[0]}" if failures else ""
@@ -190,31 +272,33 @@ def analyze_item(
     if dry_run:
         paper_type = "book" if item.item_type in BOOK_ITEM_TYPES else "research_article"
     else:
-        paper_type = _classify(item, main_text[:CLASSIFY_CHARS], ai_client, progress)
+        paper_type = _classify(item, main_text[:CLASSIFY_CHARS], _require_ai_client(ai_client), progress)
     if paper_type == "uncertain":
         if not dry_run and not no_tag:
             if writer is None:
                 raise NoteAnalysisError("写入凭证未配置", code="auth_missing")
-            writer.add_tags(key, [NOT_ANALYZED_TAG])
+            _writer_call("写入 tag ai/uncertain", writer.add_tags, key, [NOT_ANALYZED_TAG])
         return {"status": "uncertain", "item_key": key, "paper_type": paper_type}
     if paper_type not in TEMPLATE_BY_TYPE:
         paper_type = "research_article"
 
     cleaned = join_spaced_digits(clean_html(full_text))
-    max_chars = ai_client.config.max_extracted_chars
-    if max_chars > 0 and len(cleaned) > max_chars:
-        cleaned = cleaned[:max_chars]
-
     template_name = TEMPLATE_BY_TYPE[paper_type]
     template = load_template(template_name)
+    if ai_client is not None:
+        max_chars = ai_client.config.max_extracted_chars
+        if max_chars > 0 and len(cleaned) > max_chars:
+            cleaned = cleaned[:max_chars]
+    cleaned = fit_text_to_prompt(template, cleaned)
+
     prompt = format_template(
         template,
-        title=item.title,
-        authors=_item_authors(item),
-        journal=_item_journal(item),
-        date=item.date or "",
-        doi=item.doi or "",
-        fulltext=cleaned,
+        title=_wrap_field(item.title, "title"),
+        authors=_wrap_field(_item_authors(item), "authors"),
+        journal=_wrap_field(_item_journal(item), "journal"),
+        date=_wrap_field(item.date or "", "date"),
+        doi=_wrap_field(item.doi or "", "doi"),
+        fulltext=wrap_untrusted(cleaned, "document"),
     )
 
     # Main-text panels are the evidence being judged; only spend leftover slots
@@ -239,12 +323,13 @@ def analyze_item(
             "prompt_preview": prompt[:1200],
         }
 
+    client = _require_ai_client(ai_client)
     if progress:
         progress("analyze", f"paper_type={paper_type}")
     if writer is None:
         raise NoteAnalysisError("写入凭证未配置", code="auth_missing")
 
-    answer = _chat(ai_client, prompt, progress=progress, figures=figures)
+    answer = _chat(client, prompt, progress=progress, figures=figures)
     try:
         sections = extract_json_object(answer).get("sections", [])
     except NoteAnalysisError:
@@ -253,7 +338,7 @@ def analyze_item(
         # A long answer gets truncated when the context is already full of
         # figures, so the retry carries half of them.
         retry_figures = figures[: max(1, len(figures) // 2)] if figures else figures
-        retry_answer = _chat(ai_client, prompt + PARSE_RETRY_SUFFIX, progress=progress, figures=retry_figures)
+        retry_answer = _chat(client, prompt + PARSE_RETRY_SUFFIX, progress=progress, figures=retry_figures)
         try:
             sections = extract_json_object(retry_answer).get("sections", [])
         except NoteAnalysisError as retry_error:
@@ -268,7 +353,7 @@ def analyze_item(
         if progress:
             progress("retry", f"输出过简略（{len(sections)} 个 block），追加内容充实度要求重试一次")
         try:
-            retry_answer = _chat(ai_client, prompt + SPARSE_RETRY_SUFFIX, progress=progress, figures=figures)
+            retry_answer = _chat(client, prompt + SPARSE_RETRY_SUFFIX, progress=progress, figures=figures)
             retried = extract_json_object(retry_answer).get("sections", [])
             if isinstance(retried, list) and len(retried) > len(sections):
                 sections = retried
@@ -281,22 +366,38 @@ def analyze_item(
 
     note_title = NOTE_TITLE_PREFIX + prepare(item.title)
     html_note = render_note(sections, title=note_title)
-    note_key = writer.add_note(key, html_note)
+    note_key = _writer_call("写入 note", writer.add_note, key, html_note)
     if not no_tag:
-        writer.add_tags(key, [ANALYZED_TAG])
+        try:
+            _writer_call("写入 tag ai/noted", writer.add_tags, key, [ANALYZED_TAG])
+        except NoteAnalysisError as tag_error:
+            raise NoteAnalysisError(
+                f"note 已写入（key {note_key}），但 ai/noted tag 写入失败：{tag_error}；"
+                "请勿直接重跑以免生成重复 note，先手工补 tag",
+                code=tag_error.code,
+                retryable=False,
+                committed=True,
+            ) from tag_error
 
     short_note_status = "skipped"
     short_note_error = ""
     if not no_short_note:
         try:
-            short_note = _generate_short_note(ai_client, _sections_to_text(sections), progress)
-            writer.update_short_note(key, short_note)
-            writer.add_tags(key, [KEYWORDS_TAG])
+            short_note = _generate_short_note(client, _sections_to_text(sections), progress)
+            _writer_call("写入 Extra short-note", writer.update_short_note, key, short_note)
             short_note_status = "ok"
-        except Exception as exc:  # graceful degradation: the note is already written
-            writer.add_tags(key, [NO_KEYWORDS_TAG])
+            try:
+                _writer_call("写入 tag ai/keywords", writer.add_tags, key, [KEYWORDS_TAG])
+            except NoteAnalysisError as tag_error:
+                short_note_status = "failed"
+                short_note_error = f"short-note 已写入，但 ai/keywords tag 写入失败：{tag_error}"[:160]
+        except NoteAnalysisError as exc:
             short_note_status = "failed"
             short_note_error = str(exc)[:160]
+            try:
+                _writer_call("写入 tag ai/no_keywords", writer.add_tags, key, [NO_KEYWORDS_TAG])
+            except NoteAnalysisError as tag_error:
+                short_note_error = f"{short_note_error}; tag 写入失败：{tag_error}"[:160]
 
     return {
         "status": "ok",

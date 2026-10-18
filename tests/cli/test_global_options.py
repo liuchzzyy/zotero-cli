@@ -1,3 +1,4 @@
+import json
 from unittest.mock import patch
 
 from click.testing import CliRunner
@@ -9,14 +10,47 @@ def test_no_interaction_flag_exists():
     runner = CliRunner()
     result = runner.invoke(main, ["--no-interaction", "--help"])
     assert result.exit_code == 0
+    assert "Usage:" in result.output
+    assert "--no-interaction" in result.output
 
 
-def test_delete_no_interaction_skips_prompt():
-    """--no-interaction should auto-confirm delete without prompting."""
+_WRITE_ENV = {"ZOT_LIBRARY_ID": "abc", "ZOT_API_KEY": "xyz"}
+
+
+def test_delete_no_interaction_requires_yes():
+    """--no-interaction never implies --yes for destructive commands (H-05)."""
     runner = CliRunner()
-    # Will fail at credentials check, but should NOT prompt for confirmation
-    result = runner.invoke(main, ["--no-interaction", "delete", "FAKEKEY"])
-    assert "Cancelled" not in result.output
+    result = runner.invoke(main, ["--json", "--no-interaction", "delete", "FAKEKEY"], env=_WRITE_ENV)
+    assert result.exit_code == 3
+    envelope = json.loads(result.stdout)
+    assert envelope["error"]["code"] == "confirmation_required"
+    assert envelope["error"]["context"] == "delete"
+
+
+def test_delete_no_interaction_hoisted_after_subcommand():
+    """The global --no-interaction flag is hoisted from after the subcommand too."""
+    runner = CliRunner()
+    result = runner.invoke(main, ["--json", "delete", "FAKEKEY", "--no-interaction"], env=_WRITE_ENV)
+    assert result.exit_code == 3
+    envelope = json.loads(result.stdout)
+    assert envelope["error"]["code"] == "confirmation_required"
+
+
+def test_detail_flag_hoisted_after_subcommand(test_db_path):
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        ["--json", "list", "--detail", "minimal", "--limit", "1"],
+        env={"ZOT_DATA_DIR": str(test_db_path.parent)},
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["ok"] is True
+
+
+def test_verbose_flag_hoisted_after_subcommand():
+    runner = CliRunner()
+    result = runner.invoke(main, ["--json", "config", "show", "--verbose"])
+    assert result.exit_code == 0, result.output
 
 
 def test_config_init_no_interaction_succeeds_with_auto_detect(tmp_path):
@@ -54,6 +88,7 @@ def test_detail_minimal_flag():
     runner = CliRunner()
     result = runner.invoke(main, ["--detail", "minimal", "--help"])
     assert result.exit_code == 0
+    assert "Usage:" in result.output
 
 
 def test_detail_invalid_value():
@@ -66,14 +101,22 @@ def test_profile_flag():
     runner = CliRunner()
     result = runner.invoke(main, ["--profile", "test", "--help"])
     assert result.exit_code == 0
+    assert "Usage:" in result.output
 
 
-def test_cache_clear_command(tmp_path):
+def test_cache_clear_requires_yes_or_dry_run(tmp_path):
     with patch("zotero_cli.core.mineru.MinerUParseCache") as cache_cls:
+        cache_cls.return_value.stats.return_value = {"entries": 0, "total_bytes": 0}
         cache_cls.return_value.clear.return_value = 0
         runner = CliRunner()
-        result = runner.invoke(main, ["config", "cache", "clear"])
-        assert result.exit_code == 0
+        refused = runner.invoke(main, ["--json", "config", "cache", "clear"])
+        assert refused.exit_code == 3
+        assert json.loads(refused.stdout)["error"]["code"] == "confirmation_required"
+        dry_run = runner.invoke(main, ["--json", "config", "cache", "clear", "--dry-run"])
+        assert dry_run.exit_code == 0, dry_run.output
+        assert json.loads(dry_run.stdout)["dry_run"] is True
+        confirmed = runner.invoke(main, ["--json", "config", "cache", "clear", "--yes"])
+        assert confirmed.exit_code == 0, confirmed.output
 
 
 def test_cache_stats_command(tmp_path):
@@ -88,5 +131,6 @@ def test_cache_stats_command(tmp_path):
 def test_profile_list_no_profiles():
     runner = CliRunner()
     result = runner.invoke(main, ["config", "profile", "list"])
-    # Either shows profiles or says none configured
     assert result.exit_code == 0
+    # The autouse fixture isolates config to an empty temp file, so there are no profiles.
+    assert "No profiles configured" in result.output

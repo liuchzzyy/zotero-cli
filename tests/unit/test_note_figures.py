@@ -79,6 +79,16 @@ class TestLoadFigures:
         path = _write_figure(tmp_path, "p.jpeg", b"\xff\xd8\xff" + b"\x00" * 8000)
         assert load_figures([(1, path)], limit=12)[0][1].startswith("data:image/jpeg;base64,")
 
+    def test_aggregate_byte_cap_limits_the_payload(self, tmp_path):
+        refs = [(i, _write_figure(tmp_path, "f" + str(i) + ".jpg", b"\xff" * 9000)) for i in range(1, 5)]
+        loaded = load_figures(refs, limit=12, max_total_bytes=25_000)
+        assert len(loaded) == 2  # 9000 + 9000 fits, the next would exceed the cap
+
+    def test_default_aggregate_cap_is_bounded(self, tmp_path):
+        from zotero_cli.core.notes.figures import _MAX_TOTAL_BYTES
+
+        assert 0 < _MAX_TOTAL_BYTES <= 64 * 1024 * 1024
+
 
 class _FakeCompletions:
     def __init__(self, outcomes):
@@ -118,6 +128,16 @@ class TestAiClientFigures:
         assert content[0] == {"type": "text", "text": "prompt"}
         assert content[1]["type"] == "text" and "图 1" in content[1]["text"]
         assert content[2] == {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAA"}}
+
+    def test_generic_image_mention_does_not_trigger_text_only_retry(self):
+        # Payload-size errors may mention "image" but are not a capability
+        # rejection; silently dropping the figures would hide the real failure.
+        client, completions = _client([Exception("Request too large: image size exceeds provider limit")])
+        client.config.fallback_models = []
+        with pytest.raises(Exception):
+            client.chat("prompt", figures=_FIGURE)
+        assert len(completions.calls) == 1
+        assert isinstance(completions.calls[0]["messages"][1]["content"], list)
 
     def test_text_only_model_retries_without_images(self):
         rejection = Exception("BadRequestError: image input is not supported")

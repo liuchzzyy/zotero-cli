@@ -14,6 +14,10 @@ from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.output.renderers import format_pdf_text
 
+_NO_PDF_HINT = "Check item details with: zot read KEY"
+_USAGE_HINT = 'Find item keys with: zot search "<query>"'
+_CACHE_STATE_HINT = "The local MinerU cache appears corrupt; remove the affected package directory and retry"
+
 
 def _parse_outline(markdown: str) -> list[tuple[int, str, int]]:
     pattern = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
@@ -69,14 +73,31 @@ def pdf_cmd(
             context="pdf",
         )
 
-    cfg = load_config(profile=ctx.obj.get("profile"))
-    data_dir = get_data_dir(cfg)
-    db_path = data_dir / "zotero.sqlite"
-    library_id = resolve_library_id(db_path, ctx.obj)
-    reader = ZoteroReader(db_path, library_id=library_id, prefs_js_path=get_prefs_js_path(cfg))
+    reader: ZoteroReader | None = None
     try:
+        cfg = load_config(profile=ctx.obj.get("profile"))
+        data_dir = get_data_dir(cfg)
+        db_path = data_dir / "zotero.sqlite"
+        library_id = resolve_library_id(db_path, ctx.obj)
+        reader = ZoteroReader(db_path, library_id=library_id, prefs_js_path=get_prefs_js_path(cfg))
         attachments = reader.get_pdf_attachments(key)
         if list_attachments:
+            if not attachments:
+                if reader.get_item(key) is None:
+                    emit_error(
+                        "not_found",
+                        f"Item '{key}' not found",
+                        output_json=json_out,
+                        hint=_USAGE_HINT,
+                        context="pdf",
+                    )
+                emit_error(
+                    "not_found",
+                    f"No PDF attachment found for '{key}'",
+                    output_json=json_out,
+                    hint=_NO_PDF_HINT,
+                    context="pdf",
+                )
             data = {
                 "key": key,
                 "attachments": [
@@ -90,11 +111,19 @@ def pdf_cmd(
                 click.echo("\n".join(f"{att.key}  {att.filename}" for att in attachments))
             return
         if not attachments:
+            if reader.get_item(key) is None:
+                emit_error(
+                    "not_found",
+                    f"Item '{key}' not found",
+                    output_json=json_out,
+                    hint=_USAGE_HINT,
+                    context="pdf",
+                )
             emit_error(
                 "not_found",
                 f"No PDF attachment found for '{key}'",
                 output_json=json_out,
-                hint="Check item details with: zot read KEY",
+                hint=_NO_PDF_HINT,
                 context="pdf",
             )
         if not attachment_key and len(attachments) > 1:
@@ -125,8 +154,42 @@ def pdf_cmd(
                 context="pdf",
             )
 
-        cache = MinerUParseCache()
-        cached = cache.get(pdf_path)
+        try:
+            cache = MinerUParseCache()
+        except MinerUError as exc:
+            emit_error(
+                "configuration_error",
+                f"MinerU cache configuration error: {exc}",
+                output_json=json_out,
+                hint="Check [pdf].mineru_model_version in .zot/config.toml",
+                context="pdf",
+            )
+        except OSError as exc:
+            emit_error(
+                "internal_error",
+                f"Could not initialize the MinerU cache: {exc}",
+                output_json=json_out,
+                context="pdf",
+            )
+
+        try:
+            cached, fingerprint = cache.lookup(pdf_path)
+        except MinerUError as exc:
+            emit_error(
+                "internal_error",
+                f"Could not read the MinerU cache: {exc}",
+                output_json=json_out,
+                hint=_CACHE_STATE_HINT,
+                context="pdf",
+            )
+        except OSError as exc:
+            emit_error(
+                "internal_error",
+                f"Could not read PDF attachment '{pdf_path}': {exc}",
+                output_json=json_out,
+                context="pdf",
+            )
+
         if cached is None and not load_pdf_config().mineru_token:
             emit_error(
                 "configuration_error",
@@ -135,17 +198,27 @@ def pdf_cmd(
                 hint="Set [pdf].mineru_token in .zot/config.toml",
                 context="pdf",
             )
-        try:
-            parsed = cached or cache.ensure(pdf_path)
-        except MinerUError as exc:
-            emit_error(
-                "network_error",
-                str(exc),
-                output_json=json_out,
-                retryable=True,
-                hint="Check the MinerU token, API status, and network connection",
-                context="pdf",
-            )
+        if cached is not None:
+            parsed = cached
+        else:
+            try:
+                parsed = cache.ensure(pdf_path, fingerprint=fingerprint)
+            except MinerUError as exc:
+                emit_error(
+                    "network_error",
+                    str(exc),
+                    output_json=json_out,
+                    retryable=True,
+                    hint="Check the MinerU token, API status, and network connection",
+                    context="pdf",
+                )
+            except OSError as exc:
+                emit_error(
+                    "internal_error",
+                    f"Could not store the MinerU parse package: {exc}",
+                    output_json=json_out,
+                    context="pdf",
+                )
 
         meta = {
             "attachment_key": attachment.key,
@@ -153,46 +226,79 @@ def pdf_cmd(
             "mineru_model_version": parsed.model_version,
             "cache_dir": str(parsed.root),
         }
-        if structured:
-            data = {"key": key, "content_list": parsed.content_list, **meta}
-            if json_out:
-                click.echo(json.dumps(envelope_ok(data), ensure_ascii=False, indent=2))
-            else:
-                click.echo(json.dumps(parsed.content_list, ensure_ascii=False, indent=2))
-            return
+        try:
+            if structured:
+                data = {"key": key, "content_list": parsed.content_list, **meta}
+                if json_out:
+                    click.echo(json.dumps(envelope_ok(data), ensure_ascii=False, indent=2))
+                else:
+                    click.echo(json.dumps(parsed.content_list, ensure_ascii=False, indent=2))
+                return
 
-        markdown = parsed.markdown
-        if section is not None:
-            content = _extract_section(markdown, section)
-            if not content:
-                emit_error(
-                    "not_found",
-                    f"Section {section} not found",
-                    output_json=json_out,
-                    hint="Use --outline first to see available sections",
-                    context="pdf",
-                )
-            click.echo(format_pdf_text(key, section=section, content=content, output_json=json_out))
-            return
-        if outline:
-            outline_data = [
-                {"number": number, "text": text, "level": level} for number, text, level in _parse_outline(markdown)
-            ]
+            markdown = parsed.markdown
+            if section is not None:
+                content = _extract_section(markdown, section)
+                if not content:
+                    emit_error(
+                        "not_found",
+                        f"Section {section} not found",
+                        output_json=json_out,
+                        hint="Use --outline first to see available sections",
+                        context="pdf",
+                    )
+                click.echo(format_pdf_text(key, section=section, content=content, output_json=json_out))
+                return
+            if outline:
+                outline_data = [
+                    {"number": number, "text": text, "level": level} for number, text, level in _parse_outline(markdown)
+                ]
+                if json_out:
+                    click.echo(
+                        json.dumps(
+                            envelope_ok({"key": key, "outline": outline_data, **meta}),
+                            ensure_ascii=False,
+                            indent=2,
+                        )
+                    )
+                elif not outline_data:
+                    click.echo("No headings found in document.")
+                else:
+                    click.echo(format_pdf_text(key, outline=outline_data, output_json=False))
+                return
+
             if json_out:
                 click.echo(
-                    json.dumps(envelope_ok({"key": key, "outline": outline_data, **meta}), ensure_ascii=False, indent=2)
+                    json.dumps(envelope_ok({"key": key, "markdown": markdown, **meta}), ensure_ascii=False, indent=2)
                 )
-            elif not outline_data:
-                click.echo("No headings found in document.")
             else:
-                click.echo(format_pdf_text(key, outline=outline_data, output_json=False))
-            return
-
-        if json_out:
-            click.echo(
-                json.dumps(envelope_ok({"key": key, "markdown": markdown, **meta}), ensure_ascii=False, indent=2)
+                click.echo(markdown)
+        except SystemExit:
+            raise
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            emit_error(
+                "internal_error",
+                f"Cached MinerU package for '{key}' is unreadable: {exc}",
+                output_json=json_out,
+                hint=f"Delete the package at {parsed.root} and retry",
+                context="pdf",
             )
-        else:
-            click.echo(markdown)
+        except Exception as exc:
+            emit_error(
+                "internal_error",
+                f"Could not render MinerU output: {type(exc).__name__}: {exc}",
+                output_json=json_out,
+                context="pdf",
+            )
+    except SystemExit:
+        raise
+    except Exception as exc:
+        # Last-resort boundary: the command must never leak a traceback.
+        emit_error(
+            "internal_error",
+            f"Failed to read PDF '{key}': {type(exc).__name__}: {exc}",
+            output_json=json_out,
+            context="pdf",
+        )
     finally:
-        reader.close()
+        if reader is not None:
+            reader.close()

@@ -28,12 +28,19 @@ from typing import Any
 
 import zh_text
 
-from zotero_cli.config import load_config, resolve_write_credentials
+from zotero_cli.config import load_config, resolve_write_credentials, state_dir
 from zotero_cli.core.zotero.writer import ZoteroWriter
 
 SCIENTIST_HOME = Path("/Users/liuchzzyy/.hermes/profiles/scientist")
 TOOLS_DIR = Path(__file__).resolve().parent
-DEFAULT_STATE_FILE = TOOLS_DIR / "translate_abstracts_state.json"
+PAPER2ZOTERO_STATE_SUBDIR = "paper2zotero"
+
+
+def default_state_file() -> Path:
+    """Checkpoint under the git-ignored repo state dir, never the tracked tools tree."""
+    return state_dir() / PAPER2ZOTERO_STATE_SUBDIR / "translate_abstracts_state.json"
+
+
 CHINESE_RE = re.compile(r"[\u4e00-\u9fff]")
 SESSION_LINE = re.compile(r"\n\s*session_id: [^\n]+\s*$")
 LEADING_ABSTRACT_RE = re.compile(r"^\s*(?:abstract|摘要)\s*[:：]?\s*", re.I)
@@ -216,6 +223,7 @@ def translate_batch(batch: list[dict[str, str]]) -> dict[str, str]:
 
 def _write_state(path: Path, state: list[dict[str, Any]]) -> None:
     """Persist checkpoint atomically using a unique temporary file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f"{path.name}.{os.getpid()}-{uuid.uuid4().hex[:8]}.tmp")
     try:
         tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -223,6 +231,30 @@ def _write_state(path: Path, state: list[dict[str, Any]]) -> None:
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
+
+
+def load_state(path: Path) -> list[dict[str, Any]]:
+    """Load a staging checkpoint, failing closed instead of silently rebuilding it.
+
+    A corrupt or unreadable checkpoint means the translated rows already paid for
+    cannot be identified; overwriting it would discard verified progress and a
+    half-written file suggests another writer is active. Refuse and let the caller
+    inspect/remove the file explicitly.
+    """
+    if not path.exists():
+        return []
+    try:
+        saved = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise AbstractTranslationError(f"暂存状态文件无法读取，拒绝覆盖：{path}: {exc}") from exc
+    if not isinstance(saved, list) or any(
+        not isinstance(row, dict) or not isinstance(row.get("key"), str) for row in saved
+    ):
+        raise AbstractTranslationError(f"暂存状态文件格式无效，拒绝覆盖：{path}")
+    keys = [row["key"] for row in saved]
+    if len(set(keys)) != len(keys):
+        raise AbstractTranslationError(f"暂存状态文件包含重复 key，拒绝覆盖：{path}")
+    return saved
 
 
 def stage_translations(
@@ -235,17 +267,7 @@ def stage_translations(
     """Stage translations before making remote mutations, with resumption support."""
     if batch_size < 1:
         raise AbstractTranslationError("batch_size 必须为正整数")
-    saved: Any = []
-    if path.exists():
-        try:
-            saved = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            saved = []
-    state_map = (
-        {r["key"]: r for r in saved if isinstance(r, dict) and isinstance(r.get("key"), str)}
-        if isinstance(saved, list)
-        else {}
-    )
+    state_map = {row["key"]: row for row in load_state(path)}
     state: list[dict[str, Any]] = []
     pending: list[dict[str, Any]] = []
     for candidate in candidates:
@@ -269,6 +291,10 @@ def stage_translations(
         translations = translator(batch)
         for row in batch:
             row["abstract_zh"] = validate_translation(translations[row["key"]], row["key"])
+        # Checkpoint after every completed batch: an interruption must not throw
+        # away batches that were already paid for, and a rerun skips them by key.
+        _write_state(path, state)
+        print(f"翻译暂存进度 {sum(bool(row.get('abstract_zh')) for row in state)}/{len(state)}", flush=True)
 
     _write_state(path, state)
     return state
@@ -380,9 +406,18 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--key", action="append", default=[], help="指定更新的单个或多个条目 key（可重复使用）")
     parser.add_argument("--all", action="store_true", help="处理全库顶层条目（谨慎使用）")
     parser.add_argument("--apply", action="store_true", help="执行实际写入（默认仅 dry-run 统计预览）")
-    parser.add_argument("--force", action="store_true", help="强制重新翻译已有中文的摘要")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="将已有中文摘要的条目重新纳入翻译暂存；最终写入仍拒绝覆盖不同的有效中文摘要",
+    )
     parser.add_argument("--batch-size", type=int, default=3, help="批量翻译条数（默认 3）")
-    parser.add_argument("--state-file", type=Path, default=DEFAULT_STATE_FILE, help="断点续跑暂存文件")
+    parser.add_argument(
+        "--state-file",
+        type=Path,
+        default=None,
+        help="断点续跑暂存文件（默认 .zot/state/paper2zotero/translate_abstracts_state.json）",
+    )
     args = parser.parse_args(argv)
 
     if not args.collection and not args.key and not args.all:
@@ -422,7 +457,7 @@ def main(argv: list[str] | None = None) -> None:
         api,
         writer,
         candidates,
-        args.state_file,
+        args.state_file or default_state_file(),
         dry_run=not args.apply,
         batch_size=args.batch_size,
     )

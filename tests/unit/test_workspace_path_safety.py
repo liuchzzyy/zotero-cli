@@ -24,7 +24,6 @@ def workspace_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root = tmp_path / ".workspace"
     root.mkdir()
     monkeypatch.setattr(workspace, "workspaces_dir", lambda: root)
-    monkeypatch.setattr(workspace, "project_root", lambda: tmp_path)
     return root
 
 

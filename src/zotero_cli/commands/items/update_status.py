@@ -13,7 +13,12 @@ from zotero_cli.config import (
     resolve_semantic_scholar_api_key,
     resolve_write_credentials,
 )
-from zotero_cli.core.zotero.publication_status import PreprintInfo, SemanticScholarClient, extract_preprint_info
+from zotero_cli.core.zotero.publication_status import (
+    PreprintInfo,
+    SemanticScholarClient,
+    SemanticScholarError,
+    extract_preprint_info,
+)
 from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.core.zotero.writer import SYNC_REMINDER, ZoteroWriter
 from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
@@ -24,6 +29,7 @@ from zotero_cli.output.exit_codes import emit_error
 @click.command("update-status")
 @click.argument("key", required=False, default=None)
 @click.option("--apply", is_flag=True, help="Actually update Zotero (default is dry-run)")
+@click.option("--dry-run", is_flag=True, help="Preview only; never write to Zotero")
 @click.option(
     "--api-key",
     "ss_api_key",
@@ -37,6 +43,7 @@ def update_status_cmd(
     ctx: click.Context,
     key: str | None,
     apply: bool,
+    dry_run: bool,
     ss_api_key: str | None,
     collection: str | None,
     limit: int | None,
@@ -44,7 +51,8 @@ def update_status_cmd(
     """Check if preprints (arXiv, bioRxiv, medRxiv) have been formally published.
 
     Uses the Semantic Scholar API to look up publication status.
-    By default runs in dry-run mode — use --apply to update Zotero.
+    Runs as a preview by default (also selectable with --dry-run); --apply is
+    the only way to write the discovered metadata back to Zotero.
 
     \b
     API key (optional, increases rate limit):
@@ -54,12 +62,21 @@ def update_status_cmd(
 
     \b
     Examples:
-      zot update-status                    # check all preprints (dry-run)
+      zot update-status                    # check all preprints (preview)
+      zot update-status --dry-run          # explicit preview, never writes
       zot update-status --apply            # update published items in Zotero
       zot update-status ABC123             # check a single item
       zot update-status --collection "NLP" # check items in a collection
       zot update-status --limit 10         # check at most 10 items
     """
+    if apply and dry_run:
+        emit_error(
+            "validation_error",
+            "--apply and --dry-run are mutually exclusive",
+            output_json=ctx.obj.get("json", False),
+            hint="Use --dry-run to preview; omit it with --apply to write",
+            context="update-status",
+        )
     cfg = load_config(profile=ctx.obj.get("profile"))
     json_out = ctx.obj.get("json", False)
     limit = limit if limit is not None else ctx.obj.get("limit", 50)
@@ -102,10 +119,13 @@ def update_status_cmd(
     finally:
         reader.close()
 
+    preview_extra = {} if apply else {"dry_run": True}
     if not items:
         if json_out:
             data = {"results": [], "published": 0, "checked": 0, "updated": 0, "sync_required": False}
-            click.echo(json.dumps(envelope_ok(data, meta={"count": 0}), indent=2, ensure_ascii=False))
+            click.echo(
+                json.dumps(envelope_ok(data, meta={"count": 0}, extra=preview_extra), indent=2, ensure_ascii=False)
+            )
         else:
             click.echo("No preprints found.")
         return
@@ -124,7 +144,9 @@ def update_status_cmd(
     if not preprint_items:
         if json_out:
             data = {"results": [], "published": 0, "checked": 0, "updated": 0, "sync_required": False}
-            click.echo(json.dumps(envelope_ok(data, meta={"count": 0}), indent=2, ensure_ascii=False))
+            click.echo(
+                json.dumps(envelope_ok(data, meta={"count": 0}, extra=preview_extra), indent=2, ensure_ascii=False)
+            )
         else:
             click.echo("No items with preprint IDs found.")
         return
@@ -157,7 +179,17 @@ def update_status_cmd(
                 short_title = title[:60] + ("..." if len(title) > 60 else "")
                 click.echo(f"{label} {short_title}", nl=False)
 
-            status = client.check_publication(info)
+            try:
+                status = client.check_publication(info)
+            except SemanticScholarError as exc:
+                emit_error(
+                    "rate_limited" if exc.rate_limited else "network_error",
+                    str(exc),
+                    output_json=json_out,
+                    retryable=exc.retryable,
+                    hint="Retry later or configure a semantic_scholar_api_key to raise rate limits",
+                    context="update-status",
+                )
 
             if status and status.is_published:
                 published_count += 1
@@ -253,9 +285,12 @@ def update_status_cmd(
         "sync_required": updated > 0,
     }
     if json_out:
-        extra = {} if apply else {"dry_run": True}
         click.echo(
-            json.dumps(envelope_ok(data, meta={"count": len(results)}, extra=extra), indent=2, ensure_ascii=False)
+            json.dumps(
+                envelope_ok(data, meta={"count": len(results)}, extra=preview_extra),
+                indent=2,
+                ensure_ascii=False,
+            )
         )
         return
 

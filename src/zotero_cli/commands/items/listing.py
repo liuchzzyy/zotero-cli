@@ -70,6 +70,8 @@ def list_cmd(
             emit_error("validation_error", str(e), output_json=ctx.obj.get("json", False))
         detail = ctx.obj.get("detail", "standard")
         if stream:
+            # --stream always emits NDJSON (one item per line + summary), even under
+            # --no-json: the streaming mode is the requested machine contract.
             click.echo(stream_items(result.items, detail=detail, total=result.total))
             return
         click.echo(format_items(result.items, output_json=ctx.obj.get("json", False), detail=detail))

@@ -9,6 +9,21 @@ from pathlib import Path
 from .models import AppConfig
 
 
+class LibraryResolutionError(Exception):
+    """A requested group library could not be resolved from the local database.
+
+    The CLI maps this to a typed `not_found` (exit 4); callers must not fall back
+    to the user library because that would silently redirect writes.
+    """
+
+    code = "not_found"
+    retryable = False
+
+    def __init__(self, group_id: str) -> None:
+        super().__init__(f"Group '{group_id}' not found in local database")
+        self.group_id = group_id
+
+
 def _detect_zotero_data_dir_from_registry() -> Path | None:
     """Detect Zotero data directory from Windows Registry."""
     if sys.platform != "win32":
@@ -53,7 +68,7 @@ def get_data_dir(config: AppConfig) -> Path:
     """Get Zotero data dir: env override > config > default."""
     env_dir = os.environ.get("ZOT_DATA_DIR")
     if env_dir:
-        return Path(env_dir)
+        return Path(env_dir).expanduser()
     return detect_zotero_data_dir(config)
 
 
@@ -110,7 +125,5 @@ def resolve_library_id(db_path: Path, ctx_obj: dict) -> int:
     finally:
         reader.close()
     if resolved is None:
-        import click
-
-        raise click.ClickException(f"Group '{ctx_obj['group_id']}' not found in local database")
+        raise LibraryResolutionError(str(ctx_obj["group_id"]))
     return resolved

@@ -29,7 +29,10 @@ workflow_output_dir() {
     fi
     return
   fi
-  print -r -- "${repo_root:A}/log/${prefix}-$(date '+%Y%m%d-%H%M%S')"
+  # PID+RANDOM suffix: concurrent workflows started in the same second must not
+  # share a run directory (logs would interleave and one cleanup would delete
+  # the other's artifacts).
+  print -r -- "${repo_root:A}/log/${prefix}-$(date '+%Y%m%d-%H%M%S')-$$-${RANDOM}"
 }
 
 workflow_assert_safe_output_dir() {
@@ -46,9 +49,12 @@ workflow_start() {
   local workflow_name="$1"
   local repo_root="$2"
   local run_dir="$3"
+  local run_dir_preexisted=false
+  [[ -d "$run_dir" ]] && run_dir_preexisted=true
   mkdir -p "$run_dir/logs"
   typeset -g WORKFLOW_NAME="$workflow_name"
   typeset -g WORKFLOW_RUN_DIR="$run_dir"
+  typeset -g WORKFLOW_RUN_DIR_PREEXISTED="$run_dir_preexisted"
   typeset -g WORKFLOW_RUN_LOG="$run_dir/run.log"
   typeset -g WORKFLOW_PROGRESS_LOG="$run_dir/progress.jsonl"
   typeset -g WORKFLOW_STARTED_AT="$(date +%s)"
@@ -98,6 +104,12 @@ workflow_remove_success_logs() {
   local repo_root="$1"
   local run_dir="$2"
   workflow_assert_safe_output_dir "$repo_root" "$run_dir"
+  # Only delete a directory this run created; a user-provided pre-existing
+  # directory may hold unrelated files.
+  if [[ "${WORKFLOW_RUN_DIR_PREEXISTED:-false}" == true ]]; then
+    print -r -- "Kept pre-existing run directory: $run_dir"
+    return 0
+  fi
   rm -rf -- "$run_dir"
   local log_root="${repo_root:A}/log"
   if [[ -d "$log_root" && -z "$(find "$log_root" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then

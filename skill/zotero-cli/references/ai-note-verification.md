@@ -126,9 +126,14 @@ about plots.
 
 Operational notes: number the markers `【图 N】` in the prompt text so the model can
 cite a panel; send main-text panels before SI ones, because a cap consumed by
-supplementary pages silently drops the main evidence; cap the count (a dozen
-panels is already a large payload); and lower that cap on a parse-failure retry —
+supplementary pages silently drops the main evidence; cap the count (12 panels, plus
+20 MiB of raw image bytes per request); and lower that cap on a parse-failure retry —
 a truncated JSON answer is the usual reason a run fails once figures are attached.
+Duplicate document copies are dropped before figure numbering, and titles/authors/
+journal/DOI/full text are wrapped as untrusted data by the prompt templates (the
+prompt is capped at 220,000 chars). A typed writer failure with `committed` set
+means the note write may already have landed: verify before retrying, and remember
+`--force` appends notes instead of replacing them.
 A text-only model in the fallback chain rejects the image parts, so retry that
 model without them instead of aborting; capability is per model, so an image
 rejection must not strip figures for a vision model tried next. Before repeating any judgement about plots, micrographs or axis

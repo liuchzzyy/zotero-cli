@@ -106,9 +106,11 @@ the same hand that wrote the regex.
 
 ## Order of operations
 
-- Apply the length budget to the **unpadded** string. A cap of 500 characters
-  measures content; padding afterwards must not push a valid short-note over the
-  limit or trigger a spurious rejection.
+- The short-note validator measures the **padded** string: `prepare()` runs before
+  `validate_short_note()`, so the 500-character cap includes the inserted CJK/Latin
+  spaces. Keep the model output well under the cap; padding can push a borderline
+  short-note over the limit. (The prompt-side length budget is separate and is
+  applied before padding.)
 - Padding must be idempotent. Already-spaced input must not gain a second space,
   because notes are re-rendered and normalisation can run twice.
 

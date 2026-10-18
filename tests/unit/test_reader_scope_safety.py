@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from zotero_cli.core.zotero.reader import ZoteroReader
+from zotero_cli.core.zotero.reader import ZoteroReader, ZoteroSchemaError
 
 
 @pytest.fixture
@@ -44,8 +44,10 @@ def scope_db(tmp_path: Path) -> Path:
             CREATE TABLE relationPredicates (predicateID INTEGER PRIMARY KEY, predicate TEXT UNIQUE);
             INSERT INTO relationPredicates VALUES (1, 'dc:relation');
             CREATE TABLE itemRelations (itemID INT, predicateID INT, object TEXT);
-            CREATE TABLE fulltextWords (wordID INTEGER PRIMARY KEY, word TEXT);
-            CREATE TABLE fulltextItemWords (wordID INT, itemID INT);
+            CREATE TABLE fulltextItems (
+                itemID INTEGER PRIMARY KEY, indexedPages INT, totalPages INT,
+                indexedChars INT, totalChars INT, version INT, synced INT
+            );
             CREATE TABLE deletedItems (itemID INTEGER PRIMARY KEY, dateDeleted TEXT DEFAULT '2024-02-01');
         """)
         parents = [(1, 1, "PERSON01"), (2, 2, "GROUP001"), (3, 1, "SHARED01"), (4, 2, "SHARED01")]
@@ -74,6 +76,10 @@ def scope_db(tmp_path: Path) -> Path:
                 "INSERT INTO itemAttachments VALUES (?, ?, 'application/pdf', ?)",
                 (200 + item_id, item_id, f"storage:paper{item_id}.pdf"),
             )
+            conn.execute("INSERT INTO fulltextItems VALUES (?, 1, 1, 40, 40, 0, 0)", (200 + item_id,))
+            cache_dir = tmp_path / "storage" / f"FILE{item_id:04}"
+            cache_dir.mkdir(parents=True)
+            (cache_dir / ".zotero-ft-cache").write_text("fulltext-only marker", encoding="utf-8")
     return db_path
 
 
@@ -121,13 +127,12 @@ def test_group_collection_lookup_handles_library_local_keys(scope_db: Path) -> N
 def test_search_excludes_trash_before_counting_and_paging(scope_db: Path, query: str, library_id: int) -> None:
     with sqlite3.connect(scope_db) as conn:
         conn.executemany("INSERT INTO deletedItems (itemID) VALUES (?)", [(1,), (2,)])
-        conn.execute("INSERT INTO fulltextWords VALUES (1, 'fulltext-only')")
-        conn.executemany("INSERT INTO fulltextItemWords VALUES (1, ?)", [(201,), (202,), (203,), (204,)])
     with ZoteroReader(scope_db, library_id=library_id) as reader:
         result = reader.search(query, sort="title", direction="asc", limit=1)
-        assert result.total == (2 if library_id == 1 else 1)
-        assert [item.title for item in result.items] == [f"Scope paper {3 if library_id == 1 else 4}"]
-        assert len(reader.search(query, limit=1, offset=1).items) == (1 if library_id == 1 else 0)
+        assert result.total == 1
+        expected_title = "Scope paper 3" if library_id == 1 else "Scope paper 4"
+        assert [item.title for item in result.items] == [expected_title]
+        assert reader.search(query, limit=1, offset=1).items == []
 
 
 @pytest.mark.parametrize("sort", ["dateAdded", "dateModified"])
@@ -138,8 +143,7 @@ def test_recent_excludes_trash_before_limit(scope_db: Path, sort: str, library_i
         conn.execute("UPDATE items SET dateAdded = '2025-01-01', dateModified = '2025-01-01' WHERE itemID IN (1, 2)")
     with ZoteroReader(scope_db, library_id=library_id) as reader:
         items = reader.get_recent_items("2000-01-01", sort=sort, limit=1)
-        assert len(items) == 1
-        assert items[0].title in (["Scope paper 3", "Scope paper 4"] if library_id == 1 else ["Scope paper 4"])
+        assert [item.title for item in items] == ["Scope paper 3" if library_id == 1 else "Scope paper 4"]
 
 
 @pytest.mark.parametrize("method", ["get_notes", "get_attachments", "get_pdf_attachments", "get_pdf_attachment"])
@@ -164,3 +168,35 @@ def test_child_reads_exclude_deleted_children_or_parent(scope_db: Path, method: 
             assert (result.key if method == "get_pdf_attachment" else [child.key for child in result]) == (
                 expected_key if method == "get_pdf_attachment" else [expected_key]
             )
+
+
+def test_default_library_never_returns_group_items(scope_db: Path) -> None:
+    """M-02: the default user-library reader must not leak group-library rows."""
+    with ZoteroReader(scope_db) as reader:
+        assert reader.get_item("GROUP001") is None
+        assert {item.title for item in reader.search("", limit=100).items} == {"Scope paper 1", "Scope paper 3"}
+        assert reader.get_collection_items("GROUPCOL") == []
+        assert reader.get_stats()["collections"] == {"Personal": 1, "Personal shared": 1}
+
+
+def test_v130_fulltext_cache_search_finds_attachment_text(scope_db: Path) -> None:
+    """C-01: v130 databases resolve full text through .zotero-ft-cache files."""
+    with ZoteroReader(scope_db, library_id=1) as reader:
+        result = reader.search("fulltext-only", limit=10)
+        assert [item.title for item in result.items] == ["Scope paper 1", "Scope paper 3"]
+
+
+def test_schema_mismatch_guard_rejects_unknown_future_schema(tmp_path: Path) -> None:
+    """H-09: unsupported userdata schemas fail with a clear ZoteroSchemaError."""
+    db_path = tmp_path / "future.sqlite"
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript("""
+            CREATE TABLE items (itemID INTEGER PRIMARY KEY, itemTypeID INT, libraryID INT, key TEXT);
+            CREATE TABLE version (schema TEXT PRIMARY KEY, version INT);
+            INSERT INTO version VALUES ('userdata', 999);
+        """)
+    with ZoteroReader(db_path) as reader:
+        with pytest.raises(ZoteroSchemaError) as error:
+            reader.get_schema_version()
+    assert error.value.schema_version == 999
+    assert "Unsupported Zotero database schema version 999" in str(error.value)

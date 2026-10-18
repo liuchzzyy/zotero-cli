@@ -1,9 +1,16 @@
+import os
+import stat
 import sys
 from pathlib import Path
 
+import pytest
+
 from zotero_cli.config import (
+    AiNoteConfig,
     AppConfig,
+    ConfigError,
     EmbeddingConfig,
+    LibraryResolutionError,
     RerankConfig,
     config_file_path,
     detect_zotero_data_dir,
@@ -16,7 +23,11 @@ from zotero_cli.config import (
     load_rerank_config,
     load_semantic_search_config,
     load_vector_store_config,
+    merge_config_data,
     project_root,
+    read_config_data,
+    resolve_config_path,
+    resolve_library_id,
     save_config,
     state_dir,
 )
@@ -129,6 +140,15 @@ api_key = "aaa"
 """)
     cfg = load_config(config_file)
     assert cfg.library_id == "111"
+
+
+def test_empty_profile_behaves_like_default_profile(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        '[default]\nprofile = "lab"\n\n[profile.lab]\nlibrary_id = "222"\n',
+        encoding="utf-8",
+    )
+    assert load_config(config_file, profile="").library_id == "222"
 
 
 def test_load_config_no_profiles_backward_compat(tmp_path):
@@ -413,22 +433,24 @@ api_key = "test-key"
 base_url = "https://api.example.com/v1"
 model = "deepseek-v4-pro"
 reasoning_effort = "max"
-api_mode = "chat"
-chat_token_param = "max_tokens"
 temperature = 0.3
 max_tokens = 16384
 max_extracted_chars = 1234
+timeout_seconds = 90.5
+max_retries = 4
 """)
     cfg = load_ai_note_config(config_file, apply_env_overrides=False)
     assert cfg.api_key == "test-key"
     assert cfg.base_url == "https://api.example.com/v1"
     assert cfg.model == "deepseek-v4-pro"
     assert cfg.reasoning_effort == "max"
-    assert cfg.api_mode == "chat"
-    assert cfg.chat_token_param == "max_tokens"
     assert cfg.temperature == 0.3
     assert cfg.max_tokens == 16384
     assert cfg.max_extracted_chars == 1234
+    assert cfg.timeout_seconds == 90.5
+    assert cfg.max_retries == 4
+    assert not hasattr(cfg, "api_mode")
+    assert not hasattr(cfg, "chat_token_param")
 
 
 def test_load_ai_note_config_env_override(tmp_path, monkeypatch):
@@ -443,6 +465,8 @@ def test_load_ai_note_config_env_override(tmp_path, monkeypatch):
     monkeypatch.setenv("ZOT_AI_FALLBACK_MODELS", "a-1, b-2")
     monkeypatch.setenv("ZOT_AI_REASONING_EFFORT", "low")
     monkeypatch.setenv("ZOT_AI_MAX_EXTRACTED_CHARS", "500")
+    monkeypatch.setenv("ZOT_AI_TIMEOUT", "12.5")
+    monkeypatch.setenv("ZOT_AI_MAX_RETRIES", "5")
 
     cfg = load_ai_note_config(config_file)
     assert cfg.api_key == "env-key"
@@ -451,6 +475,14 @@ def test_load_ai_note_config_env_override(tmp_path, monkeypatch):
     assert cfg.fallback_models == ["a-1", "b-2"]
     assert cfg.reasoning_effort == "low"
     assert cfg.max_extracted_chars == 500
+    assert cfg.timeout_seconds == 12.5
+    assert cfg.max_retries == 5
+
+
+def test_ai_note_config_timing_defaults():
+    cfg = AiNoteConfig()
+    assert cfg.timeout_seconds == 180.0
+    assert cfg.max_retries == 2
 
 
 def test_load_ai_note_config_env_overrides_without_config_file(tmp_path, monkeypatch):
@@ -481,3 +513,299 @@ def test_load_pdf_config_is_mineru_only(tmp_path):
     cfg = load_pdf_config(config_file, apply_env_overrides=False)
     assert cfg.mineru_token == "token"
     assert cfg.mineru_model_version == "vlm"
+
+
+# --- H-04: merge-preserving atomic saves -------------------------------------
+
+RICH_CONFIG = """
+[default]
+profile = "lab"
+
+[profile.personal]
+library_id = "111"
+api_key = "aaa"
+
+[profile.lab]
+data_dir = "/old/data"
+library_id = "222"
+api_key = "old-key"
+semantic_scholar_api_key = "s2-key"
+
+[profile.lab.output]
+default_format = "json"
+limit = 25
+
+[ai_notes]
+api_key = "ai-key"
+model = "file-model"
+
+[pdf]
+mineru_token = "mineru-token"
+
+[embedding]
+active = "api.gitee"
+
+[embedding.api.gitee]
+api_key = "emb-key"
+batch_size = 10
+
+[rerank.api.gitee]
+api_key = "rerank-key"
+
+[semantic_search]
+candidate_k = 12
+top_k = 5
+rrf_k = 30
+
+[vector_store]
+path = "/tmp/vectors"
+"""
+
+
+def test_save_config_preserves_all_sections_and_active_profile(tmp_path):
+    config = tmp_path / "config.toml"
+    config.write_text(RICH_CONFIG, encoding="utf-8")
+    original = config.read_text(encoding="utf-8")
+
+    save_config(AppConfig(data_dir="/new/data", library_id="999", api_key="new-key"), config)
+
+    loaded = load_config(config)
+    assert loaded.library_id == "999"
+    assert loaded.api_key == "new-key"
+    assert loaded.data_dir == "/new/data"
+    # Scalar defaults must not clobber values the caller did not touch.
+    assert loaded.default_format == "json"
+    assert loaded.default_limit == 25
+
+    data = read_config_data(config)
+    assert data["default"]["profile"] == "lab"
+    assert data["profile"]["personal"] == {"library_id": "111", "api_key": "aaa"}
+    assert data["profile"]["lab"]["api_key"] == "new-key"
+    assert data["profile"]["lab"]["semantic_scholar_api_key"] == "s2-key"
+    assert data["ai_notes"] == {"api_key": "ai-key", "model": "file-model"}
+    assert data["pdf"] == {"mineru_token": "mineru-token"}
+    assert data["embedding"]["api"]["gitee"]["api_key"] == "emb-key"
+    assert data["rerank"]["api"]["gitee"]["api_key"] == "rerank-key"
+    assert data["semantic_search"] == {"candidate_k": 12, "top_k": 5, "rrf_k": 30}
+    assert data["vector_store"] == {"path": "/tmp/vectors"}
+
+    backup = tmp_path / "config.toml.bak"
+    assert backup.read_text(encoding="utf-8") == original
+
+
+def test_save_config_never_drops_existing_credentials(tmp_path):
+    config = tmp_path / "config.toml"
+    save_config(AppConfig(library_id="123", api_key="secret-key"), config)
+
+    save_config(AppConfig(library_id="123"), config)
+
+    assert load_config(config).api_key == "secret-key"
+    assert read_config_data(config)["zotero"]["api_key"] == "secret-key"
+
+
+def test_save_config_private_permissions_and_atomic_write(tmp_path):
+    config_dir = tmp_path / "nested" / ".zot"
+    config = config_dir / "config.toml"
+    save_config(AppConfig(library_id="1", api_key="secret"), config)
+
+    assert stat.S_IMODE(config.stat().st_mode) == 0o600
+    assert stat.S_IMODE(config_dir.stat().st_mode) == 0o700
+
+    save_config(AppConfig(library_id="2", api_key="secret2"), config)
+    assert (config_dir / "config.toml.bak").exists()
+    # No temp files left behind by the atomic write.
+    assert sorted(path.name for path in config_dir.iterdir()) == ["config.toml", "config.toml.bak"]
+
+
+def test_merge_config_data_reports_changed_keys():
+    merged, changed = merge_config_data({}, AppConfig(library_id="42", api_key="k"))
+    assert merged["zotero"]["library_id"] == "42"
+    assert "zotero.library_id" in changed
+    assert "zotero.api_key" in changed
+
+
+def test_save_config_rejects_unknown_explicit_profile(tmp_path):
+    config = tmp_path / "config.toml"
+    config.write_text(RICH_CONFIG, encoding="utf-8")
+    with pytest.raises(ConfigError, match="Unknown config profile"):
+        save_config(AppConfig(library_id="1"), config, profile="typo")
+
+
+def test_save_config_can_create_explicit_profile(tmp_path):
+    config = tmp_path / "config.toml"
+    config.write_text("[zotero]\nlibrary_id = '1'\n", encoding="utf-8")
+    save_config(AppConfig(library_id="7", api_key="seven"), config, profile="lab", allow_new_profile=True)
+    data = read_config_data(config)
+    assert data["profile"]["lab"]["library_id"] == "7"
+    assert data["default"]["profile"] == "lab"
+    assert data["zotero"]["library_id"] == "1"
+
+
+# --- M-14: typed config errors ----------------------------------------------
+
+
+def test_malformed_toml_raises_configuration_error(tmp_path):
+    config = tmp_path / "config.toml"
+    config.write_text('[zotero\nlibrary_id = "1"\n', encoding="utf-8")
+    with pytest.raises(ConfigError, match="Malformed TOML"):
+        load_config(config)
+
+
+@pytest.mark.parametrize(
+    ("text", "loader_name", "match"),
+    [
+        ('profile = "not-a-table"\n', "config", r"\[profile\] must be a table"),
+        ("[default]\nprofile = 5\n", "config", "profile must be a string"),
+        ("[zotero]\nlibrary_id = 5\n", "config", "library_id must be a string"),
+        ("[ai_notes]\nmodel = 3\n", "ai", "ai_notes.model must be a string"),
+        ('[embedding]\nbatch_size = "many"\n', "embedding", "batch_size must be an integer"),
+        ("[embedding]\nbatch_size = 0\n", "embedding", "batch_size must be >= 1"),
+        ("[rerank]\nbatch_size = -1\n", "rerank", "batch_size must be >= 1"),
+        ("[semantic_search]\nrrf_k = 0\n", "semantic", "rrf_k must be >= 1"),
+        ("[semantic_search]\ncandidate_k = -3\n", "semantic", "candidate_k must be >= 1"),
+        ("[semantic_search]\ntop_k = 0\n", "semantic", "top_k must be >= 1"),
+        ('[semantic_search]\nsemantic_weight = "heavy"\n', "semantic", "semantic_weight must be a number"),
+    ],
+)
+def test_invalid_config_types_raise_configuration_error(tmp_path, text, loader_name, match):
+    config = tmp_path / "config.toml"
+    config.write_text(text, encoding="utf-8")
+    loaders = {
+        "config": load_config,
+        "ai": load_ai_note_config,
+        "embedding": load_embedding_config,
+        "rerank": load_rerank_config,
+        "semantic": load_semantic_search_config,
+    }
+    with pytest.raises(ConfigError, match=match):
+        loaders[loader_name](config)
+
+
+def test_invalid_env_override_raises_configuration_error(monkeypatch, tmp_path):
+    monkeypatch.setenv("ZOT_EMBEDDING_BATCH_SIZE", "many")
+    with pytest.raises(ConfigError, match="ZOT_EMBEDDING_BATCH_SIZE"):
+        load_embedding_config(tmp_path / "absent.toml", apply_env_overrides=True)
+
+
+def test_resolve_config_path_rejects_explicit_missing_file(tmp_path):
+    with pytest.raises(ConfigError, match="Config file not found"):
+        resolve_config_path(tmp_path / "missing.toml", must_exist=True)
+
+
+def test_resolve_config_path_repo_default_may_be_missing(monkeypatch, tmp_path):
+    missing = tmp_path / "missing.toml"
+    monkeypatch.setattr("zotero_cli.config.paths.config_file_path", lambda start=None: missing)
+    assert resolve_config_path() == missing
+
+
+def test_save_config_activates_explicit_profile_without_default(tmp_path):
+    config = tmp_path / "config.toml"
+    config.write_text('[zotero]\nlibrary_id = "1"\n\n[profile.lab]\nlibrary_id = "2"\n', encoding="utf-8")
+    save_config(AppConfig(library_id="22"), config, profile="lab")
+
+    data = read_config_data(config)
+    assert data["default"]["profile"] == "lab"
+    assert data["profile"]["lab"]["library_id"] == "22"
+    assert load_config(config).library_id == "22"
+
+
+# --- M-02: typed group-library resolution errors -----------------------------
+
+
+def test_resolve_library_id_missing_group_raises_typed_error(monkeypatch, tmp_path):
+    class FakeReader:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def resolve_group_library_id(self, _group_id: int) -> int | None:
+            return None
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr("zotero_cli.core.zotero.reader.ZoteroReader", FakeReader)
+    with pytest.raises(LibraryResolutionError) as error:
+        resolve_library_id(tmp_path / "zotero.sqlite", {"library_type": "group", "group_id": "42"})
+    assert error.value.code == "not_found"
+    assert error.value.retryable is False
+    assert "42" in str(error.value)
+
+
+def test_resolve_library_id_user_library_does_not_open_the_db(monkeypatch, tmp_path):
+    def fail(*_args: object, **_kwargs: object):
+        raise AssertionError("user library resolution must not read the database")
+
+    monkeypatch.setattr("zotero_cli.core.zotero.reader.ZoteroReader", fail)
+    assert resolve_library_id(tmp_path / "missing.sqlite", {"library_type": "user"}) == 1
+
+
+# --- M-14: env path expansion ------------------------------------------------
+
+
+def test_zot_data_dir_env_is_expanded(monkeypatch, tmp_path):
+    from zotero_cli.config import get_data_dir
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("ZOT_DATA_DIR", "~/ZoteroData")
+    assert get_data_dir(AppConfig()) == tmp_path / "ZoteroData"
+
+
+def test_zot_prefs_js_path_env_is_expanded(monkeypatch, tmp_path):
+    from zotero_cli.config import get_prefs_js_path
+
+    prefs = tmp_path / "prefs.js"
+    prefs.write_text("", encoding="utf-8")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("ZOT_PREFS_JS_PATH", "~/prefs.js")
+    assert get_prefs_js_path(AppConfig()) == prefs
+
+
+# --- task-31: pre-existing foreign/sticky parent directories ----------------
+
+
+def test_save_config_accepts_preexisting_sticky_parent_without_chmod(tmp_path):
+    sticky = tmp_path / "sticky"
+    sticky.mkdir()
+    os.chmod(sticky, 0o1777)
+    before = stat.S_IMODE(sticky.stat().st_mode)
+
+    config = sticky / "config.toml"
+    save_config(AppConfig(library_id="42", api_key="secret-abc"), config)
+
+    # The pre-existing parent keeps its (sticky) mode: it is not ours to chmod.
+    assert stat.S_IMODE(sticky.stat().st_mode) == before
+    assert stat.S_IMODE(config.stat().st_mode) == 0o600
+
+    save_config(AppConfig(library_id="43", api_key="secret-abc"), config)
+    backup = sticky / "config.toml.bak"
+    assert backup.exists()
+
+
+def test_save_config_ignores_chmod_permission_error_on_existing_parent(tmp_path, monkeypatch):
+    parent = tmp_path / "foreign"
+    parent.mkdir()
+    os.chmod(parent, 0o1777)
+    real_chmod = os.chmod
+    calls: list[Path] = []
+
+    def tracking_chmod(path: str | os.PathLike[str], mode: int, *args: object, **kwargs: object) -> None:
+        target = Path(path)
+        calls.append(target)
+        if target == parent:
+            raise PermissionError(1, "Operation not permitted", str(target))
+        real_chmod(path, mode, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "chmod", tracking_chmod)
+    config = parent / "config.toml"
+    save_config(AppConfig(library_id="42", api_key="secret-abc"), config)
+
+    # A foreign/sticky parent must never be chmod-ed (that is what failed in /tmp).
+    assert parent not in calls
+    assert stat.S_IMODE(config.stat().st_mode) == 0o600
+    assert load_config(config).library_id == "42"
+
+
+def test_save_config_creates_new_parent_dirs_with_0700(tmp_path):
+    created_dir = tmp_path / "created" / "config"
+    save_config(AppConfig(library_id="1"), created_dir / "config.toml")
+    assert stat.S_IMODE(created_dir.stat().st_mode) == 0o700

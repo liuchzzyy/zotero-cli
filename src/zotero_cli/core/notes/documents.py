@@ -17,8 +17,8 @@ def _item_journal(item: Item) -> str:
     return str(item.extra.get("publicationTitle") or item.extra.get("journalAbbreviation") or "")
 
 
-def _drop_duplicate_parts(parts: list[str]) -> list[str]:
-    """Drop repeated copies of one document, keeping the longest copy.
+def _kept_duplicate_indices(parts: list[str]) -> list[int]:
+    """Return the indices of parts to keep after dropping repeated copies.
 
     A re-imported item often carries the same PDF twice, which would put the
     paper into the prompt twice. Two parts match when at least 90% of one's long
@@ -27,7 +27,7 @@ def _drop_duplicate_parts(parts: list[str]) -> list[str]:
     ahead of any appendix.
     """
     if len(parts) < 2:
-        return parts
+        return list(range(len(parts)))
 
     def lines(text: str) -> set[str]:
         return {line.strip() for line in text.splitlines() if len(line.strip()) >= 60}
@@ -43,26 +43,39 @@ def _drop_duplicate_parts(parts: list[str]) -> list[str]:
             for other in range(len(parts))
         )
 
-    return [text for index, text in enumerate(parts) if not repeated(index)]
+    return [index for index in range(len(parts)) if not repeated(index)]
 
 
-def _sections_to_text(sections: list[dict]) -> str:
-    """Flatten a sections-JSON payload into compact text for keyword extraction."""
+def _drop_duplicate_parts(parts: list[str]) -> list[str]:
+    """Drop repeated copies of one document, keeping the longest copy."""
+    return [parts[index] for index in _kept_duplicate_indices(parts)]
+
+
+def _sections_to_text(sections: list[object]) -> str:
+    """Flatten a sections-JSON payload into compact text for keyword extraction.
+
+    Model output is untrusted, so malformed entries (null blocks, wrong field
+    types) are skipped instead of aborting keyword generation.
+    """
     lines: list[str] = []
     for block in sections or []:
+        if not isinstance(block, dict):
+            continue
         btype = block.get("type")
         if btype == "heading":
             lines.append("## " + str(block.get("text", "")))
         elif btype == "paragraph":
             lines.append(str(block.get("text", "")))
         elif btype == "bullet_list":
-            for item in block.get("items") or []:
+            items = block.get("items") or []
+            for item in items if isinstance(items, list) else []:
                 if isinstance(item, dict):
                     lines.append("- " + str(item.get("text", "")))
         elif btype == "table":
             headers = block.get("headers") or []
-            if headers:
+            if isinstance(headers, list) and headers:
                 lines.append("| " + " | ".join(str(h) for h in headers) + " |")
-            for row in block.get("rows") or []:
+            rows = block.get("rows") or []
+            for row in rows if isinstance(rows, list) else []:
                 lines.append("| " + " | ".join(str(c) for c in row) + " |")
     return "\n".join(lines)

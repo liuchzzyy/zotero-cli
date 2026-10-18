@@ -1,11 +1,11 @@
 """Single source of truth for CLI command safety tiers.
 
-Every top-level command — and the library-mutating subcommands of `collection`
-and `trash` — has exactly one tier:
+Every top-level command — and every nested subcommand that mutates durable state
+(library, local config, workspace or cache) — has exactly one tier:
 
-* `read`        — safe to run repeatedly; no library mutation.
-* `write`       — creates or mutates library data.
-* `destructive` — deletes or irreversibly rewrites library data.
+* `read`        — safe to run repeatedly; no durable mutation.
+* `write`       — creates or mutates durable state (library, config, workspace).
+* `destructive` — deletes or irreversibly rewrites durable state.
 
 Two consumers read this module: `zot --help` (which groups commands by tier via
 `zotero_cli.cli.tiered_group`) and `zot schema` (which advertises each command's
@@ -64,6 +64,19 @@ SAFETY_TIERS: dict[tuple[str, ...], str] = {
     ("collection", "delete"): DESTRUCTIVE,
     # nested library-mutating trash commands
     ("trash", "restore"): WRITE,
+    # nested config commands that mutate local configuration/cache state
+    ("config", "init"): WRITE,
+    ("config", "profile", "set"): WRITE,
+    ("config", "cache", "clear"): DESTRUCTIVE,
+    # nested workspace commands that mutate local workspace/index state
+    ("workspace", "new"): WRITE,
+    ("workspace", "add"): WRITE,
+    ("workspace", "remove"): WRITE,
+    ("workspace", "import"): WRITE,
+    ("workspace", "index"): WRITE,
+    ("workspace", "reindex"): WRITE,
+    ("workspace", "embed"): WRITE,
+    ("workspace", "delete"): DESTRUCTIVE,
 }
 
 # Command-name sets derived from SAFETY_TIERS for `zot --help` sectioning.

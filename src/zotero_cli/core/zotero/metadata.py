@@ -15,6 +15,7 @@ your environment to be routed into the polite pool.
 from __future__ import annotations
 
 import re
+import time
 from typing import Any
 from urllib.parse import quote
 
@@ -25,6 +26,9 @@ from zotero_cli.config import load_config, resolve_crossref_mailto
 CROSSREF_API_BASE = "https://api.crossref.org/works"
 REQUEST_TIMEOUT = 15.0
 USER_AGENT_BASE = "zotero-cli (https://github.com/liuchzzyy/zotero-cli)"
+RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+MAX_ATTEMPTS = 3
+RETRY_BACKOFF_SECONDS = 0.5
 
 
 class MetadataResolveError(Exception):
@@ -169,6 +173,26 @@ def map_crossref_to_zotero(message: dict[str, Any]) -> dict[str, Any]:
     return fields
 
 
+def _get_with_retries(url: str, *, headers: dict[str, str], timeout: float) -> httpx.Response:
+    """GET a Crossref URL with bounded retries for transient failures."""
+    last_error: str = "Crossref request failed"
+    for attempt in range(MAX_ATTEMPTS):
+        try:
+            response = httpx.get(url, headers=headers, timeout=timeout, follow_redirects=True)
+        except httpx.HTTPError as exc:
+            last_error = f"Crossref request failed: {exc}"
+            if attempt + 1 < MAX_ATTEMPTS:
+                time.sleep(RETRY_BACKOFF_SECONDS * (attempt + 1))
+                continue
+            raise MetadataResolveError(last_error) from exc
+        if response.status_code in RETRYABLE_STATUS_CODES and attempt + 1 < MAX_ATTEMPTS:
+            time.sleep(RETRY_BACKOFF_SECONDS * (attempt + 1))
+            last_error = f"Crossref returned HTTP {response.status_code}"
+            continue
+        return response
+    raise MetadataResolveError(last_error)
+
+
 def resolve_doi(doi: str, *, timeout: float = REQUEST_TIMEOUT) -> dict[str, Any] | None:
     """Look up a DOI in Crossref and return Zotero-shaped metadata.
 
@@ -188,10 +212,7 @@ def resolve_doi(doi: str, *, timeout: float = REQUEST_TIMEOUT) -> dict[str, Any]
     encoded_doi = quote(doi, safe="/")
     url = f"{CROSSREF_API_BASE}/{encoded_doi}"
     headers = {"User-Agent": _user_agent(), "Accept": "application/json"}
-    try:
-        resp = httpx.get(url, headers=headers, timeout=timeout, follow_redirects=True)
-    except httpx.HTTPError as e:
-        raise MetadataResolveError(f"Crossref request failed: {e}") from e
+    resp = _get_with_retries(url, headers=headers, timeout=timeout)
 
     if resp.status_code == 404:
         return None

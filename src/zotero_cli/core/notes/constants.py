@@ -13,6 +13,12 @@ NOTE_TITLE_PREFIX = "AI条目分析 - "
 MAX_FIGURES = 12
 MIN_SECTIONS = 10
 
+# Hard ceiling for a rendered prompt (template + untrusted payload). The
+# configurable max_extracted_chars may be larger (or 0 for no limit); this bound
+# protects the request size and model context regardless of config.
+MAX_PROMPT_CHARS = 220_000
+PROMPT_RESERVE_CHARS = 2_000
+
 # Retry instructions appended to a prompt when the model output is unusable.
 PARSE_RETRY_SUFFIX = (
     "\n\n【输出格式要求（必须遵守）】"

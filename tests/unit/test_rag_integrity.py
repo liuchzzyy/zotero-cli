@@ -248,3 +248,61 @@ def test_short_main_article_citing_supporting_information_remains_main(section: 
 def test_standalone_supplementary_cover_remains_supplementary_with_main_hints(cover: str) -> None:
     text = f"{cover}\nBattery mechanisms\nDOI: 10.1234/example\nAbstract of the associated article.\nFigure S1"
     assert infer_pdf_kind(text, "paper.pdf") == "supplementary"
+
+
+@pytest.mark.parametrize(
+    "embedding",
+    ["oops", [], [1.0, "x"], [True], [float("nan")], [float("inf")], None],
+    ids=["string", "empty", "mixed", "bool", "nan", "inf", "null"],
+)
+def test_embedding_rejects_invalid_vector_values(embedding: object) -> None:
+    response = MagicMock(ok=True)
+    response.json.return_value = {"data": [{"embedding": embedding}]}
+    with patch("zotero_cli.core.rag.providers.gitee.requests.post", return_value=response):
+        with pytest.raises(RuntimeError, match="embedding"):
+            GiteeEmbeddingProvider(api_key="test").embed(["alpha"])
+
+
+def test_embedding_rejects_inconsistent_vector_dimensions() -> None:
+    response = MagicMock(ok=True)
+    response.json.return_value = {"data": [{"embedding": [1.0]}, {"embedding": [1.0, 2.0]}]}
+    with patch("zotero_cli.core.rag.providers.gitee.requests.post", return_value=response):
+        with pytest.raises(RuntimeError, match="dimension"):
+            GiteeEmbeddingProvider(api_key="test").embed(["alpha", "beta"])
+
+
+def test_embedding_rejects_non_object_response_shape() -> None:
+    response = MagicMock(ok=True)
+    response.json.return_value = []
+    with patch("zotero_cli.core.rag.providers.gitee.requests.post", return_value=response):
+        with pytest.raises(RuntimeError, match="shape"):
+            GiteeEmbeddingProvider(api_key="test").embed(["alpha"])
+
+
+def test_cascade_chunk_never_returns_empty_chunks_for_cjk_punctuation() -> None:
+    assert cascade_chunk("d。", max_chars=1, overlap=0) == ["d", "。"]
+    assert cascade_chunk("第一句。第二句！", max_chars=2, overlap=0) == [
+        "第一",
+        "句。",
+        "第二",
+        "句！",
+    ]
+    assert cascade_chunk("", max_chars=8, overlap=0) == []
+    assert all(chunk for chunk in cascade_chunk("中" * 50 + "。", max_chars=10, overlap=0))
+
+
+def test_sentence_aligned_chunks_do_not_overlap_regardless_of_overlap_setting() -> None:
+    text = "First sentence. Second sentence! Third sentence? Fourth sentence."
+    assert cascade_chunk(text, max_chars=36, overlap=0) == cascade_chunk(text, max_chars=36, overlap=8)
+    assert "".join(cascade_chunk(text, max_chars=36, overlap=8)) == text
+
+
+def test_character_fallback_still_honours_overlap() -> None:
+    assert cascade_chunk("abcdefghij", max_chars=4, overlap=1) == ["abcd", "defg", "ghij", "j"]
+
+
+def test_chunk_text_long_cjk_section_has_no_empty_chunks() -> None:
+    text = "。".join("这是关于二氧化锰电极材料的中文测试句子" for _ in range(60)) + "。"
+    chunks = chunk_text(text, "Paper", max_tokens=50, overlap=0)
+    assert chunks
+    assert all(len(chunk.strip()) > len("[Paper] ") - 1 for chunk in chunks)

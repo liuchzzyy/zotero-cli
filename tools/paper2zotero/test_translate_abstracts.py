@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -142,6 +143,68 @@ class TranslateAbstractsTests(unittest.TestCase):
             self.assertEqual(res["updated"], 0)
             writer.update_item.assert_not_called()
             self.assertFalse(state_file.exists())
+
+    def test_default_state_file_lives_under_gitignored_state_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.object(trans, "state_dir", return_value=Path(tmpdir)):
+                path = trans.default_state_file()
+        self.assertEqual(path, Path(tmpdir) / "paper2zotero" / "translate_abstracts_state.json")
+
+    def test_stage_translations_checkpoints_each_completed_batch_and_resumes(self) -> None:
+        candidates = [
+            {"key": "A", "title": "Title A", "abstract": "English A"},
+            {"key": "B", "title": "Title B", "abstract": "English B"},
+        ]
+        calls: list[list[str]] = []
+
+        def failing_translator(batch: list[dict[str, str]]) -> dict[str, str]:
+            calls.append([row["key"] for row in batch])
+            if len(calls) == 1:
+                return {"A": "中文摘要甲"}
+            raise trans.AbstractTranslationError("model unavailable")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_file = Path(tmpdir) / "state.json"
+            with self.assertRaisesRegex(trans.AbstractTranslationError, "model unavailable"):
+                trans.stage_translations(candidates, state_file, batch_size=1, custom_translator=failing_translator)
+            saved = json.loads(state_file.read_text(encoding="utf-8"))
+            self.assertEqual(saved[0]["abstract_zh"], "中文摘要甲")
+            self.assertNotIn("abstract_zh", saved[1])
+
+            resume_calls: list[list[str]] = []
+
+            def resume_translator(batch: list[dict[str, str]]) -> dict[str, str]:
+                resume_calls.append([row["key"] for row in batch])
+                return {row["key"]: f"中文摘要{row['key']}" for row in batch}
+
+            state = trans.stage_translations(candidates, state_file, batch_size=1, custom_translator=resume_translator)
+
+        self.assertEqual(resume_calls, [["B"]])
+        self.assertEqual({row["key"]: row["abstract_zh"] for row in state}, {"A": "中文摘要甲", "B": "中文摘要 B"})
+
+    def test_stage_translations_fails_closed_on_unreadable_checkpoint(self) -> None:
+        candidates = [{"key": "A", "title": "Title A", "abstract": "English A"}]
+        for content in ("{unfinished", '{"not": "a list"}', '[{"title": "no key"}]'):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                state_file = Path(tmpdir) / "state.json"
+                state_file.write_text(content, encoding="utf-8")
+                with self.assertRaisesRegex(trans.AbstractTranslationError, "拒绝覆盖"):
+                    trans.stage_translations(candidates, state_file)
+                self.assertEqual(state_file.read_text(encoding="utf-8"), content)
+
+    def test_write_state_creates_parent_and_cleans_temp_on_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_file = Path(tmpdir) / "nested" / "state.json"
+            trans._write_state(state_file, [{"key": "A"}])
+            self.assertTrue(state_file.is_file())
+
+            def failing_replace(self: Path, target: Path) -> Path:
+                raise OSError("disk full")
+
+            with patch.object(Path, "replace", failing_replace):
+                with self.assertRaises(OSError):
+                    trans._write_state(state_file, [{"key": "B"}])
+            self.assertEqual(list(state_file.parent.glob("*.tmp")), [])
 
     def test_model_invokes_hermes_cli_with_retries(self) -> None:
         batch = [{"key": "K1", "title": "T1", "abstract": "Abs"}]

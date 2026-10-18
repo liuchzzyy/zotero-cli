@@ -13,14 +13,19 @@ Run them from the repository root on the current MacBook:
 cd /Users/liuchzzyy/CodeSpace/zotero-cli
 ```
 
-All generated run artifacts live under `log/`. Each kept run contains:
+All generated run artifacts live under `log/`, in a unique run directory named
+`<workflow>-<timestamp>-<pid>-<random>` so two runs started in the same second
+cannot collide. Each kept run contains:
 
 - `run.log`: human-readable summary and child output.
 - `progress.jsonl`: structured start/finish events.
 - `inventory.json`: workspace/PDF/index/vector counts for workspace runs.
 - `logs/*.log`: output from inventory, indexing, embedding, or query child commands.
 
-Successful runs remove their temporary log directory unless `--keep-log` or `--keep-inventory` is supplied. Failed runs remain for diagnosis.
+Successful runs remove their own run directory unless `--keep-log` or
+`--keep-inventory` is supplied. A run directory that already existed before the
+run is never deleted on success (it is kept and reported). Failed runs remain for
+diagnosis.
 
 ## Workspace RAG incremental update
 
@@ -99,7 +104,9 @@ zsh -n tools/paperrag/run-rag-workspace.zsh
 zsh -n tools/paperrag/run-rag-evidence-search.zsh
 uv run python tools/paperrag/workspace_inventory.py --help
 uv run pytest -q tests/integration/test_tool_scripts.py tests/integration/test_inventory_edges.py
+uv run pytest -q -m tools
 uv run pytest -q -rf
 ```
 
-The full repository suite is expected fully green (0 failed, 0 skipped).
+The full repository suite is expected fully green (0 failed, 0 skipped); all
+`tools/**` tests carry the `tools` marker and run in the default suite.

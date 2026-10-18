@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 from unittest.mock import patch
 
+import pytest
 from tests.support import invoke_agent_cli as _run
 
+from zotero_cli.cli import _hoist_global_flags, main
 from zotero_cli.config import AiNoteConfig
 from zotero_cli.output.envelope import envelope_error, envelope_ok, envelope_partial
 from zotero_cli.output.exit_codes import (
@@ -47,7 +49,10 @@ class TestEnvelopeShape:
 
     def test_envelope_partial_shape(self):
         env = envelope_partial([{"key": "A"}], [{"key": "B", "error": {"code": "x", "message": "y"}}])
+        # ok is documented as a tri-state value: True / False / "partial".
         assert env["ok"] == "partial"
+        assert env["ok"] is not True
+        assert env["ok"] is not False
         assert env["data"]["succeeded"][0]["key"] == "A"
         assert env["data"]["failed"][0]["key"] == "B"
 
@@ -83,6 +88,34 @@ class TestTTYAutoDetect:
 class TestExitCodes:
     def test_configuration_error_is_validation_failure(self):
         assert exit_code_for("configuration_error") == EXIT_VALIDATION
+
+    def test_error_code_map_covers_emitted_codes(self):
+        from zotero_cli.output.exit_codes import CODE_TO_EXIT
+
+        for code in (
+            "auth_missing",
+            "auth_invalid",
+            "auth_expired",
+            "validation_error",
+            "configuration_error",
+            "confirmation_required",
+            "not_found",
+            "network_error",
+            "rate_limited",
+            "conflict",
+            "runtime_error",
+            "internal_error",
+            "api_error",
+        ):
+            assert code in CODE_TO_EXIT, code
+        assert exit_code_for("api_error") == 1
+        assert exit_code_for("internal_error") == 1
+        assert exit_code_for("runtime_error") == 1
+        assert exit_code_for("rate_limited") == 5
+        assert exit_code_for("conflict") == 6
+        assert exit_code_for("confirmation_required") == 3
+        assert exit_code_for("auth_expired") == 2
+        assert exit_code_for("unknown_code") == 1
 
     def test_bare_command_groups_show_help_and_succeed(self):
         for command_path in (
@@ -200,6 +233,12 @@ class TestSchemaCommand:
         env = json.loads(result.output)
         assert "list" in env["data"]["name"]
 
+    def test_schema_dot_path_is_validation_error(self):
+        result = _run(["schema", "."])
+        assert result.exit_code == EXIT_VALIDATION
+        env = json.loads(result.output)
+        assert env["error"]["code"] == "validation_error"
+
     def test_schema_unknown_command_returns_not_found(self):
         result = _run(["schema", "does_not_exist"])
         assert result.exit_code == EXIT_NOT_FOUND
@@ -266,10 +305,11 @@ class TestSchemaDiff:
         assert data["commands_changed"]["export"]["params_added"]
 
     def test_diff_with_missing_file_returns_validation_error(self, tmp_path):
-        # click.Path(exists=True) catches this before our code runs — Click exits
-        # with usage error (exit 2) and writes to stderr.
         result = _run(["schema", "--diff", str(tmp_path / "no-such-file.json")])
-        assert result.exit_code != 0
+        assert result.exit_code == EXIT_VALIDATION
+        env = json.loads(result.output)
+        assert env["error"]["code"] == "validation_error"
+        assert "Could not read cached schema" in env["error"]["message"]
 
     def test_diff_with_invalid_json_returns_validation_error(self, tmp_path):
         bad = tmp_path / "bad.json"
@@ -278,6 +318,36 @@ class TestSchemaDiff:
         assert result.exit_code == EXIT_VALIDATION
         env = json.loads(result.output)
         assert env["error"]["code"] == "validation_error"
+
+    @pytest.mark.parametrize("payload", ["[]", "null", '"a string"', '{"data": []}'])
+    def test_diff_with_non_tree_json_returns_validation_error(self, tmp_path, payload):
+        bad = tmp_path / "not-a-tree.json"
+        bad.write_text(payload, encoding="utf-8")
+        result = _run(["schema", "--diff", str(bad)])
+        assert result.exit_code == EXIT_VALIDATION, result.output
+        env = json.loads(result.output)
+        assert env["error"]["code"] == "validation_error"
+        assert "Traceback" not in result.output + result.stderr
+
+    def test_diff_accepts_bare_data_tree(self, tmp_path):
+        current = json.loads(_run(["schema"]).output)
+        bare = tmp_path / "bare.json"
+        bare.write_text(json.dumps(current["data"]), encoding="utf-8")
+        result = _run(["schema", "--diff", str(bare)])
+        assert result.exit_code == EXIT_OK
+        data = json.loads(result.output)["data"]
+        assert data["commands_added"] == []
+        assert data["commands_removed"] == []
+        assert data["from"]["schema_version"] == "unknown"
+
+    def test_diff_rejects_command_path_combination(self, tmp_path):
+        current = json.loads(_run(["schema"]).output)
+        cached_path = self._write(tmp_path, current["data"], current["meta"])
+        result = _run(["schema", "search", "--diff", cached_path])
+        assert result.exit_code == EXIT_VALIDATION
+        env = json.loads(result.output)
+        assert env["error"]["code"] == "validation_error"
+        assert "COMMAND_PATH cannot be combined with --diff" in env["error"]["message"]
 
 
 class TestDryRun:
@@ -328,6 +398,47 @@ class TestGlobalFlagHoisting:
         # or it errors — what matters is that we didn't crash on the hoist.
         assert result.exit_code in (EXIT_OK, EXIT_VALIDATION, EXIT_NOT_FOUND)
 
+    def test_detail_after_subcommand_is_hoisted(self):
+        result = _run(["--json", "list", "--detail", "minimal", "--limit", "1"])
+        assert result.exit_code == EXIT_OK
+        data = json.loads(result.output)["data"]
+        assert data
+        assert "abstract" not in data[0]
+
+    def test_no_interaction_after_subcommand_is_hoisted(self):
+        result = _run(["--json", "config", "show", "--no-interaction"])
+        assert result.exit_code == EXIT_OK
+        assert json.loads(result.output)["ok"] is True
+
+    def test_verbose_after_subcommand_is_hoisted(self):
+        result = _run(["--json", "config", "show", "--verbose"])
+        assert result.exit_code == EXIT_OK
+
+    def test_hoisting_preserves_option_values_that_look_like_global_flags(self):
+        assert _hoist_global_flags(["update", "K", "--title", "--verbose", "--dry-run"], main) == [
+            "update",
+            "K",
+            "--title",
+            "--verbose",
+            "--dry-run",
+        ]
+        assert _hoist_global_flags(["update", "K", "--title=--no-interaction"], main) == [
+            "update",
+            "K",
+            "--title=--no-interaction",
+        ]
+
+    def test_value_global_flags_after_subcommand(self):
+        assert _hoist_global_flags(["list", "--detail", "minimal"], main) == ["--detail", "minimal", "list"]
+        assert _hoist_global_flags(["list", "--detail=minimal"], main) == ["--detail=minimal", "list"]
+
+    def test_boolean_globals_after_subcommand(self):
+        assert _hoist_global_flags(["list", "--no-interaction", "--verbose"], main) == [
+            "--no-interaction",
+            "--verbose",
+            "list",
+        ]
+
 
 class TestHelpSchemaDrift:
     """Every option `schema` advertises must appear in the matching `--help` text."""
@@ -350,3 +461,111 @@ class TestHelpSchemaDrift:
                 walk(child, path + [name])
 
         walk(tree, [])
+
+
+def _malformed_toml_error() -> Exception:
+    """Build a real TOMLDecodeError using the project's tomllib compatibility import."""
+    from zotero_cli.config.loaders import tomllib
+
+    try:
+        tomllib.loads("[zotero\n")
+    except Exception as exc:  # noqa: BLE001 - the exception itself is the payload
+        return exc
+    raise AssertionError("expected malformed TOML to raise")
+
+
+class TestUsageErrorContract:
+    """Click usage/parameter errors are enveloped as validation_error with exit 3."""
+
+    def test_unknown_command_json_returns_validation_envelope(self):
+        result = _run(["--json", "no-such-command"])
+        assert result.exit_code == EXIT_VALIDATION
+        assert result.stderr.strip() == ""
+        env = json.loads(result.output)
+        assert env["ok"] is False
+        assert env["error"]["code"] == "validation_error"
+        assert env["error"]["context"] == "usage"
+
+    def test_unknown_command_text_mode_returns_exit_3(self):
+        result = _run(["no-such-command"], env={"ZOT_FORMAT": "table"})
+        assert result.exit_code == EXIT_VALIDATION
+        assert result.stdout.strip() == ""
+        assert "Error:" in result.stderr
+
+    def test_bad_library_format_json_returns_validation_envelope(self):
+        result = _run(["--json", "--library", "bogus", "list"])
+        assert result.exit_code == EXIT_VALIDATION
+        env = json.loads(result.output)
+        assert env["error"]["code"] == "validation_error"
+
+    def test_invalid_completions_shell_returns_validation_envelope(self):
+        result = _run(["--json", "completions", "nope"])
+        assert result.exit_code == EXIT_VALIDATION
+        assert json.loads(result.output)["error"]["code"] == "validation_error"
+
+    def test_conflicting_json_flags_json_mode_returns_validation_envelope(self):
+        result = _run(["--json", "--no-json", "schema"])
+        assert result.exit_code == EXIT_VALIDATION
+        env = json.loads(result.output)
+        assert env["error"]["code"] == "validation_error"
+
+
+class TestTopLevelErrorBoundary:
+    """No traceback may leak; transport errors map to typed codes."""
+
+    def test_missing_database_returns_configuration_error_envelope(self, tmp_path):
+        result = _run(["--json", "list"], env={"ZOT_DATA_DIR": str(tmp_path / "missing-db")})
+        assert result.exit_code == EXIT_VALIDATION
+        assert "Traceback" not in result.output + result.stderr
+        env = json.loads(result.output)
+        assert env["ok"] is False
+        assert env["error"]["code"] == "configuration_error"
+        assert "not found" in env["error"]["message"].lower()
+        assert "config show" in env["error"]["hint"]
+
+    def test_missing_database_text_mode_human_error(self, tmp_path):
+        result = _run(["--no-json", "list"], env={"ZOT_DATA_DIR": str(tmp_path / "missing-db")})
+        assert result.exit_code == EXIT_VALIDATION
+        assert result.stdout.strip() == ""
+        assert "Error:" in result.stderr
+        assert "Traceback" not in result.stderr
+
+    def test_malformed_toml_returns_configuration_error_envelope(self):
+        exc = _malformed_toml_error()
+        with patch("zotero_cli.commands.items.stats.load_config", side_effect=exc):
+            result = _run(["--json", "stats"])
+        assert result.exit_code == EXIT_VALIDATION
+        env = json.loads(result.output)
+        assert env["error"]["code"] == "configuration_error"
+        assert "Traceback" not in result.stderr
+
+    def test_unexpected_exception_returns_internal_error_envelope(self):
+        with patch("zotero_cli.commands.items.stats.load_config", side_effect=RuntimeError("boom")):
+            result = _run(["--json", "stats"])
+        assert result.exit_code == 1
+        assert "Traceback" not in result.stderr
+        env = json.loads(result.output)
+        assert env["error"]["code"] == "internal_error"
+        assert "boom" in env["error"]["message"]
+
+    def test_verbose_prints_traceback_to_stderr(self):
+        with patch("zotero_cli.commands.items.stats.load_config", side_effect=RuntimeError("boom")):
+            result = _run(["--verbose", "--json", "stats"])
+        assert result.exit_code == 1
+        # stdout stays a single parseable envelope; diagnostics go to stderr.
+        env = json.loads(result.stdout)
+        assert env["error"]["code"] == "internal_error"
+        assert "Traceback" in result.stderr
+        assert "RuntimeError: boom" in result.stderr
+
+    def test_library_resolution_error_maps_to_not_found(self):
+        from zotero_cli.config import LibraryResolutionError
+
+        with patch(
+            "zotero_cli.commands.items.listing.resolve_library_id",
+            side_effect=LibraryResolutionError("Group '123' not found in local database"),
+        ):
+            result = _run(["--json", "list"])
+        assert result.exit_code == EXIT_NOT_FOUND
+        env = json.loads(result.output)
+        assert env["error"]["code"] == "not_found"

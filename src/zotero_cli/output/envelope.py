@@ -91,6 +91,14 @@ def envelope_error(
 
 
 def envelope_partial(succeeded: list, failed: list, meta: dict | None = None) -> dict:
+    """Partial-success envelope.
+
+    Contract: ok is a tri-state value, not a boolean: True (success), False
+    (error) or the string "partial" (some operations succeeded, some failed;
+    details in data.succeeded / data.failed). Consumers must compare explicitly
+    or treat anything other than True as not fully successful. The shape is
+    pinned by tests/cli/test_contract.py.
+    """
     return {
         "ok": "partial",
         "data": {"succeeded": succeeded, "failed": failed},

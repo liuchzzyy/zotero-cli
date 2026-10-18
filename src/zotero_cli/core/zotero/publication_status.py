@@ -37,6 +37,21 @@ class PublicationStatus:
     publication_date: str | None = None
 
 
+class SemanticScholarError(Exception):
+    """Raised when Semantic Scholar cannot be queried.
+
+    A 404 (paper unknown to Semantic Scholar) is not an error - callers get
+    None instead. Network failures, rate limits, 5xx responses, and malformed
+    payloads raise this so callers can surface a retryable error rather than
+    silently reporting "not published".
+    """
+
+    def __init__(self, message: str, *, retryable: bool = True, rate_limited: bool = False) -> None:
+        super().__init__(message)
+        self.retryable = retryable
+        self.rate_limited = rate_limited
+
+
 @dataclass
 class PreprintInfo:
     """Extracted preprint identifier."""
@@ -105,12 +120,16 @@ class SemanticScholarClient:
         self._last_request_time = time.time()
 
     def _fetch(self, api_url: str) -> dict | None:
-        """Fetch from API with rate limiting and retry on 429."""
+        """Fetch from the API with rate limiting and one retry on 429.
+
+        Transient failures raise SemanticScholarError so callers can report a
+        retryable error instead of treating an outage as "not published".
+        """
         self._rate_limit()
         try:
             resp = self._client.get(api_url)
-        except httpx.HTTPError:
-            return None
+        except httpx.HTTPError as exc:
+            raise SemanticScholarError(f"Semantic Scholar request failed: {exc}", retryable=True) from exc
 
         if resp.status_code == 404:
             return None
@@ -126,22 +145,35 @@ class SemanticScholarClient:
             if not math.isfinite(wait):
                 wait = 0.0
             if wait > MAX_RETRY_WAIT:
-                return None
+                raise SemanticScholarError(
+                    "Semantic Scholar rate limit exceeded; retry later",
+                    retryable=True,
+                    rate_limited=True,
+                )
             time.sleep(max(self._delay * 2, wait))
             self._last_request_time = time.time()
             try:
                 resp = self._client.get(api_url)
-            except httpx.HTTPError:
-                return None
+            except httpx.HTTPError as exc:
+                raise SemanticScholarError(f"Semantic Scholar request failed: {exc}", retryable=True) from exc
             if resp.status_code != 200:
-                return None
+                raise SemanticScholarError(
+                    f"Semantic Scholar is still rate limiting (HTTP {resp.status_code})",
+                    retryable=True,
+                    rate_limited=resp.status_code == 429,
+                )
         if resp.status_code != 200:
-            return None
+            raise SemanticScholarError(
+                f"Semantic Scholar returned HTTP {resp.status_code}",
+                retryable=resp.status_code >= 500,
+            )
         try:
             data = resp.json()
-        except ValueError:
-            return None
-        return data if isinstance(data, dict) else None
+        except ValueError as exc:
+            raise SemanticScholarError("Semantic Scholar returned invalid JSON", retryable=True) from exc
+        if not isinstance(data, dict):
+            raise SemanticScholarError("Semantic Scholar returned an unexpected payload", retryable=True)
+        return data
 
     def check_publication(self, info: PreprintInfo) -> PublicationStatus | None:
         """Check if a preprint has been formally published.

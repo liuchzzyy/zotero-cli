@@ -21,7 +21,7 @@ def config_group(ctx: click.Context) -> None:
         click.echo(ctx.get_help())
 
 
-# Registration order is part of the help output; keep it stable.
+# Registration order drives the Click tree; help grouping is handled by TieredGroup.
 config_group.add_command(config_init)
 config_group.add_command(config_show)
 config_group.add_command(profile_group)

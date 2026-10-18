@@ -11,8 +11,24 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from requests import PreparedRequest  # type: ignore[import-untyped]
+from requests.exceptions import (  # type: ignore[import-untyped]
+    ChunkedEncodingError,
+    Timeout,
+)
+from requests.exceptions import (
+    ConnectionError as RequestsConnectionError,
+)
 
 from zotero_cli.core.mineru.models import MinerUError
+
+# Only retry errors that are plausibly transient; deterministic errors (bad
+# URLs, invalid payloads, missing files) must fail immediately instead of
+# multiplying requests or repeating non-idempotent operations.
+_RETRYABLE_EXCEPTIONS: tuple[type[BaseException], ...] = (
+    RequestsConnectionError,
+    Timeout,
+    ChunkedEncodingError,
+)
 
 
 def file_sha256(path: Path) -> str:
@@ -47,12 +63,18 @@ def _url_origin(url: str) -> tuple[str, str, int | None]:
     return parsed.scheme, parsed.hostname or "", port
 
 
-def _retry(function: Callable[[], Any]) -> Any:
-    for attempt in range(3):
+def _retry(
+    function: Callable[[], Any],
+    *,
+    exceptions: tuple[type[BaseException], ...] = _RETRYABLE_EXCEPTIONS,
+    attempts: int = 3,
+) -> Any:
+    """Call `function`, retrying only transient/idempotent failures."""
+    for attempt in range(attempts):
         try:
             return function()
-        except Exception:
-            if attempt == 2:
+        except exceptions:
+            if attempt == attempts - 1:
                 raise
             time.sleep(attempt + 1)
     raise AssertionError("unreachable")

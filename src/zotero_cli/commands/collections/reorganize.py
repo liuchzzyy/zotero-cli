@@ -8,7 +8,7 @@ from typing import Any
 import click
 
 from zotero_cli.commands.collections import collection_group
-from zotero_cli.commands.collections.commands import _emit_json_or_text, _emit_sync_success
+from zotero_cli.commands.collections.commands import _emit_dry_run, _emit_json_or_text, _emit_sync_success
 from zotero_cli.config import load_config, resolve_write_credentials
 from zotero_cli.core.zotero.writer import ZoteroWriter
 from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
@@ -99,6 +99,14 @@ def collection_reorganize(ctx: click.Context, plan_file: str, dry_run: bool) -> 
     except ValueError as exc:
         emit_error("validation_error", str(exc), output_json=json_out, context="collection reorganize")
     if not collections:
+        if dry_run:
+            _emit_dry_run(
+                ctx,
+                {"collections": [], "message": "No collections in plan."},
+                human_text="No collections in plan.",
+                meta={"count": 0},
+            )
+            return
         _emit_json_or_text(
             {"collections": [], "message": "No collections in plan."},
             output_json=json_out,

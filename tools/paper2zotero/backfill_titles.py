@@ -21,11 +21,18 @@ from typing import Any
 
 import zh_text
 
-from zotero_cli.config import load_config, resolve_write_credentials
+from zotero_cli.config import load_config, resolve_write_credentials, state_dir
 from zotero_cli.core.zotero.writer import ZoteroWriter
 
 SCIENTIST_HOME = Path("/Users/liuchzzyy/.hermes/profiles/scientist")
-STATE_FILE = Path(__file__).resolve().parent / "backfill_titles_state.json"
+PAPER2ZOTERO_STATE_SUBDIR = "paper2zotero"
+
+
+def default_state_file() -> Path:
+    """Checkpoint under the git-ignored repo state dir, never the tracked tools tree."""
+    return state_dir() / PAPER2ZOTERO_STATE_SUBDIR / "backfill_titles_state.json"
+
+
 TRANSLATED_TITLE_RE = re.compile(r"^\s*translated[- ]title\s*:", re.I | re.M)
 CHINESE_RE = re.compile(r"[\u4e00-\u9fff]")
 SESSION_LINE = re.compile(r"\n\s*session_id: [^\n]+\s*$")
@@ -186,7 +193,14 @@ def stage_translations(items: list[dict], path: Path, *, batch_size: int = 5) ->
     """Stage every missing translation before any remote mutation; resume safely."""
     if batch_size < 1:
         raise BackfillError("batch_size 必须为正整数")
-    saved = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+    saved: Any = []
+    if path.exists():
+        try:
+            saved = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            # Fail closed: silently rebuilding would overwrite the staged plan and
+            # lose which titles were already translated (repeat model cost).
+            raise BackfillError(f"翻译暂存文件无法读取，拒绝覆盖：{path}: {exc}") from exc
     if not isinstance(saved, list) or not all(
         isinstance(row, dict) and isinstance(row.get("key"), str) for row in saved
     ):
@@ -285,7 +299,7 @@ def main(argv: list[str] | None = None) -> None:
     if not library_id or not api_key:
         raise BackfillError("Zotero API 凭据缺失")
     writer = ZoteroWriter(library_id, api_key)
-    result = run_backfill(writer._zot, writer, STATE_FILE, dry_run=not args.apply, collection=args.collection)
+    result = run_backfill(writer._zot, writer, default_state_file(), dry_run=not args.apply, collection=args.collection)
     print(f"结果：{result}")
 
 

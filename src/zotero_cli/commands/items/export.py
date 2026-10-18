@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 
 import click
 
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id
 from zotero_cli.core.zotero.reader import ZoteroReader
+from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
+from zotero_cli.output.renderers import sanitize_text
 
 
 @click.command("export")
@@ -44,9 +47,12 @@ def export_cmd(ctx: click.Context, key: str, fmt: str) -> None:
                     hint="Run 'zot search' to find valid item keys",
                     context="export",
                 )
-            from dataclasses import asdict
-
-            click.echo(json.dumps(asdict(item), indent=2, ensure_ascii=False))
+            data = asdict(item)
+            if json_out:
+                click.echo(json.dumps(envelope_ok(data, meta={"format": "json"}), indent=2, ensure_ascii=False))
+            else:
+                # Text mode keeps the historical raw-JSON payload so it can be piped directly.
+                click.echo(json.dumps(data, indent=2, ensure_ascii=False))
         else:
             result = reader.export_citation(key, fmt=fmt)
             if result is None:
@@ -57,6 +63,15 @@ def export_cmd(ctx: click.Context, key: str, fmt: str) -> None:
                     hint="Run 'zot search' to find valid item keys",
                     context="export",
                 )
-            click.echo(result)
+            if json_out:
+                click.echo(
+                    json.dumps(
+                        envelope_ok({"format": fmt, "citation": result}, meta={"format": fmt}),
+                        indent=2,
+                        ensure_ascii=False,
+                    )
+                )
+            else:
+                click.echo(sanitize_text(result))
     finally:
         reader.close()

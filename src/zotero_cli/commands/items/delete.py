@@ -3,10 +3,20 @@
 from __future__ import annotations
 
 import json
+import sqlite3
+import sys
 
 import click
 
 from zotero_cli.config import load_config, resolve_write_credentials
+from zotero_cli.core.zotero.idempotency import (
+    PendingMutationError,
+    begin_mutation,
+    release_rejected_mutation,
+    request_scope,
+    response_definitely_rejected,
+    store_cached,
+)
 from zotero_cli.core.zotero.writer import SYNC_REMINDER, ZoteroWriter
 from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
 from zotero_cli.output.envelope import envelope_error, envelope_ok, envelope_partial
@@ -51,11 +61,10 @@ def delete_cmd(
             hint="Run 'zot config init' to set up API credentials",
             context="delete",
         )
-    no_interaction = ctx.obj.get("no_interaction", False)
-    import sys
-
-    if not yes and not no_interaction:
-        if not sys.stdin.isatty():
+    # H-05: destructive commands require explicit --yes. --no-interaction only
+    # suppresses prompts, it never authorizes a destructive write.
+    if not yes:
+        if ctx.obj.get("no_interaction", False) or not sys.stdin.isatty():
             emit_error(
                 "confirmation_required",
                 f"Refusing to delete {len(keys)} item(s) without confirmation on non-interactive stdin",
@@ -70,11 +79,29 @@ def delete_cmd(
             else:
                 click.echo("Cancelled.", err=True)
             return
-    from zotero_cli.core.zotero.idempotency import get_cached, request_scope, store_cached
 
     cache_scope = request_scope("delete", library_type, str(library_id), sorted(keys))
     if idempotency_key:
-        cached = get_cached(cache_scope, idempotency_key)
+        try:
+            cached = begin_mutation(cache_scope, idempotency_key)
+        except PendingMutationError as exc:
+            emit_error(
+                "conflict",
+                str(exc),
+                output_json=json_out,
+                retryable=False,
+                hint="Reconcile the remote items before proceeding; do not bypass this with a new key",
+                context="delete",
+            )
+        except (OSError, sqlite3.Error):
+            emit_error(
+                "configuration_error",
+                "Could not durably reserve the delete; no write attempted",
+                output_json=json_out,
+                retryable=False,
+                hint="Check the idempotency state directory and database",
+                context="delete",
+            )
         if cached is not None:
             if json_out:
                 click.echo(json.dumps(cached, indent=2, ensure_ascii=False))
@@ -85,6 +112,8 @@ def delete_cmd(
     writer = ZoteroWriter(library_id=library_id, api_key=api_key, library_type=library_type)
     succeeded: list[dict] = []
     failed: list[dict] = []
+    rejected_count = 0
+    unknown_outcome = False
     for key in keys:
         try:
             writer.delete_item(key)
@@ -92,9 +121,20 @@ def delete_cmd(
             if not json_out:
                 click.echo(f"Item '{key}' moved to trash.")
         except ZoteroWriteError as e:
+            if idempotency_key:
+                if response_definitely_rejected(writer._zot.request):
+                    rejected_count += 1
+                else:
+                    unknown_outcome = True
             failed.append({"key": key, "error": {"code": e.code, "message": str(e), "retryable": e.retryable}})
             if not json_out:
                 click.echo(f"Error: delete failed for '{key}': {e}", err=True)
+    if idempotency_key and rejected_count == len(failed) and not unknown_outcome:
+        try:
+            release_rejected_mutation(cache_scope, idempotency_key)
+        except (OSError, sqlite3.Error):
+            pass
+    blocked_by_reservation = bool(idempotency_key and failed and not rejected_count and unknown_outcome)
     if json_out:
         if failed and succeeded:
             env = envelope_partial(succeeded, failed, meta={"sync_required": True})
@@ -102,7 +142,7 @@ def delete_cmd(
             env = envelope_error(
                 "api_error",
                 f"{len(failed)} delete(s) failed",
-                retryable=True,
+                retryable=not blocked_by_reservation,
                 failed=failed,
             )
             click.echo(json.dumps(env, indent=2, ensure_ascii=False))
@@ -113,7 +153,10 @@ def delete_cmd(
                 extra={"next": ["zot trash list", "zot trash empty --yes"]},
             )
         if idempotency_key and not failed:
-            store_cached(cache_scope, idempotency_key, env)
+            try:
+                store_cached(cache_scope, idempotency_key, env)
+            except (OSError, sqlite3.Error) as exc:
+                click.echo(f"Warning: delete result could not be cached: {exc}", err=True)
         click.echo(json.dumps(env, indent=2, ensure_ascii=False))
     else:
         if not failed:

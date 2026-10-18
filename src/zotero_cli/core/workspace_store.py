@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import shutil
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path, PureWindowsPath
@@ -17,15 +20,16 @@ else:
     except ModuleNotFoundError:
         import tomli as tomllib  # type: ignore[no-redef]
 
-from zotero_cli.config import project_root, state_dir
+from zotero_cli.config import state_dir, workspace_root
 
-# Workspace names are path components: allow Unicode/CJK names plus `_` and
-# `-`, while requiring an alphanumeric/CJK first and last character.
+# Workspace names are path components: allow Unicode/CJK names plus _ and -,
+# while requiring an alphanumeric/CJK first and last character.
 _NAME_RE = re.compile(r"^[a-z0-9\u4e00-\u9fff]+(?:[-_][a-z0-9\u4e00-\u9fff]+)*$")
+_MAX_NAME_BYTES = 200
 
 
 def workspaces_dir() -> Path:
-    return project_root() / ".workspace"
+    return workspace_root()
 
 
 def _reject_symlink(path: Path) -> None:
@@ -88,10 +92,12 @@ def workspace_index_path(name: str) -> Path:
 
 def mineru_cache_dir() -> Path:
     # Shared cloud parse packages are runtime state, not workspace definitions.
-    return state_dir(project_root()) / "mineru"
+    return state_dir() / "mineru"
 
 
 def validate_name(name: str) -> bool:
+    if not name or len(name.encode("utf-8")) > _MAX_NAME_BYTES:
+        return False
     return bool(_NAME_RE.match(name))
 
 
@@ -136,25 +142,52 @@ def _workspace_path(name: str) -> Path:
     return workspace_file_path(name)
 
 
-def _escape_toml_string(s: str) -> str:
-    return s.replace("\\", "\\\\").replace('"', '\\"')
+def _toml_string(value: str) -> str:
+    """Serialize a Python string as a TOML basic string literal.
+
+    JSON string escaping covers every character TOML requires to be escaped
+    (quote, backslash, control characters); non-ASCII text stays raw. DEL is the
+    one control character JSON leaves bare and TOML requires escaped.
+    """
+    return json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007F")
+
+
+def _manifest_text(ws: Workspace) -> str:
+    lines = [
+        f"created = {_toml_string(ws.created)}",
+        f"description = {_toml_string(ws.description)}",
+        "",
+    ]
+    for item in ws.items:
+        lines.append("[[items]]")
+        lines.append(f"key = {_toml_string(item.key)}")
+        lines.append(f"title = {_toml_string(item.title)}")
+        lines.append(f"added = {_toml_string(item.added)}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _write_atomic(path: Path, content: str) -> None:
+    """Write content through a same-directory temp file and atomic replace."""
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_name, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 def save_workspace(ws: Workspace) -> None:
     path = _workspace_path(ws.name)
     path.parent.mkdir(parents=True, exist_ok=True)
-    lines = [
-        f'created = "{_escape_toml_string(ws.created)}"',
-        f'description = "{_escape_toml_string(ws.description)}"',
-        "",
-    ]
-    for item in ws.items:
-        lines.append("[[items]]")
-        lines.append(f'key = "{_escape_toml_string(item.key)}"')
-        lines.append(f'title = "{_escape_toml_string(item.title)}"')
-        lines.append(f'added = "{_escape_toml_string(item.added)}"')
-        lines.append("")
-    path.write_text("\n".join(lines), encoding="utf-8")
+    _write_atomic(path, _manifest_text(ws))
 
 
 def load_workspace(name: str) -> Workspace:
@@ -171,18 +204,37 @@ def load_workspace(name: str) -> Workspace:
     )
 
 
+def _list_warning(path: Path, exc: Exception) -> str | None:
+    """Describe why a workspace directory was skipped; None for non-workspaces."""
+    if path.is_symlink():
+        return f"skipping workspace '{path.name}': symbolic links are not allowed"
+    manifest = path / "workspace.toml"
+    if manifest.is_symlink():
+        return f"skipping workspace '{path.name}': manifest is a symbolic link"
+    if not manifest.exists():
+        return None
+    return f"skipping unreadable workspace '{path.name}': {exc}"
+
+
 def list_workspaces() -> list[Workspace]:
     ws_dir = _workspace_root()
     if not ws_dir.exists():
         return []
     result = []
-    # Validate each directory before looking for its manifest; globbing through
-    # a symlinked workspace would otherwise probe outside the workspace root.
+    warnings: list[str] = []
     for path in sorted(ws_dir.iterdir()):
+        if not path.is_dir():
+            continue
         try:
             result.append(load_workspace(path.name))
-        except Exception:
-            continue
+        except Exception as exc:
+            warning = _list_warning(path, exc)
+            if warning is not None:
+                warnings.append(warning)
+    for warning in warnings:
+        sys.stderr.write(f"Warning: {warning}\n")
+    if warnings:
+        sys.stderr.flush()
     return result
 
 

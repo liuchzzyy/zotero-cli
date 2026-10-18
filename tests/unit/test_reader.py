@@ -179,3 +179,48 @@ class TestRelatedItems:
     def test_no_relations(self, reader: ZoteroReader):
         related = reader.get_related_items("DEEP003")
         assert isinstance(related, list)
+
+
+# --- L-01: LIKE wildcards from user queries are escaped ---
+
+
+def test_like_pattern_escapes_user_wildcards() -> None:
+    from zotero_cli.core.zotero.reader import ZoteroReader
+
+    assert ZoteroReader._like_pattern("100%") == "%100\\%%"
+    assert ZoteroReader._like_pattern("a_b") == "%a\\_b%"
+    assert ZoteroReader._like_pattern("50%_x") == "%50\\%\\_x%"
+
+
+def test_search_treats_percent_and_underscore_as_literal_text(test_db_path: Path, tmp_path: Path) -> None:
+    import shutil
+    import sqlite3
+
+    db_path = tmp_path / "zotero.sqlite"
+    shutil.copy2(test_db_path, db_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("INSERT INTO items (itemID, itemTypeID, libraryID, key) VALUES (99, 2, 1, 'PERCENT1')")
+        conn.execute("INSERT INTO itemDataValues VALUES (900, 'Yield of 100% coverage')")
+        conn.execute("INSERT INTO itemData VALUES (99, 4, 900)")  # fixture title fieldID = 4
+    with ZoteroReader(db_path) as reader:
+        assert [item.key for item in reader.search("100%", limit=10).items] == ["PERCENT1"]
+        # "_" is not a wildcard here, so only a literal underscore matches.
+        assert reader.search("_", limit=10).total == 0
+        assert reader.search("%", limit=10).total == 1
+
+
+# --- L-02: dc:relation predicate is resolved, not hardcoded ---
+
+
+def test_related_items_resolve_relation_predicate_by_name(test_db_path: Path, tmp_path: Path) -> None:
+    import shutil
+    import sqlite3
+
+    db_path = tmp_path / "zotero.sqlite"
+    shutil.copy2(test_db_path, db_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE relationPredicates SET predicateID = 5 WHERE predicate = 'dc:relation'")
+        conn.execute("UPDATE itemRelations SET predicateID = 5")
+    with ZoteroReader(db_path) as reader:
+        related = reader.get_related_items("ATTN001", limit=10)
+    assert "BERT002" in [item.key for item in related]

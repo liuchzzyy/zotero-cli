@@ -2,25 +2,48 @@
 
 from __future__ import annotations
 
+import json
+import sys
+from dataclasses import asdict
 from datetime import datetime, timezone
 
 import click
 
 from zotero_cli.commands.workspace import workspace_group
+from zotero_cli.commands.workspace._output import (
+    emit_result,
+    emit_warning,
+    load_workspace_if_readable,
+    load_workspace_or_exit,
+    output_json,
+    workspace_directory_or_exit,
+    workspace_exists_or_error,
+)
+from zotero_cli.commands.workspace.indexing import drop_workspace_vector_collection
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id
 from zotero_cli.core.workspace_store import (
     Workspace,
     delete_workspace,
     list_workspaces,
-    load_workspace,
     save_workspace,
     validate_name,
-    workspace_exists,
+    workspace_file_path,
+    workspace_index_path,
 )
 from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.models import Collection, Item
 from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.output.renderers import format_items, format_workspace_list
+
+_ADD_HINT = "Use 'zot workspace new' to create it first"
+
+
+def _open_reader(ctx: click.Context) -> ZoteroReader:
+    cfg = load_config(profile=ctx.obj.get("profile"))
+    data_dir = get_data_dir(cfg)
+    db_path = data_dir / "zotero.sqlite"
+    library_id = resolve_library_id(db_path, ctx.obj)
+    return ZoteroReader(db_path, library_id=library_id)
 
 
 def _resolve_collection_key(reader: ZoteroReader, name_or_key: str) -> str | None:
@@ -42,10 +65,11 @@ def _resolve_collection_key(reader: ZoteroReader, name_or_key: str) -> str | Non
 @workspace_group.command("new")
 @click.argument("name")
 @click.option("--description", "-d", default="", help="Workspace description (topic context)")
+@click.option("--dry-run", is_flag=True, help="Validate and preview without creating the workspace")
 @click.pass_context
-def workspace_new(ctx: click.Context, name: str, description: str) -> None:
+def workspace_new(ctx: click.Context, name: str, description: str, dry_run: bool) -> None:
     """Create a new workspace."""
-    json_out = ctx.obj.get("json", False)
+    json_out = output_json(ctx)
     if not validate_name(name):
         emit_error(
             "validation_error",
@@ -54,7 +78,7 @@ def workspace_new(ctx: click.Context, name: str, description: str) -> None:
             hint="Use kebab-case (e.g., llm-safety, protein-folding)",
             context="workspace new",
         )
-    if workspace_exists(name):
+    if workspace_exists_or_error(ctx, name, context="workspace new"):
         emit_error(
             "conflict",
             f"Workspace '{name}' already exists",
@@ -62,74 +86,111 @@ def workspace_new(ctx: click.Context, name: str, description: str) -> None:
             hint=f"Use 'zot workspace show {name}' to view it",
             context="workspace new",
         )
-    ws = Workspace(
-        name=name,
-        created=datetime.now(timezone.utc).isoformat(),
-        description=description,
-    )
-    save_workspace(ws)
-    click.echo(f"Workspace created: {name}")
+    created = datetime.now(timezone.utc).isoformat()
+    data = {"name": name, "description": description, "created": created, "items": 0}
+    if dry_run:
+        emit_result(
+            ctx,
+            {**data, "would_create": True},
+            human_text=f"[dry-run] Would create workspace '{name}'",
+            dry_run=True,
+        )
+        return
+    save_workspace(Workspace(name=name, created=created, description=description))
+    emit_result(ctx, data, human_text=f"Workspace created: {name}")
 
 
 @workspace_group.command("delete")
 @click.argument("name")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
+@click.option("--dry-run", is_flag=True, help="Show what would be deleted without deleting any data")
 @click.pass_context
-def workspace_delete(ctx: click.Context, name: str, yes: bool) -> None:
+def workspace_delete(ctx: click.Context, name: str, yes: bool, dry_run: bool) -> None:
     """Delete a workspace."""
-    json_out = ctx.obj.get("json", False)
-    if not workspace_exists(name):
-        emit_error(
-            "not_found",
-            f"Workspace '{name}' not found",
-            output_json=json_out,
-            hint="Use 'zot workspace list' to see available workspaces",
-            context="workspace delete",
-        )
-    no_interaction = ctx.obj.get("no_interaction", False)
-    if not yes and not no_interaction:
+    json_out = output_json(ctx)
+    workspace_directory_or_exit(ctx, name, context="workspace delete")
+    try:
+        manifest_path = workspace_file_path(name)
+    except ValueError as exc:
+        emit_error("validation_error", str(exc), output_json=json_out, context="workspace delete")
+    workspace = load_workspace_if_readable(name) if manifest_path.exists() else None
+    item_count = len(workspace.items) if workspace is not None else None
+    data: dict[str, object] = {"name": name, "items": item_count, "deleted": True}
+    if dry_run:
+        human = f"[dry-run] Would delete workspace '{name}'"
+        if item_count is not None:
+            human += f" ({item_count} item(s))"
+        emit_result(ctx, {**data, "would_delete": True}, human_text=human, dry_run=True)
+        return
+    no_interaction = bool(ctx.obj.get("no_interaction", False))
+    if not yes:
+        if no_interaction or not sys.stdin.isatty():
+            emit_error(
+                "confirmation_required",
+                f"Refusing to delete workspace '{name}' without confirmation on non-interactive stdin",
+                output_json=json_out,
+                hint="Pass --yes to confirm or use --dry-run to preview",
+                context="workspace delete",
+            )
         if not click.confirm(f"Delete workspace '{name}'?"):
-            click.echo("Cancelled.")
+            emit_result(ctx, {"name": name, "cancelled": True}, human_text="Cancelled.")
             return
+    try:
+        if workspace_index_path(name).exists():
+            drop_workspace_vector_collection(name)
+    except (OSError, RuntimeError, ValueError) as exc:
+        emit_warning(f"could not remove vector data for workspace '{name}': {exc}")
     delete_workspace(name)
-    click.echo(f"Workspace deleted: {name}")
+    if workspace is None:
+        emit_warning(f"workspace manifest for '{name}' was unreadable; removed the directory anyway")
+    emit_result(ctx, data, human_text=f"Workspace deleted: {name}")
 
 
 @workspace_group.command("add")
 @click.argument("name")
 @click.argument("keys", nargs=-1, required=True)
+@click.option("--dry-run", is_flag=True, help="Resolve items and preview the addition without saving")
 @click.pass_context
-def workspace_add(ctx: click.Context, name: str, keys: tuple[str, ...]) -> None:
+def workspace_add(ctx: click.Context, name: str, keys: tuple[str, ...], dry_run: bool) -> None:
     """Add items to a workspace by Zotero key."""
-    json_out = ctx.obj.get("json", False)
-    if not workspace_exists(name):
-        emit_error(
-            "not_found",
-            f"Workspace '{name}' not found",
-            output_json=json_out,
-            hint="Use 'zot workspace new' to create it first",
-            context="workspace add",
-        )
-
-    cfg = load_config(profile=ctx.obj.get("profile"))
-    data_dir = get_data_dir(cfg)
-    db_path = data_dir / "zotero.sqlite"
-    library_id = resolve_library_id(db_path, ctx.obj)
-    reader = ZoteroReader(db_path, library_id=library_id)
+    workspace = load_workspace_or_exit(ctx, name, context="workspace add", hint=_ADD_HINT)
+    reader = _open_reader(ctx)
+    added: list[str] = []
+    skipped: list[str] = []
+    missing: list[str] = []
     try:
-        ws = load_workspace(name)
-        added = 0
         for key in keys:
             item = reader.get_item(key)
             if item is None:
-                click.echo(f"Warning: item '{key}' not found in Zotero library, skipped")
+                missing.append(key)
                 continue
-            if ws.add_item(key, item.title):
-                added += 1
+            if workspace.add_item(key, item.title):
+                added.append(key)
             else:
-                click.echo(f"Skipped: '{key}' already in workspace")
-        save_workspace(ws)
-        click.echo(f"Added {added} item(s) to workspace '{name}'")
+                skipped.append(key)
+        data = {
+            "name": name,
+            "added": added,
+            "skipped": skipped,
+            "missing": missing,
+            "items": len(workspace.items),
+        }
+        if dry_run:
+            emit_result(
+                ctx,
+                {**data, "would_add": added},
+                human_text=f"[dry-run] Would add {len(added)} item(s) to workspace '{name}'",
+                dry_run=True,
+            )
+            return
+        save_workspace(workspace)
+        for key in missing:
+            emit_warning(f"item '{key}' not found in Zotero library, skipped")
+        for key in skipped:
+            emit_warning(f"'{key}' already in workspace")
+        emit_result(
+            ctx, data, human_text=f"Added {len(added)} item(s) to workspace '{name}'", meta={"count": len(added)}
+        )
     finally:
         reader.close()
 
@@ -137,37 +198,47 @@ def workspace_add(ctx: click.Context, name: str, keys: tuple[str, ...]) -> None:
 @workspace_group.command("remove")
 @click.argument("name")
 @click.argument("keys", nargs=-1, required=True)
+@click.option("--dry-run", is_flag=True, help="Preview the removal without saving")
 @click.pass_context
-def workspace_remove(ctx: click.Context, name: str, keys: tuple[str, ...]) -> None:
+def workspace_remove(ctx: click.Context, name: str, keys: tuple[str, ...], dry_run: bool) -> None:
     """Remove items from a workspace by key."""
-    json_out = ctx.obj.get("json", False)
-    if not workspace_exists(name):
-        emit_error(
-            "not_found",
-            f"Workspace '{name}' not found",
-            output_json=json_out,
-            hint="Use 'zot workspace list' to see available workspaces",
-            context="workspace remove",
-        )
-    ws = load_workspace(name)
-    removed = 0
+    workspace = load_workspace_or_exit(ctx, name, context="workspace remove")
+    removed: list[str] = []
+    not_present: list[str] = []
     for key in keys:
-        if ws.remove_item(key):
-            removed += 1
-    save_workspace(ws)
-    click.echo(f"Removed {removed} item(s) from workspace '{name}'")
+        if workspace.remove_item(key):
+            removed.append(key)
+        else:
+            not_present.append(key)
+    data = {"name": name, "removed": removed, "not_present": not_present, "items": len(workspace.items)}
+    if dry_run:
+        emit_result(
+            ctx,
+            {**data, "would_remove": removed},
+            human_text=f"[dry-run] Would remove {len(removed)} item(s) from workspace '{name}'",
+            dry_run=True,
+        )
+        return
+    save_workspace(workspace)
+    emit_result(
+        ctx, data, human_text=f"Removed {len(removed)} item(s) from workspace '{name}'", meta={"count": len(removed)}
+    )
 
 
 @workspace_group.command("list")
 @click.pass_context
 def workspace_list(ctx: click.Context) -> None:
     """List all workspaces."""
-    json_out = ctx.obj.get("json", False)
     workspaces = list_workspaces()
     if not workspaces:
-        click.echo("No workspaces found. Create one with: zot workspace new <name>")
+        emit_result(
+            ctx,
+            [],
+            human_text="No workspaces found. Create one with: zot workspace new <name>",
+            meta={"count": 0},
+        )
         return
-    click.echo(format_workspace_list(workspaces, output_json=json_out))
+    click.echo(format_workspace_list(workspaces, output_json=output_json(ctx)))
 
 
 @workspace_group.command("show")
@@ -175,33 +246,23 @@ def workspace_list(ctx: click.Context) -> None:
 @click.pass_context
 def workspace_show(ctx: click.Context, name: str) -> None:
     """Show items in a workspace."""
-    json_out = ctx.obj.get("json", False)
+    json_out = output_json(ctx)
     detail = ctx.obj.get("detail", "standard")
     limit = ctx.obj.get("limit", 50)
-
-    if not workspace_exists(name):
-        emit_error(
-            "not_found",
-            f"Workspace '{name}' not found",
-            output_json=json_out,
-            hint="Use 'zot workspace list' to see available workspaces",
-            context="workspace show",
+    workspace = load_workspace_or_exit(ctx, name, context="workspace show")
+    if not workspace.items:
+        emit_result(
+            ctx,
+            [],
+            human_text=f"Workspace '{name}' is empty. Use 'zot workspace add {name} KEY' to add items.",
+            meta={"count": 0},
         )
-
-    ws = load_workspace(name)
-    if not ws.items:
-        click.echo(f"Workspace '{name}' is empty. Use 'zot workspace add {name} KEY' to add items.")
         return
-
-    cfg = load_config(profile=ctx.obj.get("profile"))
-    data_dir = get_data_dir(cfg)
-    db_path = data_dir / "zotero.sqlite"
-    library_id = resolve_library_id(db_path, ctx.obj)
-    reader = ZoteroReader(db_path, library_id=library_id)
+    reader = _open_reader(ctx)
     try:
         items = []
         missing = []
-        for ws_item in ws.items[:limit]:
+        for ws_item in workspace.items[:limit]:
             item = reader.get_item(ws_item.key)
             if item is not None:
                 items.append(item)
@@ -209,10 +270,33 @@ def workspace_show(ctx: click.Context, name: str) -> None:
                 missing.append(ws_item.key)
         if items:
             click.echo(format_items(items, output_json=json_out, detail=detail))
+        elif json_out:
+            emit_result(ctx, [], human_text="", meta={"count": 0, "missing": missing})
         for key in missing:
-            click.echo(f"Warning: item '{key}' not found in Zotero library (may have been deleted)")
+            emit_warning(f"item '{key}' not found in Zotero library (may have been deleted)")
     finally:
         reader.close()
+
+
+def _markdown_export(name: str, workspace: Workspace, items: list[Item]) -> str:
+    lines = [f"# Workspace: {name}"]
+    desc_part = f" {workspace.description}" if workspace.description else ""
+    lines.append(f"> {desc_part.strip()} ({len(items)} items)")
+    lines.append("")
+    for i, item in enumerate(items, 1):
+        lines.append("---")
+        lines.append(f"## {i}. {item.title}")
+        authors = ", ".join(c.full_name for c in item.creators[:3])
+        if len(item.creators) > 3:
+            authors += " et al."
+        year = item.date or "N/A"
+        lines.append(f"**Authors:** {authors} | **Year:** {year} | **Key:** {item.key}")
+        if item.tags:
+            lines.append(f"**Tags:** {', '.join(item.tags)}")
+        if item.abstract:
+            lines.append(f"**Abstract:** {item.abstract}")
+        lines.append("")
+    return "\n".join(lines)
 
 
 @workspace_group.command("export")
@@ -227,66 +311,61 @@ def workspace_show(ctx: click.Context, name: str) -> None:
 @click.pass_context
 def workspace_export(ctx: click.Context, name: str, fmt: str) -> None:
     """Export workspace items for external use."""
-    json_out = ctx.obj.get("json", False)
-    if not workspace_exists(name):
-        emit_error(
-            "not_found",
-            f"Workspace '{name}' not found",
-            output_json=json_out,
-            hint="Use 'zot workspace list' to see available workspaces",
-            context="workspace export",
+    json_out = output_json(ctx)
+    workspace = load_workspace_or_exit(ctx, name, context="workspace export")
+    if not workspace.items:
+        emit_result(
+            ctx,
+            {"format": fmt, "items": 0, "content": ""},
+            human_text=f"Workspace '{name}' is empty.",
+            meta={"count": 0},
         )
-
-    ws = load_workspace(name)
-    if not ws.items:
-        click.echo(f"Workspace '{name}' is empty.")
         return
-
-    cfg = load_config(profile=ctx.obj.get("profile"))
-    data_dir = get_data_dir(cfg)
-    db_path = data_dir / "zotero.sqlite"
-    library_id = resolve_library_id(db_path, ctx.obj)
-    reader = ZoteroReader(db_path, library_id=library_id)
+    reader = _open_reader(ctx)
     try:
         items = []
-        for ws_item in ws.items:
+        for ws_item in workspace.items:
             item = reader.get_item(ws_item.key)
             if item is not None:
                 items.append(item)
-
         if not items:
-            click.echo("No items could be resolved from Zotero library.")
+            emit_result(
+                ctx,
+                {"format": fmt, "items": 0, "content": ""},
+                human_text="No items could be resolved from Zotero library.",
+                meta={"count": 0},
+            )
             return
-
         if fmt == "json":
-            click.echo(format_items(items, output_json=True))
+            payload = [asdict(item) for item in items]
+            if json_out:
+                emit_result(ctx, {"format": "json", "items": payload}, human_text="", meta={"count": len(items)})
+            else:
+                click.echo(json.dumps(payload, indent=2, ensure_ascii=False))
         elif fmt == "bibtex":
             entries = []
             for item in items:
                 bib = reader.export_citation(item.key, fmt="bibtex")
                 if bib:
                     entries.append(bib)
-            click.echo("\n\n".join(entries))
+            content = "\n\n".join(entries)
+            if json_out:
+                emit_result(
+                    ctx, {"format": "bibtex", "content": content}, human_text=content, meta={"count": len(entries)}
+                )
+            else:
+                click.echo(content)
         else:
-            # markdown (default)
-            lines = [f"# Workspace: {name}"]
-            desc_part = f" {ws.description}" if ws.description else ""
-            lines.append(f"> {desc_part.strip()} ({len(items)} items)")
-            lines.append("")
-            for i, item in enumerate(items, 1):
-                lines.append("---")
-                lines.append(f"## {i}. {item.title}")
-                authors = ", ".join(c.full_name for c in item.creators[:3])
-                if len(item.creators) > 3:
-                    authors += " et al."
-                year = item.date or "N/A"
-                lines.append(f"**Authors:** {authors} | **Year:** {year} | **Key:** {item.key}")
-                if item.tags:
-                    lines.append(f"**Tags:** {', '.join(item.tags)}")
-                if item.abstract:
-                    lines.append(f"**Abstract:** {item.abstract}")
-                lines.append("")
-            click.echo("\n".join(lines))
+            content = _markdown_export(name, workspace, items)
+            if json_out:
+                emit_result(
+                    ctx,
+                    {"format": "markdown", "name": name, "content": content},
+                    human_text=content,
+                    meta={"count": len(items)},
+                )
+            else:
+                click.echo(content)
     finally:
         reader.close()
 
@@ -296,21 +375,19 @@ def workspace_export(ctx: click.Context, name: str, fmt: str) -> None:
 @click.option("--collection", default=None, help="Import all items from a Zotero collection (name or key)")
 @click.option("--tag", default=None, help="Import all items with this tag")
 @click.option("--search", "search_query", default=None, help="Import items matching a search query")
+@click.option("--dry-run", is_flag=True, help="Resolve items and preview the import without saving")
 @click.pass_context
 def workspace_import_cmd(
-    ctx: click.Context, name: str, collection: str | None, tag: str | None, search_query: str | None
+    ctx: click.Context,
+    name: str,
+    collection: str | None,
+    tag: str | None,
+    search_query: str | None,
+    dry_run: bool,
 ) -> None:
     """Bulk import items into a workspace from collection, tag, or search."""
-    json_out = ctx.obj.get("json", False)
-    if not workspace_exists(name):
-        emit_error(
-            "not_found",
-            f"Workspace '{name}' not found",
-            output_json=json_out,
-            hint="Use 'zot workspace new' to create it first",
-            context="workspace import",
-        )
-
+    json_out = output_json(ctx)
+    workspace = load_workspace_or_exit(ctx, name, context="workspace import", hint=_ADD_HINT)
     if not collection and not tag and not search_query:
         emit_error(
             "validation_error",
@@ -319,61 +396,70 @@ def workspace_import_cmd(
             hint="Example: zot workspace import my-ws --search 'attention'",
             context="workspace import",
         )
-
-    cfg = load_config(profile=ctx.obj.get("profile"))
-    data_dir = get_data_dir(cfg)
-    db_path = data_dir / "zotero.sqlite"
-    library_id = resolve_library_id(db_path, ctx.obj)
-    reader = ZoteroReader(db_path, library_id=library_id)
+    reader = _open_reader(ctx)
     try:
-        ws = load_workspace(name)
         items_to_import: list[Item] = []
-
+        sources: dict[str, int] = {}
         if collection:
-            # Resolve collection name to key
             col_key = _resolve_collection_key(reader, collection)
             if col_key is None:
                 emit_error(
                     "not_found",
                     f"Collection '{collection}' not found",
                     output_json=json_out,
-                    hint="Use 'zot collections' to list available collections",
+                    hint="Use 'zot collection list' to list available collections",
                     context="workspace import",
                 )
-            items_to_import.extend(reader.get_collection_items(col_key))
-
+            collection_items = reader.get_collection_items(col_key)
+            sources["collection"] = len(collection_items)
+            items_to_import.extend(collection_items)
         if tag:
-            # Search specifically for items with this tag
             result = reader.search(tag, limit=500)
-            for item in result.items:
-                if tag.lower() in [t.lower() for t in item.tags]:
-                    items_to_import.append(item)
-
+            tagged = [item for item in result.items if tag.lower() in [t.lower() for t in item.tags]]
+            sources["tag"] = len(tagged)
+            items_to_import.extend(tagged)
         if search_query:
             result = reader.search(search_query, limit=500)
+            sources["search"] = len(result.items)
             items_to_import.extend(result.items)
-
-        # Dedup by key
         seen: set[str] = set()
         unique_items: list[Item] = []
         for item in items_to_import:
             if item.key not in seen:
                 seen.add(item.key)
                 unique_items.append(item)
-
-        added = 0
+        added: list[str] = []
         skipped = 0
         for item in unique_items:
-            if ws.add_item(item.key, item.title):
-                added += 1
+            if workspace.add_item(item.key, item.title):
+                added.append(item.key)
             else:
                 skipped += 1
-
-        save_workspace(ws)
-        click.echo(
-            f"Imported {added} item(s) into workspace '{name}'"
-            + (f" ({skipped} skipped, already present)" if skipped else "")
-        )
+        data = {
+            "name": name,
+            "resolved": len(unique_items),
+            "imported": len(added),
+            "would_add": added,
+            "skipped": skipped,
+            "sources": sources,
+            "items": len(workspace.items),
+        }
+        if dry_run:
+            emit_result(
+                ctx,
+                data,
+                human_text=f"[dry-run] Would import {len(added)} item(s) into workspace '{name}'"
+                + (f" ({skipped} already present)" if skipped else ""),
+                dry_run=True,
+            )
+            return
+        save_workspace(workspace)
+        if not unique_items:
+            emit_warning(f"no items matched the requested source(s); nothing imported into '{name}'")
+        human = f"Imported {len(added)} item(s) into workspace '{name}'"
+        if skipped:
+            human += f" ({skipped} skipped, already present)"
+        emit_result(ctx, data, human_text=human, meta={"count": len(added)})
     finally:
         reader.close()
 
@@ -384,37 +470,21 @@ def workspace_import_cmd(
 @click.pass_context
 def workspace_search(ctx: click.Context, query: str, ws_name: str) -> None:
     """Search items within a workspace by title, author, or abstract."""
-    json_out = ctx.obj.get("json", False)
+    json_out = output_json(ctx)
     detail = ctx.obj.get("detail", "standard")
     limit = ctx.obj.get("limit", 50)
-
-    if not workspace_exists(ws_name):
-        emit_error(
-            "not_found",
-            f"Workspace '{ws_name}' not found",
-            output_json=json_out,
-            hint="Use 'zot workspace list' to see available workspaces",
-            context="workspace search",
-        )
-
-    ws = load_workspace(ws_name)
-    if not ws.items:
-        click.echo(f"Workspace '{ws_name}' is empty.")
+    workspace = load_workspace_or_exit(ctx, ws_name, context="workspace search")
+    if not workspace.items:
+        emit_result(ctx, [], human_text=f"Workspace '{ws_name}' is empty.", meta={"count": 0})
         return
-
-    cfg = load_config(profile=ctx.obj.get("profile"))
-    data_dir = get_data_dir(cfg)
-    db_path = data_dir / "zotero.sqlite"
-    library_id = resolve_library_id(db_path, ctx.obj)
-    reader = ZoteroReader(db_path, library_id=library_id)
+    reader = _open_reader(ctx)
     try:
         query_lower = query.lower()
         matches = []
-        for ws_item in ws.items:
+        for ws_item in workspace.items:
             item = reader.get_item(ws_item.key)
             if item is None:
                 continue
-            # Case-insensitive substring match across title, authors, abstract, tags
             searchable = " ".join(
                 filter(
                     None,
@@ -428,11 +498,9 @@ def workspace_search(ctx: click.Context, query: str, ws_name: str) -> None:
             ).lower()
             if query_lower in searchable:
                 matches.append(item)
-
         if not matches:
-            click.echo("No matching items found.")
+            emit_result(ctx, [], human_text="No matching items found.", meta={"count": 0})
             return
-
         click.echo(format_items(matches[:limit], output_json=json_out, detail=detail))
     finally:
         reader.close()

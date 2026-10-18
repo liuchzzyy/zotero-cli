@@ -57,6 +57,10 @@ def _chunk_by_sentence(text: str, max_chars: int, overlap: int) -> list[str]:
     current: list[str] = []
     current_len = 0
     for sent in sentences:
+        # re.split() yields a trailing empty piece for text that ends with
+        # full-width punctuation; it must never become an empty chunk.
+        if not sent:
+            continue
         sent_len = len(sent)
         if sent_len > max_chars:
             if current:
@@ -84,10 +88,18 @@ def _validate_chunk_parameters(max_chars: int, overlap: int) -> None:
 
 
 def cascade_chunk(text: str, max_chars: int, overlap: int) -> list[str]:
+    """Split text with the sentence -> word -> character cascade.
+
+    `overlap` applies only to the character-level fallback used for tokens that
+    are longer than `max_chars`; sentence- and word-aligned chunks are
+    contiguous and do not overlap. Empty chunks are never returned.
+    """
     _validate_chunk_parameters(max_chars, overlap)
+    if not text:
+        return []
     if len(text) <= max_chars:
         return [text]
-    return _chunk_by_sentence(text, max_chars, overlap)
+    return [chunk for chunk in _chunk_by_sentence(text, max_chars, overlap) if chunk]
 
 
 def _normalize_heading(heading: str, section_text: str) -> str:
@@ -131,7 +143,11 @@ def _split_supplementary_sections(heading: str, section_text: str) -> list[tuple
 
 
 def chunk_text(text: str, paper_title: str, max_tokens: int = 500, overlap: int = 50) -> list[str]:
-    """Chunk text with a positive token budget and a character-count overlap."""
+    """Chunk text with a positive token budget and a character-count overlap.
+
+    Overlap applies only to character-level fallback splits of over-long unbroken
+    tokens; section, paragraph, and sentence aligned chunks stay contiguous.
+    """
     if type(max_tokens) is not int or max_tokens <= 0:
         raise ValueError("max_tokens must be a positive integer")
     max_chars = max_tokens * 4

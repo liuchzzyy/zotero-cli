@@ -113,6 +113,21 @@ class BackfillTests(unittest.TestCase):
             self.assertEqual(saved[0]["title_zh"], "甲")
             self.assertFalse(saved[1].get("title_zh"))
 
+    def test_default_state_file_lives_under_gitignored_state_dir(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(backfill, "state_dir", return_value=Path(directory)):
+                path = backfill.default_state_file()
+        self.assertEqual(path, Path(directory) / "paper2zotero" / "backfill_titles_state.json")
+
+    def test_stage_fails_closed_on_unreadable_checkpoint(self):
+        items = [{"key": "A1234567", "title": "Paper A", "doi": ""}]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "state.json"
+            path.write_text("{unfinished", encoding="utf-8")
+            with self.assertRaisesRegex(backfill.BackfillError, "拒绝覆盖"):
+                backfill.stage_translations(items, path)
+            self.assertEqual(path.read_text(encoding="utf-8"), "{unfinished")
+
     def test_resolve_collection_by_key_or_name(self):
         api = Mock()
         api.collection.return_value = {"key": "COL1", "data": {"name": "Inbox"}}

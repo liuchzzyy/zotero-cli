@@ -11,6 +11,13 @@ from zotero_cli.core.rag.providers.gitee import GiteeRerankerProvider
 RankedChunk = tuple[int, float, dict]
 
 
+class UnsupportedRerankerProviderError(ValueError):
+    """Raised when the configured reranker provider has no implementation.
+
+    CLI callers should translate this into a typed configuration_error envelope.
+    """
+
+
 def rerank_chunks(
     query: str,
     candidates: list[RankedChunk],
@@ -23,8 +30,11 @@ def rerank_chunks(
         return None
 
     selected = candidates[:top_n]
-    if config.provider != "gitee":
-        raise RuntimeError(f"Unsupported reranker provider: {config.provider}")
+    provider_name = config.provider.strip().lower()
+    if provider_name != "gitee":
+        raise UnsupportedRerankerProviderError(
+            f"Unsupported reranker provider: {config.provider!r}. Supported providers: 'gitee'."
+        )
 
     provider = GiteeRerankerProvider(
         api_key=config.api_key,
@@ -39,6 +49,14 @@ def rerank_chunks(
             "\r" + (" " * 60) + "\r"
             f"  [WARN] Reranker provider '{config.provider}' failed: "
             f"{type(e).__name__}: {e}. Returning retrieval ranking.\n"
+        )
+        return None
+
+    if len(scores) != len(selected):
+        sys.stderr.write(
+            "\r" + (" " * 60) + "\r"
+            f"  [WARN] Reranker provider '{config.provider}' returned {len(scores)} scores for "
+            f"{len(selected)} candidates. Returning retrieval ranking.\n"
         )
         return None
 

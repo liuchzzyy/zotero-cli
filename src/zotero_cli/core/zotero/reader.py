@@ -17,6 +17,7 @@ import re
 import shutil
 import sqlite3
 import tempfile
+from collections.abc import Iterator
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -37,6 +38,41 @@ _EXCLUDED_TYPE_NAMES = ("attachment", "note", "annotation")
 # Stay below SQLite's legacy 999-variable limit, including library parameters.
 _ITEM_BATCH_SIZE = 900
 
+# Supported Zotero userdata schema range. Newer schemas may rename tables the
+# reader depends on, so refuse them with a clear error instead of failing with
+# confusing SQL errors halfway through a command.
+MIN_SCHEMA_VERSION = 100
+MAX_SCHEMA_VERSION = 200
+
+# Schema v130+ databases no longer ship fulltext word tables. Zotero Desktop
+# keeps a per-attachment plain-text cache next to the stored file instead; scan
+# a bounded number of those caches so full-text search keeps working without
+# loading the whole corpus into memory.
+_FULLTEXT_CACHE_FILENAME = ".zotero-ft-cache"
+_FULLTEXT_CACHE_MAX_FILES = 1000
+_FULLTEXT_CACHE_MAX_BYTES_PER_FILE = 2 * 1024 * 1024
+_FULLTEXT_CACHE_MAX_TOTAL_BYTES = 16 * 1024 * 1024
+
+
+class ZoteroSchemaError(RuntimeError):
+    """Raised when the local Zotero userdata schema is outside the tested range."""
+
+    def __init__(
+        self,
+        version: int,
+        *,
+        minimum: int = MIN_SCHEMA_VERSION,
+        maximum: int = MAX_SCHEMA_VERSION,
+    ) -> None:
+        self.schema_version = version
+        self.minimum = minimum
+        self.maximum = maximum
+        super().__init__(
+            f"Unsupported Zotero database schema version {version} "
+            f"(tested range {minimum}-{maximum}). The database may come from a "
+            "newer Zotero release; update zotero-cli or use a supported Zotero version."
+        )
+
 
 class ZoteroReader(CitationExportMixin):
     def __init__(self, db_path: Path, library_id: int = 1, prefs_js_path: Path | None = None) -> None:
@@ -47,6 +83,8 @@ class ZoteroReader(CitationExportMixin):
         self._excluded_sql: str | None = None
         self._excluded_ids: tuple[int, ...] | None = None
         self._tmp_dir_obj: tempfile.TemporaryDirectory[str] | None = None
+        self._fulltext_mode: str | None = None
+        self._schema_checked = False
         from zotero_cli.core.zotero.attachments import AttachmentResolver
 
         self._resolver = AttachmentResolver(db_path, prefs_js_path)
@@ -71,6 +109,7 @@ class ZoteroReader(CitationExportMixin):
         except OSError:
             pass
         uri_path = self._db_path.as_posix()
+        conn: sqlite3.Connection | None = None
         try:
             conn = sqlite3.connect(
                 f"file:{uri_path}?mode=ro&immutable=1",
@@ -79,11 +118,34 @@ class ZoteroReader(CitationExportMixin):
             )
             conn.row_factory = sqlite3.Row
             conn.execute("SELECT 1 FROM items LIMIT 1")
+            self._validate_schema(conn)
             self._conn = conn
             return conn
-        except sqlite3.OperationalError:
+        except ZoteroSchemaError:
+            if conn is not None:
+                conn.close()
+            raise
+        except sqlite3.Error:
             # Fallback: copy DB to temp file (e.g. if immutable read hits corruption)
+            if conn is not None:
+                conn.close()
             return self._connect_from_copy()
+
+    def _validate_schema(self, conn: sqlite3.Connection) -> None:
+        """Reject userdata schemas outside the tested range before running SQL."""
+        if self._schema_checked:
+            return
+        self._schema_checked = True
+        try:
+            row = conn.execute("SELECT version FROM version WHERE schema = 'userdata'").fetchone()
+        except sqlite3.Error:
+            # Schema-less fixture databases (and pre-version columns) are fine.
+            return
+        if row is None:
+            return
+        version = row["version"]
+        if not MIN_SCHEMA_VERSION <= version <= MAX_SCHEMA_VERSION:
+            raise ZoteroSchemaError(version)
 
     def _get_excluded_ids(self) -> tuple[int, ...]:
         """Look up excluded type IDs by name (cached after first call)."""
@@ -113,27 +175,57 @@ class ZoteroReader(CitationExportMixin):
         return f"NOT IN ({ph})", ids
 
     def _library_filter(self) -> tuple[str, tuple[int, ...]]:
-        """Return (SQL fragment, params) for filtering by library.
-        Returns empty string/tuple for library_id=1 to preserve existing behavior."""
-        if self._library_id == 1:
-            return "", ()
+        """Return (SQL fragment, params) scoping item queries to this library.
+
+        Always filter explicitly: the user library is libraryID 1 and Zotero
+        group libraries have their own IDs, so omitting the filter would leak
+        group items into user-library results.
+        """
         return "AND i.libraryID = ?", (self._library_id,)
 
     def _connect_from_copy(self) -> sqlite3.Connection:
-        """Copy DB files to temp dir to avoid WAL locks."""
-        self._tmp_dir_obj = tempfile.TemporaryDirectory()
-        self._tmp_dir = Path(self._tmp_dir_obj.name)
-        tmp = self._tmp_dir / "zotero.sqlite"
-        shutil.copy2(self._db_path, tmp)
-        wal = self._db_path.with_suffix(".sqlite-wal")
-        shm = self._db_path.with_suffix(".sqlite-shm")
-        if wal.exists():
-            shutil.copy2(wal, tmp.with_suffix(".sqlite-wal"))
-        if shm.exists():
-            shutil.copy2(shm, tmp.with_suffix(".sqlite-shm"))
+        """Replay DB+WAL from a private temporary copy to avoid WAL locks.
+
+        Files are materialised atomically inside a private temp directory and
+        the resulting connection is marked query_only so reading can never
+        write back to the copy or the live database.
+        """
+        tmp_dir_obj = tempfile.TemporaryDirectory()
+        tmp_dir = Path(tmp_dir_obj.name)
+        try:
+            conn = self._connect_copy_connection(tmp_dir)
+        except BaseException:
+            tmp_dir_obj.cleanup()
+            raise
+        self._tmp_dir_obj = tmp_dir_obj
+        self._tmp_dir = tmp_dir
+        self._conn = conn
+        return conn
+
+    def _connect_copy_connection(self, tmp_dir: Path) -> sqlite3.Connection:
+        tmp = tmp_dir / "zotero.sqlite"
+        sources: list[tuple[Path, Path]] = [(self._db_path, tmp)]
+        for suffix in ("-wal", "-shm"):
+            source = Path(f"{self._db_path}{suffix}")
+            if source.exists():
+                sources.append((source, Path(f"{tmp}{suffix}")))
+        for source, target in sources:
+            scratch = target.with_name(target.name + ".tmp")
+            try:
+                shutil.copy2(source, scratch)
+                scratch.replace(target)
+            except OSError:
+                scratch.unlink(missing_ok=True)
+                raise
         conn = sqlite3.connect(str(tmp), timeout=5.0)
         conn.row_factory = sqlite3.Row
-        self._conn = conn
+        try:
+            conn.execute("SELECT 1 FROM items LIMIT 1")
+            conn.execute("PRAGMA query_only = ON")
+            self._validate_schema(conn)
+        except BaseException:
+            conn.close()
+            raise
         return conn
 
     def close(self) -> None:
@@ -220,13 +312,13 @@ class ZoteroReader(CitationExportMixin):
         lib_sql, lib_params = self._library_filter()
 
         if query:
-            like = f"%{query}%"
-            # Search titles and abstracts
+            like = self._like_pattern(query)
+            # Search titles, abstracts, and all other metadata field values
             rows = conn.execute(
                 "SELECT DISTINCT i.itemID FROM items i "
                 "JOIN itemData id ON i.itemID = id.itemID "
                 "JOIN itemDataValues iv ON id.valueID = iv.valueID "
-                f"WHERE iv.value LIKE ? AND i.itemTypeID {excl_sql} {lib_sql} "
+                f"WHERE iv.value LIKE ? ESCAPE '\\' AND i.itemTypeID {excl_sql} {lib_sql} "
                 "AND i.itemID NOT IN (SELECT itemID FROM deletedItems)",
                 (like, *excl_params, *lib_params),
             ).fetchall()
@@ -237,7 +329,7 @@ class ZoteroReader(CitationExportMixin):
                 "SELECT DISTINCT ic.itemID FROM itemCreators ic "
                 "JOIN creators c ON ic.creatorID = c.creatorID "
                 "JOIN items i ON ic.itemID = i.itemID "
-                "WHERE (c.firstName LIKE ? OR c.lastName LIKE ?) "
+                "WHERE (c.firstName LIKE ? ESCAPE '\\' OR c.lastName LIKE ? ESCAPE '\\') "
                 f"AND i.itemTypeID {excl_sql} {lib_sql} "
                 "AND i.itemID NOT IN (SELECT itemID FROM deletedItems)",
                 (like, like, *excl_params, *lib_params),
@@ -249,23 +341,14 @@ class ZoteroReader(CitationExportMixin):
                 "SELECT DISTINCT it.itemID FROM itemTags it "
                 "JOIN tags t ON it.tagID = t.tagID "
                 "JOIN items i ON it.itemID = i.itemID "
-                f"WHERE t.name LIKE ? AND i.itemTypeID {excl_sql} {lib_sql} "
+                f"WHERE t.name LIKE ? ESCAPE '\\' AND i.itemTypeID {excl_sql} {lib_sql} "
                 "AND i.itemID NOT IN (SELECT itemID FROM deletedItems)",
                 (like, *excl_params, *lib_params),
             ).fetchall()
             item_ids.update(r["itemID"] for r in rows)
 
-            # Search fulltext (with library filter)
-            rows = conn.execute(
-                "SELECT DISTINCT ia.parentItemID FROM fulltextItemWords fw "
-                "JOIN fulltextWords w ON fw.wordID = w.wordID "
-                "JOIN itemAttachments ia ON fw.itemID = ia.itemID "
-                "JOIN items i ON ia.parentItemID = i.itemID "
-                f"WHERE w.word LIKE ? AND ia.parentItemID IS NOT NULL AND i.itemTypeID {excl_sql} {lib_sql} "
-                "AND i.itemID NOT IN (SELECT itemID FROM deletedItems)",
-                (like, *excl_params, *lib_params),
-            ).fetchall()
-            item_ids.update(r["parentItemID"] for r in rows)
+            # Search fulltext (legacy word tables or v130 per-attachment caches).
+            item_ids.update(self._search_fulltext(conn, query, excl_sql, excl_params, lib_sql, lib_params))
         else:
             rows = conn.execute(
                 f"SELECT itemID FROM items i WHERE itemTypeID {excl_sql} {lib_sql} "
@@ -292,20 +375,22 @@ class ZoteroReader(CitationExportMixin):
                     f"Collection '{collection}' not found. Use 'zot collection list' to see available names."
                 )
 
-        # Filter by item type
+        # Filter by item type (batched to respect SQLite's variable limit)
         if item_type:
             type_row = conn.execute(
                 "SELECT itemTypeID FROM itemTypes WHERE typeName = ?",
                 (item_type,),
             ).fetchone()
-            if type_row:
-                typed_items = conn.execute(
-                    "SELECT itemID FROM items WHERE itemTypeID = ? AND itemID IN ({})".format(
-                        ",".join("?" * len(item_ids))
-                    ),
-                    (type_row["itemTypeID"], *item_ids),
-                ).fetchall()
-                item_ids = {r["itemID"] for r in typed_items}
+            if type_row and item_ids:
+                typed_ids: set[int] = set()
+                for chunk in self._chunks(list(item_ids)):
+                    placeholders = ",".join("?" * len(chunk))
+                    typed_rows = conn.execute(
+                        f"SELECT itemID FROM items WHERE itemTypeID = ? AND itemID IN ({placeholders})",
+                        (type_row["itemTypeID"], *chunk),
+                    ).fetchall()
+                    typed_ids.update(r["itemID"] for r in typed_rows)
+                item_ids = typed_ids
             else:
                 item_ids = set()
 
@@ -313,46 +398,203 @@ class ZoteroReader(CitationExportMixin):
         total = len(item_ids)
 
         if sort and item_ids:
-            dir_sql = "DESC" if direction == "desc" else "ASC"
-            ph = ",".join("?" * len(item_ids))
-            id_list = list(item_ids)
-
-            if sort in ("dateAdded", "dateModified"):
-                rows = conn.execute(
-                    f"SELECT itemID FROM items WHERE itemID IN ({ph}) ORDER BY {sort} {dir_sql} LIMIT ? OFFSET ?",
-                    (*id_list, limit, offset),
-                ).fetchall()
-                target_ids = [r["itemID"] for r in rows]
-            elif sort == "title":
-                title_field = conn.execute("SELECT fieldID FROM fields WHERE fieldName = 'title'").fetchone()
-                fid = title_field["fieldID"] if title_field else 4
-                rows = conn.execute(
-                    f"SELECT i.itemID FROM items i "
-                    f"LEFT JOIN itemData id_t ON i.itemID = id_t.itemID AND id_t.fieldID = ? "
-                    f"LEFT JOIN itemDataValues iv_t ON id_t.valueID = iv_t.valueID "
-                    f"WHERE i.itemID IN ({ph}) "
-                    f"ORDER BY COALESCE(iv_t.value, '') COLLATE NOCASE {dir_sql} LIMIT ? OFFSET ?",
-                    (fid, *id_list, limit, offset),
-                ).fetchall()
-                target_ids = [r["itemID"] for r in rows]
-            elif sort == "creator":
-                rows = conn.execute(
-                    f"SELECT i.itemID FROM items i "
-                    f"LEFT JOIN itemCreators ic ON i.itemID = ic.itemID AND ic.orderIndex = 0 "
-                    f"LEFT JOIN creators c ON ic.creatorID = c.creatorID "
-                    f"WHERE i.itemID IN ({ph}) "
-                    f"ORDER BY COALESCE(c.lastName, '') COLLATE NOCASE {dir_sql} LIMIT ? OFFSET ?",
-                    (*id_list, limit, offset),
-                ).fetchall()
-                target_ids = [r["itemID"] for r in rows]
-            else:
-                target_ids = sorted(item_ids)[offset : offset + limit]
+            target_ids = self._sorted_item_ids(conn, item_ids, sort, direction, limit, offset)
         else:
             target_ids = sorted(item_ids)[offset : offset + limit]
 
         items = self._get_items_batch(conn, target_ids) if target_ids else []
 
         return SearchResult(items=items, total=total, query=query)
+
+    # --- Search helpers ---
+
+    @staticmethod
+    def _like_pattern(query: str) -> str:
+        """Build a LIKE pattern that treats user wildcards as literal text."""
+        escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        return f"%{escaped}%"
+
+    def _fulltext_schema(self, conn: sqlite3.Connection) -> str:
+        """Return which fulltext schema this database uses ("legacy"/"v130"/"none")."""
+        if self._fulltext_mode is not None:
+            return self._fulltext_mode
+        try:
+            names = {
+                row["name"]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' "
+                    "AND name IN ('fulltextItemWords', 'fulltextWords', 'fulltextItems')"
+                )
+            }
+        except sqlite3.Error:
+            names = set()
+        if {"fulltextItemWords", "fulltextWords"} <= names:
+            mode = "legacy"
+        elif "fulltextItems" in names:
+            mode = "v130"
+        else:
+            mode = "none"
+        self._fulltext_mode = mode
+        return mode
+
+    def _search_fulltext(
+        self,
+        conn: sqlite3.Connection,
+        query: str,
+        excl_sql: str,
+        excl_params: tuple[int, ...],
+        lib_sql: str,
+        lib_params: tuple[int, ...],
+    ) -> set[int]:
+        """Resolve item IDs whose attachment full text matches the query.
+
+        Zotero 6 databases store tokenised full text in fulltextWords /
+        fulltextItemWords; Zotero 7+ (userdata v130) only stores fulltextItems
+        and keeps the extracted text in per-attachment .zotero-ft-cache files.
+        Both are handled defensively: a missing table or unreadable cache
+        degrades to metadata-only search instead of crashing.
+        """
+        mode = self._fulltext_schema(conn)
+        if mode == "legacy":
+            try:
+                rows = conn.execute(
+                    "SELECT DISTINCT ia.parentItemID FROM fulltextItemWords fw "
+                    "JOIN fulltextWords w ON fw.wordID = w.wordID "
+                    "JOIN itemAttachments ia ON fw.itemID = ia.itemID "
+                    "JOIN items i ON ia.parentItemID = i.itemID "
+                    f"WHERE w.word LIKE ? ESCAPE '\\' AND ia.parentItemID IS NOT NULL "
+                    f"AND i.itemTypeID {excl_sql} {lib_sql} "
+                    "AND i.itemID NOT IN (SELECT itemID FROM deletedItems)",
+                    (self._like_pattern(query), *excl_params, *lib_params),
+                ).fetchall()
+            except sqlite3.Error:
+                return set()
+            return {row["parentItemID"] for row in rows}
+        if mode == "v130":
+            return self._cached_fulltext_ids(conn, query, excl_sql, excl_params, lib_sql, lib_params)
+        return set()
+
+    def _cached_fulltext_ids(
+        self,
+        conn: sqlite3.Connection,
+        query: str,
+        excl_sql: str,
+        excl_params: tuple[int, ...],
+        lib_sql: str,
+        lib_params: tuple[int, ...],
+    ) -> set[int]:
+        """Scan a bounded number of .zotero-ft-cache files for the query text."""
+        needle = query.casefold()
+        if not needle:
+            return set()
+        try:
+            rows = conn.execute(
+                "SELECT ia.parentItemID AS parent_id, att.key AS attachment_key "
+                "FROM fulltextItems ft "
+                "JOIN itemAttachments ia ON ia.itemID = ft.itemID "
+                "JOIN items att ON att.itemID = ft.itemID "
+                "JOIN items i ON ia.parentItemID = i.itemID "
+                "WHERE ia.parentItemID IS NOT NULL "
+                f"AND i.itemTypeID {excl_sql} {lib_sql} "
+                "AND i.itemID NOT IN (SELECT itemID FROM deletedItems) "
+                "ORDER BY ft.itemID LIMIT ?",
+                (*excl_params, *lib_params, _FULLTEXT_CACHE_MAX_FILES),
+            ).fetchall()
+        except sqlite3.Error:
+            return set()
+        storage_dir = self._resolver.storage_dir
+        matched: set[int] = set()
+        scanned_bytes = 0
+        for row in rows:
+            cache_path = storage_dir / row["attachment_key"] / _FULLTEXT_CACHE_FILENAME
+            try:
+                if not cache_path.is_file():
+                    continue
+                with cache_path.open("rb") as handle:
+                    data = handle.read(_FULLTEXT_CACHE_MAX_BYTES_PER_FILE)
+            except OSError:
+                continue
+            scanned_bytes += len(data)
+            if needle in data.decode("utf-8", errors="ignore").casefold():
+                matched.add(row["parent_id"])
+            if scanned_bytes >= _FULLTEXT_CACHE_MAX_TOTAL_BYTES:
+                break
+        return matched
+
+    @staticmethod
+    def _chunks(values: list[int], size: int | None = None) -> Iterator[list[int]]:
+        size = _ITEM_BATCH_SIZE if size is None else size
+        """Yield fixed-size slices so IN (...) queries stay under SQLite limits."""
+        for start in range(0, len(values), size):
+            yield values[start : start + size]
+
+    def _sorted_item_ids(
+        self,
+        conn: sqlite3.Connection,
+        item_ids: set[int],
+        sort: str,
+        direction: str,
+        limit: int,
+        offset: int,
+    ) -> list[int]:
+        """Return page-sorted IDs, batching IN (...) queries under SQLite limits."""
+        ids = list(item_ids)
+        descending = direction == "desc"
+        if sort in ("dateAdded", "dateModified"):
+            rows: list[tuple[str, int]] = []
+            for chunk in self._chunks(ids):
+                placeholders = ",".join("?" * len(chunk))
+                rows.extend(
+                    (str(row["sort_value"] or ""), row["itemID"])
+                    for row in conn.execute(
+                        f"SELECT itemID, {sort} AS sort_value FROM items WHERE itemID IN ({placeholders})",
+                        chunk,
+                    )
+                )
+            rows.sort(key=lambda row: row[0], reverse=descending)
+            return [item_id for _, item_id in rows[offset : offset + limit]]
+        if sort == "title":
+            title_field = conn.execute("SELECT fieldID FROM fields WHERE fieldName = 'title'").fetchone()
+            field_id = title_field["fieldID"] if title_field else 4
+            title_rows: list[tuple[str, int]] = []
+            for chunk in self._chunks(ids):
+                placeholders = ",".join("?" * len(chunk))
+                title_rows.extend(
+                    (self._nocase_key(str(row["sort_value"] or "")), row["itemID"])
+                    for row in conn.execute(
+                        "SELECT i.itemID AS itemID, COALESCE(iv_t.value, '') AS sort_value "
+                        "FROM items i "
+                        "LEFT JOIN itemData id_t ON i.itemID = id_t.itemID AND id_t.fieldID = ? "
+                        "LEFT JOIN itemDataValues iv_t ON id_t.valueID = iv_t.valueID "
+                        f"WHERE i.itemID IN ({placeholders})",
+                        (field_id, *chunk),
+                    )
+                )
+            title_rows.sort(key=lambda row: row[0], reverse=descending)
+            return [item_id for _, item_id in title_rows[offset : offset + limit]]
+        if sort == "creator":
+            creator_rows: list[tuple[str, int]] = []
+            for chunk in self._chunks(ids):
+                placeholders = ",".join("?" * len(chunk))
+                creator_rows.extend(
+                    (self._nocase_key(str(row["sort_value"] or "")), row["itemID"])
+                    for row in conn.execute(
+                        "SELECT i.itemID AS itemID, COALESCE(c.lastName, '') AS sort_value "
+                        "FROM items i "
+                        "LEFT JOIN itemCreators ic ON i.itemID = ic.itemID AND ic.orderIndex = 0 "
+                        "LEFT JOIN creators c ON ic.creatorID = c.creatorID "
+                        f"WHERE i.itemID IN ({placeholders})",
+                        chunk,
+                    )
+                )
+            creator_rows.sort(key=lambda row: row[0], reverse=descending)
+            return [item_id for _, item_id in creator_rows[offset : offset + limit]]
+        return sorted(item_ids)[offset : offset + limit]
+
+    @staticmethod
+    def _nocase_key(value: str) -> str:
+        """Approximate SQLite NOCASE collation (ASCII-only case folding)."""
+        return "".join(chr(ord(char) + 32) if "A" <= char <= "Z" else char for char in value)
 
     def get_recent_items(
         self,
@@ -394,7 +636,14 @@ class ZoteroReader(CitationExportMixin):
         threshold: float = 0.85,
         limit: int = 50,
     ) -> list[DuplicateGroup]:
-        """Find potential duplicate items by DOI and/or title similarity."""
+        """Find potential duplicate items by DOI and/or title similarity.
+
+        Candidates are scoped to this library. Trashed items may still be
+        included: find_duplicates follows the documented M-01 mixed trash
+        scoping, so callers should not assume a global deletedItems filter.
+        Title fuzzy matching uses blocking keys plus cheap ratio prefilters so
+        it does not compare every pair of titles in large libraries.
+        """
         if limit <= 0:
             return []
 
@@ -402,9 +651,11 @@ class ZoteroReader(CitationExportMixin):
         excl_sql, excl_params = self._excluded_filter()
         lib_sql, lib_params = self._library_filter()
 
-        # Load items for comparison (cap at 10k most recent)
+        # Load items for comparison (cap at 10k most recent). Per M-01, trashed
+        # items keep the documented mixed scoping and may be included here.
         rows = conn.execute(
-            f"SELECT i.itemID, i.key FROM items i WHERE i.itemTypeID {excl_sql} {lib_sql} ORDER BY i.dateAdded DESC LIMIT 10000",
+            f"SELECT i.itemID, i.key FROM items i WHERE i.itemTypeID {excl_sql} {lib_sql} "
+            "ORDER BY i.dateAdded DESC LIMIT 10000",
             (*excl_params, *lib_params),
         ).fetchall()
 
@@ -421,18 +672,18 @@ class ZoteroReader(CitationExportMixin):
 
         # --- DOI strategy ---
         if strategy in ("doi", "both"):
-            ph = ",".join("?" * len(item_ids))
-            doi_rows = conn.execute(
-                f"SELECT id.itemID, iv.value FROM itemData id "
-                f"JOIN fields f ON id.fieldID = f.fieldID "
-                f"JOIN itemDataValues iv ON id.valueID = iv.valueID "
-                f"WHERE f.fieldName = 'DOI' AND id.itemID IN ({ph}) AND iv.value != ''",
-                item_ids,
-            ).fetchall()
-
             doi_map: dict[str, list[int]] = {}
-            for r in doi_rows:
-                doi_map.setdefault(r["value"].strip().lower(), []).append(r["itemID"])
+            for chunk in self._chunks(item_ids):
+                placeholders = ",".join("?" * len(chunk))
+                doi_rows = conn.execute(
+                    "SELECT id.itemID, iv.value FROM itemData id "
+                    "JOIN fields f ON id.fieldID = f.fieldID "
+                    "JOIN itemDataValues iv ON id.valueID = iv.valueID "
+                    f"WHERE f.fieldName = 'DOI' AND id.itemID IN ({placeholders}) AND iv.value != ''",
+                    chunk,
+                ).fetchall()
+                for row in doi_rows:
+                    doi_map.setdefault(row["value"].strip().lower(), []).append(row["itemID"])
 
             for ids in doi_map.values():
                 if len(ids) < 2:
@@ -449,53 +700,43 @@ class ZoteroReader(CitationExportMixin):
 
         # --- Title strategy ---
         if strategy in ("title", "both"):
-            ph = ",".join("?" * len(item_ids))
-            title_rows = conn.execute(
-                f"SELECT id.itemID, iv.value FROM itemData id "
-                f"JOIN fields f ON id.fieldID = f.fieldID "
-                f"JOIN itemDataValues iv ON id.valueID = iv.valueID "
-                f"WHERE f.fieldName = 'title' AND id.itemID IN ({ph})",
-                item_ids,
-            ).fetchall()
+            title_values: dict[int, str] = {}
+            doi_by_item_id: dict[int, str] = {}
+            for chunk in self._chunks(item_ids):
+                placeholders = ",".join("?" * len(chunk))
+                title_rows = conn.execute(
+                    "SELECT id.itemID, iv.value FROM itemData id "
+                    "JOIN fields f ON id.fieldID = f.fieldID "
+                    "JOIN itemDataValues iv ON id.valueID = iv.valueID "
+                    f"WHERE f.fieldName = 'title' AND id.itemID IN ({placeholders})",
+                    chunk,
+                ).fetchall()
+                title_values.update({row["itemID"]: row["value"] for row in title_rows})
+                doi_rows = conn.execute(
+                    "SELECT id.itemID, LOWER(TRIM(iv.value)) AS doi FROM itemData id "
+                    "JOIN fields f ON id.fieldID = f.fieldID "
+                    "JOIN itemDataValues iv ON id.valueID = iv.valueID "
+                    f"WHERE f.fieldName = 'DOI' AND id.itemID IN ({placeholders}) AND TRIM(iv.value) != ''",
+                    chunk,
+                ).fetchall()
+                doi_by_item_id.update({row["itemID"]: row["doi"] for row in doi_rows})
 
             # A title-only match is not enough when both records carry
             # different DOIs: books, reviews, translations, and conference
-            # chapters often share nearly identical titles.  Keep same-DOI
+            # chapters often share nearly identical titles. Keep same-DOI
             # matches (already found by the DOI strategy) and title matches
             # where at least one DOI is absent, but suppress conflicting DOI
             # pairs as false positives.
-            title_doi_rows = conn.execute(
-                f"SELECT id.itemID, LOWER(TRIM(iv.value)) AS doi FROM itemData id "
-                f"JOIN fields f ON id.fieldID = f.fieldID "
-                f"JOIN itemDataValues iv ON id.valueID = iv.valueID "
-                f"WHERE f.fieldName = 'DOI' AND id.itemID IN ({ph}) AND TRIM(iv.value) != ''",
-                item_ids,
-            ).fetchall()
-            doi_by_item_id = {row["itemID"]: row["doi"] for row in title_doi_rows}
-
             def _compatible_title_ids(ids: list[int]) -> bool:
                 dois = {doi_by_item_id[item_id] for item_id in ids if item_id in doi_by_item_id}
                 return len(dois) <= 1
 
-            def _normalize(title: str) -> str:
-                t = re.sub(r"[^\w\s]", "", title.lower()).strip()
-                return re.sub(r"\s+", " ", t)
-
-            def _can_reach_threshold(norm_a: str, norm_b: str) -> bool:
-                total_len = len(norm_a) + len(norm_b)
-                if total_len == 0:
-                    return True
-                max_ratio = 2 * min(len(norm_a), len(norm_b)) / total_len
-                return max_ratio >= threshold
-
-            title_items: list[tuple[int, str]] = []
-            for r in title_rows:
-                title_items.append((r["itemID"], _normalize(r["value"])))
-            norm_by_id = dict(title_items)
+            normalized_titles = [(item_id, self._normalize_title(title)) for item_id, title in title_values.items()]
+            norm_by_id = dict(normalized_titles)
 
             # Group exact normalized matches (O(n))
             norm_groups: dict[str, list[int]] = {}
-            for item_id, norm in title_items:
+            for item_id, norm in normalized_titles:
                 norm_groups.setdefault(norm, []).append(item_id)
 
             for ids in norm_groups.values():
@@ -509,20 +750,25 @@ class ZoteroReader(CitationExportMixin):
                             if _reached_limit():
                                 return groups
 
-            # Fuzzy match singletons only (O(n^2) on singletons)
-            singletons = [(item_id, norm) for item_id, norm in title_items if len(norm_groups[norm]) == 1]
+            # Fuzzy match singletons only; blocking keeps this far below O(n^2).
+            singletons = [(item_id, norm) for item_id, norm in normalized_titles if len(norm_groups[norm]) == 1]
+            candidates = self._duplicate_candidates([norm for _item_id, norm in singletons])
             matched: set[int] = set()
             for idx, (id_a, norm_a) in enumerate(singletons):
                 if id_a in matched:
                     continue
                 cluster = [id_a]
-                for j in range(idx + 1, len(singletons)):
+                candidate_indexes = sorted(index for index in candidates[idx] if index > idx)
+                for j in candidate_indexes:
                     id_b, norm_b = singletons[j]
                     if id_b in matched:
                         continue
-                    if not _can_reach_threshold(norm_a, norm_b):
+                    if not self._title_lengths_can_match(norm_a, norm_b, threshold):
                         continue
-                    ratio = SequenceMatcher(None, norm_a, norm_b).ratio()
+                    matcher = SequenceMatcher(None, norm_a, norm_b)
+                    if matcher.real_quick_ratio() < threshold or matcher.quick_ratio() < threshold:
+                        continue
+                    ratio = matcher.ratio()
                     if ratio >= threshold:
                         if not _compatible_title_ids([*cluster, id_b]):
                             continue
@@ -544,6 +790,69 @@ class ZoteroReader(CitationExportMixin):
                             return groups
 
         return groups[:limit]
+
+    @staticmethod
+    def _normalize_title(title: str) -> str:
+        """Lowercase and strip punctuation/whitespace runs for title matching."""
+        stripped = re.sub(r"[^\w\s]", "", title.lower()).strip()
+        return re.sub(r"\s+", " ", stripped)
+
+    @staticmethod
+    def _title_lengths_can_match(norm_a: str, norm_b: str, threshold: float) -> bool:
+        """Cheap upper bound on SequenceMatcher.ratio() for two title strings."""
+        total_len = len(norm_a) + len(norm_b)
+        if total_len == 0:
+            return True
+        max_ratio = 2 * min(len(norm_a), len(norm_b)) / total_len
+        return max_ratio >= threshold
+
+    @staticmethod
+    def _title_block_keys(normalized: str) -> tuple[str, ...]:
+        """Blocking keys likely shared by near-duplicate titles."""
+        if not normalized:
+            return ("empty",)
+        keys = ["prefix:" + normalized[:6]]
+        tokens = normalized.split()
+        if tokens:
+            keys.append("first:" + tokens[0])
+            keys.append("last:" + tokens[-1])
+        return tuple(keys)
+
+    def _duplicate_candidates(self, normalized_titles: list[str]) -> list[set[int]]:
+        """Return candidate partner indexes for each title using blocking keys."""
+        buckets: dict[str, list[int]] = {}
+        for index, normalized in enumerate(normalized_titles):
+            for key in self._title_block_keys(normalized):
+                buckets.setdefault(key, []).append(index)
+
+        candidates: list[set[int]] = [set() for _ in normalized_titles]
+        # Safety valve: blocking already cuts most pairs, but cap pathological
+        # blocks so a large library can never degrade back to a full scan.
+        max_pairs = 250_000
+        pair_count = 0
+        for members in buckets.values():
+            if len(members) < 2:
+                continue
+            # Very large buckets are usually generic prefixes ("the ", ...);
+            # refine them once by a longer prefix before pairing.
+            groups = [members]
+            if len(members) > 128:
+                refined: dict[str, list[int]] = {}
+                for index in members:
+                    refined.setdefault(normalized_titles[index][:12], []).append(index)
+                groups = list(refined.values())
+            for group in groups:
+                if len(group) > 256:
+                    # Pathological bucket: compare only a bounded sliding window.
+                    group = group[:256]
+                for left_pos, left in enumerate(group):
+                    for right in group[left_pos + 1 :]:
+                        if pair_count >= max_pairs:
+                            return candidates
+                        candidates[left].add(right)
+                        candidates[right].add(left)
+                        pair_count += 1
+        return candidates
 
     def get_notes(self, key: str) -> list[Note]:
         """Return an item's notes, skipping trashed notes and trashed parents."""
@@ -806,23 +1115,35 @@ class ZoteroReader(CitationExportMixin):
     def get_related_items(self, key: str, limit: int = 20) -> list[Item]:
         """Rank related items by explicit relations, shared collections, and tags."""
         conn = self._connect()
-        parent = conn.execute("SELECT itemID FROM items WHERE key = ?", (key,)).fetchone()
+        lib_sql, lib_params = self._library_filter()
+        parent = conn.execute(
+            f"SELECT itemID FROM items i WHERE key = ? {lib_sql}",
+            (key, *lib_params),
+        ).fetchone()
         if parent is None:
             return []
         item_id = parent["itemID"]
         related_ids: dict[int, int] = {}
 
-        # Explicit relations
-        rows = conn.execute(
-            "SELECT object FROM itemRelations WHERE itemID = ? AND predicateID = 1",
-            (item_id,),
-        ).fetchall()
-        for r in rows:
-            obj = r["object"]
-            rel_key = obj.rsplit("/", 1)[-1] if "/" in obj else obj
-            rel_row = conn.execute("SELECT itemID FROM items WHERE key = ?", (rel_key,)).fetchone()
-            if rel_row:
-                related_ids[rel_row["itemID"]] = related_ids.get(rel_row["itemID"], 0) + 100
+        # Explicit relations: resolve the dc:relation predicate instead of
+        # hardcoding an ID that could differ between Zotero databases.
+        predicate = conn.execute(
+            "SELECT predicateID FROM relationPredicates WHERE predicate = 'dc:relation'"
+        ).fetchone()
+        if predicate is not None:
+            rows = conn.execute(
+                "SELECT object FROM itemRelations WHERE itemID = ? AND predicateID = ?",
+                (item_id, predicate["predicateID"]),
+            ).fetchall()
+            for r in rows:
+                obj = r["object"]
+                rel_key = obj.rsplit("/", 1)[-1] if "/" in obj else obj
+                rel_row = conn.execute(
+                    f"SELECT itemID FROM items i WHERE key = ? {lib_sql}",
+                    (rel_key, *lib_params),
+                ).fetchone()
+                if rel_row:
+                    related_ids[rel_row["itemID"]] = related_ids.get(rel_row["itemID"], 0) + 100
 
         # Implicit: shared collections
         my_cols = {

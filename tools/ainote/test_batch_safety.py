@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -94,6 +95,60 @@ def test_checkpoint_requires_item_mapping(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="checkpoint"):
         batch.load_state(state)
+
+
+def test_dry_run_does_not_create_a_checkpoint(batch_runtime: SimpleNamespace) -> None:
+    assert not batch_runtime.state.exists()
+
+    summary = batch.run_batch("Inbox", dry_run=True, state_path=batch_runtime.state)
+
+    assert summary["dry_run"] is True
+    assert not batch_runtime.state.exists()
+    batch_runtime.reader.close.assert_called_once()
+
+
+def test_save_state_temp_name_is_unique_per_writer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    state = tmp_path / "state.json"
+    seen: list[str] = []
+    real_replace = Path.replace
+
+    def capture(self: Path, target: Path) -> Path:
+        seen.append(self.name)
+        return real_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", capture)
+    batch.save_state(state, {"ITEM1": {"status": "ok"}})
+
+    assert seen and seen[0].startswith("state.json.")
+    assert seen[0].endswith(".tmp")
+    assert str(os.getpid()) in seen[0]
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_save_state_removes_temp_when_replace_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    state = tmp_path / "state.json"
+
+    def boom(self: Path, target: Path) -> Path:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Path, "replace", boom)
+    with pytest.raises(OSError, match="disk full"):
+        batch.save_state(state, {"ITEM1": {"status": "ok"}})
+
+    assert list(tmp_path.glob("*.tmp")) == []
+    assert not state.exists()
+
+
+def test_collection_argument_is_required(monkeypatch: pytest.MonkeyPatch) -> None:
+    run = Mock()
+    monkeypatch.setattr(batch, "run_batch", run)
+    monkeypatch.setattr(sys, "argv", ["batch_analyze.py", "--dry-run"])
+
+    with pytest.raises(SystemExit) as error:
+        batch.main()
+
+    assert error.value.code == 2
+    run.assert_not_called()
 
 
 def test_apply_and_preview_cannot_be_combined(monkeypatch: pytest.MonkeyPatch) -> None:

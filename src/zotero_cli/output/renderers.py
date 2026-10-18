@@ -1,14 +1,20 @@
 """Human-readable and JSON payload renderers.
 
-Each `format_*` helper renders one payload either as a Rich table/tree (TTY) or
-as a JSON envelope (piped or `--json`). `print_error` routes diagnostics to the
+Each format_* helper renders one payload either as a Rich table/tree (TTY) or
+as a JSON envelope (piped or --json). print_error routes diagnostics to the
 channel the contract requires. Envelope construction lives in
-`zotero_cli.output.envelope`.
+zotero_cli.output.envelope.
+
+Human output treats library data as untrusted: ANSI escape sequences and
+control characters are stripped and dynamic values are rendered through Rich
+Text objects (markup parsing disabled), so a crafted title, note or PDF body
+cannot inject terminal escapes or Rich markup. JSON output is unchanged.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict
 from io import StringIO
 from typing import Any
@@ -20,6 +26,27 @@ from rich.tree import Tree
 
 from zotero_cli.models import Collection, DuplicateGroup, ErrorInfo, Item, Note
 from zotero_cli.output.envelope import envelope_error, envelope_ok
+
+# CSI/OSC/OSC-terminated escape sequences plus single-character ESC sequences.
+_ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|[@-_])")
+# C0 controls (except tab/newline), DEL and C1 controls.
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+
+
+def sanitize_text(value: object) -> str:
+    """Return text safe to print to a terminal: no ANSI escapes/control chars.
+
+    Newlines and tabs are preserved so multi-paragraph notes keep their layout.
+    This is used for human output only; JSON payloads remain byte-identical.
+    """
+    if value is None:
+        return ""
+    return _CONTROL_CHAR_RE.sub("", _ANSI_ESCAPE_RE.sub("", str(value)))
+
+
+def _text(value: object) -> Text:
+    """Render dynamic content as Rich Text (never parsed as console markup)."""
+    return Text(sanitize_text(value))
 
 
 def _dump(obj: Any) -> str:
@@ -43,10 +70,10 @@ def format_items(items: list[Item], output_json: bool = False, detail: str = "st
     table.add_column("Year", width=6)
     table.add_column("Type", width=15)
     for item in items:
-        authors = ", ".join(c.full_name for c in item.creators[:3])
+        authors = ", ".join(sanitize_text(c.full_name) for c in item.creators[:3])
         if len(item.creators) > 3:
             authors += " et al."
-        table.add_row(Text(item.key), Text(item.title), Text(authors), Text(item.date or ""), Text(item.item_type))
+        table.add_row(_text(item.key), _text(item.title), Text(authors), _text(item.date or ""), _text(item.item_type))
     console.print(table)
     return buf.getvalue()
 
@@ -62,16 +89,20 @@ def format_item_detail(item: Item, notes: list[Note], output_json: bool = False,
         return _dump(envelope_ok(data))
     buf = StringIO()
     console = Console(file=buf, force_terminal=False, width=120)
-    console.print(Text(item.title, style="bold cyan"))
-    console.print(Text(f"Key: {item.key}  |  Type: {item.item_type}  |  Date: {item.date or 'N/A'}"))
-    console.print(Text(f"Authors: {', '.join(c.full_name for c in item.creators)}"))
+    console.print(Text(sanitize_text(item.title), style="bold cyan"))
+    console.print(
+        Text(
+            f"Key: {sanitize_text(item.key)}  |  Type: {sanitize_text(item.item_type)}  |  Date: {sanitize_text(item.date or 'N/A')}"
+        )
+    )
+    console.print(Text(f"Authors: {', '.join(sanitize_text(c.full_name) for c in item.creators)}"))
     if item.doi:
-        console.print(Text(f"DOI: {item.doi}"))
+        console.print(Text(f"DOI: {sanitize_text(item.doi)}"))
     if item.url:
-        console.print(Text(f"URL: {item.url}"))
+        console.print(Text(f"URL: {sanitize_text(item.url)}"))
     if detail != "minimal":
         if item.tags:
-            console.print(Text(f"Tags: {', '.join(item.tags)}"))
+            console.print(Text(f"Tags: {', '.join(sanitize_text(t) for t in item.tags)}"))
         if detail == "full" and item.extra:
             display_keys = [
                 ("publicationTitle", "Journal"),
@@ -88,7 +119,7 @@ def format_item_detail(item: Item, notes: list[Note], output_json: bool = False,
             for ekey, label in display_keys:
                 val = item.extra.get(ekey)
                 if val:
-                    shown.append(f"  {label}: {val}")
+                    shown.append(f"  {label}: {sanitize_text(val)}")
             if shown:
                 console.print("\n[bold]Metadata:[/bold]")
                 for line in shown:
@@ -101,14 +132,14 @@ def format_item_detail(item: Item, notes: list[Note], output_json: bool = False,
             remaining = {k: v for k, v in item.extra.items() if k not in skip and v}
             if remaining:
                 for rk, rv in remaining.items():
-                    console.print(Text(f"  {rk}: {rv}"))
+                    console.print(Text(f"  {sanitize_text(rk)}: {sanitize_text(rv)}"))
         if item.abstract:
             console.print("\n[bold]Abstract:[/bold]")
-            console.print(Text(item.abstract))
+            console.print(Text(sanitize_text(item.abstract)))
         if notes:
             console.print(f"\n[bold]Notes ({len(notes)}):[/bold]")
             for n in notes:
-                console.print(Text(f"  [{n.key}] {n.content[:200]}"))
+                console.print(Text(f"  [{sanitize_text(n.key)}] {sanitize_text(n.content)[:200]}"))
     return buf.getvalue()
 
 
@@ -132,8 +163,10 @@ def format_notes(notes: list[Note], output_json: bool = False) -> str:
     buf = StringIO()
     console = Console(file=buf, force_terminal=False, width=120)
     for n in notes:
-        console.print(f"[bold cyan][{n.key}][/bold cyan]")
-        console.print(n.content)
+        header = Text()
+        header.append(f"[{sanitize_text(n.key)}]", style="bold cyan")
+        console.print(header)
+        console.print(Text(sanitize_text(n.content)))
         console.print()
     return buf.getvalue()
 
@@ -160,9 +193,9 @@ def format_duplicates(groups: list[DuplicateGroup], output_json: bool = False) -
     table.add_column("Match", width=8)
     table.add_column("Score", width=6)
     for i, g in enumerate(groups, 1):
-        keys = ", ".join(item.key for item in g.items)
-        title = g.items[0].title if g.items else ""
-        table.add_row(str(i), Text(keys), Text(title), Text(g.match_type), f"{g.score:.2f}")
+        keys = ", ".join(sanitize_text(item.key) for item in g.items)
+        title = sanitize_text(g.items[0].title) if g.items else ""
+        table.add_row(str(i), Text(keys), Text(title), _text(g.match_type), f"{g.score:.2f}")
     console.print(table)
     return buf.getvalue()
 
@@ -186,11 +219,13 @@ def format_pdf_text(
     buf = StringIO()
     console = Console(file=buf, force_terminal=False, width=120)
     if section is not None:
-        console.print(content or "")
+        console.print(Text(sanitize_text(content or "")))
     elif outline is not None:
         for item in outline:
-            indent = "  " * (item["level"] - 1)
-            console.print(f"{item['number']}. {indent}{item['text']}")
+            indent = "  " * (int(item.get("level", 1)) - 1)
+            console.print(
+                Text(f"{sanitize_text(item.get('number', ''))}. {indent}{sanitize_text(item.get('text', ''))}")
+            )
     return buf.getvalue()
 
 
@@ -214,9 +249,11 @@ def format_workspace_list(workspaces: list, output_json: bool = False) -> str:
     table.add_column("Items", justify="right", width=8)
     table.add_column("Created", width=20)
     for ws in workspaces:
-        desc = ws.description[:47] + "..." if len(ws.description) > 50 else ws.description
-        created = ws.created[:10] if len(ws.created) >= 10 else ws.created
-        table.add_row(Text(ws.name), Text(desc), str(len(ws.items)), Text(created))
+        desc = sanitize_text(ws.description)
+        desc = desc[:47] + "..." if len(desc) > 50 else desc
+        created = sanitize_text(ws.created)
+        created = created[:10] if len(created) >= 10 else created
+        table.add_row(_text(ws.name), Text(desc), str(len(ws.items)), Text(created))
     console.print(table)
     return buf.getvalue()
 
@@ -228,7 +265,9 @@ def format_workspace_query(results: list, mode: str, output_json: bool = False) 
             "results": [
                 {
                     "rank": i + 1,
-                    "score": round(r[1], 4),
+                    # BM25 scores are frequently ~1e-6; round far enough to keep
+                    # them distinguishable instead of collapsing hits to 0.0.
+                    "score": round(float(r[1]), 10),
                     "item_key": r[2]["item_key"],
                     "source": r[2]["source"],
                     "content": r[2]["content"][:500],
@@ -239,10 +278,15 @@ def format_workspace_query(results: list, mode: str, output_json: bool = False) 
         return _dump(envelope_ok(data))
     buf = StringIO()
     console = Console(file=buf, force_terminal=False, width=120)
-    for i, (cid, score, chunk) in enumerate(results):
-        preview = chunk["content"][:120].replace("\n", " ")
-        console.print(f"[{i + 1}] Score: {score:.2f} | {chunk['item_key']} | {chunk['source']}")
-        console.print(f"    {preview}...")
+    for i, (_cid, score, chunk) in enumerate(results):
+        preview = sanitize_text(chunk["content"][:120].replace("\n", " "))
+        console.print(
+            Text(
+                f"[{i + 1}] Score: {float(score):.3g} | "
+                f"{sanitize_text(chunk['item_key'])} | {sanitize_text(chunk['source'])}"
+            )
+        )
+        console.print(Text(f"    {preview}..."))
     return buf.getvalue()
 
 
@@ -258,9 +302,9 @@ def format_error(error: str | ErrorInfo, output_json: bool = False) -> str:
             context=error.context,
         )
         return _dump(env)
-    lines = [f"Error: {error.message}"]
+    lines = [f"Error: {sanitize_text(error.message)}"]
     if error.hint:
-        lines.append(f"Hint: {error.hint}")
+        lines.append(f"Hint: {sanitize_text(error.hint)}")
     return "\n".join(lines)
 
 
@@ -285,7 +329,7 @@ def print_error(error: str | ErrorInfo, output_json: bool = False) -> None:
 
 
 def format_success(data: Any, output_json: bool = False, human_text: str = "", meta: dict | None = None) -> str:
-    """Format a success result. JSON mode emits envelope; text mode emits `human_text`."""
+    """Format a success result. JSON mode emits envelope; text mode emits human_text."""
     if output_json:
         return _dump(envelope_ok(data, meta=meta))
     return human_text
@@ -300,7 +344,14 @@ def _collection_to_dict(c: Collection) -> dict:
     }
 
 
+def _collection_label(c: Collection) -> Text:
+    label = Text()
+    label.append(f"[{sanitize_text(c.name)}]", style="cyan")
+    label.append(f" ({sanitize_text(c.key)})")
+    return label
+
+
 def _add_collection_to_tree(parent: Tree, c: Collection) -> None:
-    node = parent.add(f"[cyan]{c.name}[/cyan] ({c.key})")
+    node = parent.add(_collection_label(c))
     for ch in c.children:
         _add_collection_to_tree(node, ch)

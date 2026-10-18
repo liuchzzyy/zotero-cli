@@ -39,11 +39,18 @@ def recent_cmd(ctx: click.Context, days: int, modified: bool, limit: int | None,
         since = datetime.now(timezone.utc) - timedelta(days=days)
         since_str = since.strftime("%Y-%m-%d %H:%M:%S")
 
-        items = reader.get_recent_items(since=since_str, sort=sort_field, limit=limit)
+        # Fetch one extra row so --stream can report has_more without loading all matches.
+        fetch_limit = limit + 1 if limit is not None and limit >= 0 else limit
+        items = reader.get_recent_items(since=since_str, sort=sort_field, limit=fetch_limit)
+        has_more = limit is not None and len(items) > limit
+        if has_more:
+            items = items[:limit]
         json_out = ctx.obj.get("json", False)
         detail = ctx.obj.get("detail", "standard")
         if stream:
-            click.echo(stream_items(items, detail=detail))
+            # --stream always emits NDJSON, even under --no-json (documented precedence).
+            total = len(items) + 1 if has_more else len(items)
+            click.echo(stream_items(items, detail=detail, total=total))
             return
         if not items:
             if json_out:

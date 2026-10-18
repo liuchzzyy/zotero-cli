@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 import click
@@ -61,7 +62,14 @@ def attach_cmd(
             context="attach",
         )
 
-    from zotero_cli.core.zotero.idempotency import get_cached, request_scope, store_cached
+    from zotero_cli.core.zotero.idempotency import (
+        PendingMutationError,
+        begin_mutation,
+        failure_definitely_rejected,
+        release_rejected_mutation,
+        request_scope,
+        store_cached,
+    )
 
     if idempotency_key:
         from zotero_cli.core.mineru import file_sha256
@@ -75,7 +83,26 @@ def attach_cmd(
     else:
         cache_scope = ""
     if idempotency_key:
-        cached = get_cached(cache_scope, idempotency_key)
+        try:
+            cached = begin_mutation(cache_scope, idempotency_key)
+        except PendingMutationError as exc:
+            emit_error(
+                "conflict",
+                str(exc),
+                output_json=json_out,
+                retryable=False,
+                hint="Reconcile the remote item's attachments before retrying; do not bypass this with a new key",
+                context="attach",
+            )
+        except (OSError, sqlite3.Error):
+            emit_error(
+                "configuration_error",
+                "Could not durably reserve the attachment upload; no write attempted",
+                output_json=json_out,
+                retryable=False,
+                hint="Check the idempotency state directory and database",
+                context="attach",
+            )
         if cached is not None:
             if json_out:
                 click.echo(json.dumps(cached, indent=2, ensure_ascii=False))
@@ -87,12 +114,24 @@ def attach_cmd(
     try:
         att_key = writer.upload_attachment(key, fp)
     except ZoteroWriteError as e:
+        rejected = False
+        if idempotency_key:
+            rejected = failure_definitely_rejected(response=writer._zot.request, code=e.code, retryable=e.retryable)
+            if rejected:
+                try:
+                    release_rejected_mutation(cache_scope, idempotency_key)
+                except (OSError, sqlite3.Error):
+                    pass
         emit_error(
             e.code,
             str(e),
             output_json=json_out,
-            retryable=e.retryable,
-            hint="Check the item key and file path",
+            retryable=False if idempotency_key and not rejected else e.retryable,
+            hint=(
+                "The upload outcome is unknown. Reconcile the item's attachments before retrying"
+                if idempotency_key and not rejected
+                else "Check the item key and file path"
+            ),
             context="attach",
         )
 
@@ -101,7 +140,10 @@ def attach_cmd(
         extra={"next": [f"zot read {key}"]},
     )
     if idempotency_key:
-        store_cached(cache_scope, idempotency_key, env)
+        try:
+            store_cached(cache_scope, idempotency_key, env)
+        except (OSError, sqlite3.Error) as exc:
+            click.echo(f"Warning: attachment uploaded but the retry result could not be cached: {exc}", err=True)
     if json_out:
         click.echo(json.dumps(env, indent=2, ensure_ascii=False))
     else:

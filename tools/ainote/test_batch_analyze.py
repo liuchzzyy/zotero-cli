@@ -106,12 +106,18 @@ class BatchAnalyzeTests(unittest.TestCase):
 
             self.assertEqual(summary["total"], 2)
             self.assertEqual(summary["processed"], 1)
+            self.assertEqual(summary["failed"], 1)
+            self.assertTrue(summary["dry_run"])
+            # A dry run must have zero side effects: no checkpoint is written.
+            self.assertFalse(state_file.exists())
 
-            saved = ba.load_state(state_file)
-            self.assertIn("ITEM1", saved)
-            self.assertEqual(saved["ITEM1"]["status"], "dry_run")
-            self.assertIn("ITEM2", saved)
-            self.assertEqual(saved["ITEM2"]["error"], "no_pdf")
+            mock_analyze_item.return_value = {"status": "ok", "note_key": "NOTE1"}
+            apply_summary = ba.run_batch("AA", state_path=state_file)
+            applied = ba.load_state(state_file)
+            self.assertIn("ITEM1", applied)
+            self.assertEqual(applied["ITEM1"]["status"], "ok")
+            self.assertFalse(apply_summary["dry_run"])
+            self.assertEqual(applied["ITEM2"]["error"], "no_pdf")
 
 
 if __name__ == "__main__":

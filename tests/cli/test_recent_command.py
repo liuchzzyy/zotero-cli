@@ -68,3 +68,24 @@ class TestRecent:
             assert dates == sorted(dates, reverse=True)
         finally:
             reader.close()
+
+    def test_recent_stream_reports_has_more(self):
+        result = _invoke(["recent", "--days", "9999", "--limit", "2", "--stream"])
+        assert result.exit_code == 0
+        lines = [json.loads(line) for line in result.output.strip().split("\n") if line.strip()]
+        summary = lines[-1]["summary"]
+        assert summary["count"] == 2
+        assert summary["has_more"] is True
+
+    def test_recent_stream_ignores_no_json(self):
+        result = _invoke(["--no-json", "recent", "--days", "9999", "--limit", "2", "--stream"])
+        assert result.exit_code == 0
+        lines = [json.loads(line) for line in result.output.strip().split("\n") if line.strip()]
+        assert len(lines) == 3  # two records + summary
+        assert "summary" in lines[-1]
+
+    def test_recent_stream_without_extra_matches_has_no_more(self):
+        result = _invoke(["--json", "recent", "--days", "0", "--stream"])
+        assert result.exit_code == 0
+        lines = [json.loads(line) for line in result.output.strip().split("\n") if line.strip()]
+        assert lines[-1]["summary"] == {"count": 0, "has_more": False}

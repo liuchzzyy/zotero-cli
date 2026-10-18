@@ -1,9 +1,10 @@
 """Ordered registration of the `zot` command tree.
 
-Registration order is observable: it drives the order of `zot --help`, and the
-command list is part of the agent contract. Keep this list in the established
-order when adding commands, and classify every new command in
-`zotero_cli.cli.safety`.
+Registration order is stable across releases but is NOT what `zot --help`
+renders: Click sorts command names alphabetically within each help tier. Keep
+this list in the established order when adding commands (it preserves the
+historical command set for tooling that reads the tree), and classify every new
+command in `zotero_cli.cli.safety`.
 """
 
 from __future__ import annotations

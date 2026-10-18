@@ -108,6 +108,7 @@ def test_short_note_dry_run_previews_without_chat_or_writes(has_writer: bool) ->
     assert 0 < len(result["prompt_preview"]) <= 1200
     assert "Current evidence." in result["prompt_preview"]
     assert "Outdated evidence." not in result["prompt_preview"]
+    assert "<untrusted-ai-note>" in result["prompt_preview"]
     reader.get_pdf_attachments.assert_not_called()
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from . import loaders, models, paths, zotero
+from .errors import ConfigError
 from .loaders import (
     get_default_profile,
     list_profiles,
@@ -13,7 +14,11 @@ from .loaders import (
     load_rerank_config,
     load_semantic_search_config,
     load_vector_store_config,
+    merge_config_data,
+    read_config_data,
+    resolve_config_path,
     save_config,
+    write_config_data,
 )
 from .models import (
     AiNoteConfig,
@@ -25,15 +30,22 @@ from .models import (
     VectorStoreConfig,
 )
 from .paths import (
+    APP_DIRNAME,
     CONFIG_FILENAME,
     SETTINGS_DIRNAME,
     STATE_DIRNAME,
+    WORKSPACE_DIRNAME,
+    checkout_root,
     config_file_path,
+    data_root,
     project_root,
     settings_dir,
     state_dir,
+    state_root,
+    workspace_root,
 )
 from .zotero import (
+    LibraryResolutionError,
     detect_zotero_data_dir,
     get_data_dir,
     get_prefs_js_path,
@@ -44,17 +56,23 @@ from .zotero import (
 )
 
 __all__ = [
+    "APP_DIRNAME",
     "CONFIG_FILENAME",
     "SETTINGS_DIRNAME",
     "STATE_DIRNAME",
+    "WORKSPACE_DIRNAME",
     "AiNoteConfig",
     "AppConfig",
+    "ConfigError",
     "EmbeddingConfig",
+    "LibraryResolutionError",
     "PdfConfig",
     "RerankConfig",
     "SemanticSearchConfig",
     "VectorStoreConfig",
+    "checkout_root",
     "config_file_path",
+    "data_root",
     "detect_zotero_data_dir",
     "get_data_dir",
     "get_default_profile",
@@ -67,7 +85,10 @@ __all__ = [
     "load_rerank_config",
     "load_semantic_search_config",
     "load_vector_store_config",
+    "merge_config_data",
     "project_root",
+    "read_config_data",
+    "resolve_config_path",
     "resolve_crossref_mailto",
     "resolve_library_id",
     "resolve_semantic_scholar_api_key",
@@ -75,6 +96,9 @@ __all__ = [
     "save_config",
     "settings_dir",
     "state_dir",
+    "state_root",
+    "workspace_root",
+    "write_config_data",
     "loaders",
     "models",
     "paths",

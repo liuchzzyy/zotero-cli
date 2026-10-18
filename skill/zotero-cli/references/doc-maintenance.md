@@ -38,13 +38,16 @@ evidence of the wrong repository — do not "restore" a docs tree.
 4. **Check a command's safety bucket at the source.**  
    `src/zotero_cli/cli/safety.py` owns `SAFETY_TIERS`;
    `READ_COMMANDS`/`WRITE_COMMANDS`/`DESTRUCTIVE_COMMANDS` are derived from it,
-   and nested mutating subcommands have tuple entries
-   (`("collection", "delete")`, `("trash", "restore")`). `collection` is
-   read-tier — listing it among write commands is the recurring documentation
-   error, and the tiers drive both `zot --help` grouping
-   (`cli/tiered_group.py`) and `zot schema` (`safety_tier_for_path`). Register
-   commands in `cli/registry.py` in observable order: help/schema order is part
-   of the agent contract.
+   and nested mutating subcommands have tuple entries. Current nesting:
+   `config init`/`config profile set` = write, `config cache clear` =
+   destructive; `workspace new/add/remove/import/index/reindex/embed` = write,
+   `workspace delete` = destructive; `collection create/move/rename/reorganize`
+   = write and `collection delete`/`delete` = destructive; `trash restore` =
+   write. `collection` is read-tier at the top level — listing it among write
+   commands is the recurring documentation error, and the tiers drive both
+   `zot --help` grouping (`cli/tiered_group.py`) and `zot schema`
+   (`safety_tier_for_path`). Register commands in `cli/registry.py` in
+   observable order: help/schema order is part of the agent contract.
 5. **Diff only the doc files when done, and state what you did not run.**  
    A Markdown-only change does not itself change code, but the repository gate
    is `uv run pytest -q -rf` with 0 failed and 0 skipped. Name the commands you
@@ -59,8 +62,8 @@ evidence of the wrong repository — do not "restore" a docs tree.
   `.../Profiles/<profile>/prefs.js`, and surface it explicitly — neither
   shipping it nor silently reverting it is acceptable, because the user may be
   relying on that edit locally.
-- **A CLI surface change fans out to four targets:** `zot schema`-visible
-  behavior plus its contract tests, `AGENTS.md`, the repo-bundled
+- **A CLI surface change fans out to five targets:** `zot schema`-visible
+  behavior plus its contract tests, `AGENTS.md`, `README.md`, the repo-bundled
   `skill/zotero-cli/SKILL.md`, and the profile copy at
   `~/.hermes/profiles/scientist/skills/zotero-cli/SKILL.md`. Update them
   together or the next agent reads a stale contract.
@@ -80,6 +83,11 @@ evidence of the wrong repository — do not "restore" a docs tree.
   (0 failed, 0 skipped). A docs update must not describe skipped tests,
   platform-conditional skips, or known failures as normal; if a test is
   skipped, that is a regression to fix in code, not something to document.
+  `tools/**` tests carry the `tools` marker and run in the default suite.
+- **CI exists.** `.github/workflows/ci.yml` runs lint, format check, mypy, the
+  full test suite, and wheel/sdist build on Python 3.10 and 3.13; a weekly/manual
+  best-effort `pip-audit` job is network-dependent and non-blocking. Do not
+  document "no CI" or a hard dependency-audit gate.
 - **`core.fileMode=false` used to hide lost executable bits.** Fixed by
   normalising the working tree (644 files, 755 dirs and the three `.zsh`
   entrypoints) and enabling `core.fileMode=true`, so `chmod +x` on a tracked

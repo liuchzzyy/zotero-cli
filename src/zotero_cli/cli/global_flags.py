@@ -1,24 +1,56 @@
-"""Global output-flag hoisting for the `zot` root group.
+"""Global flag hoisting and output-mode detection for the root group.
 
-`--json` / `--no-json` must work wherever they appear in argv, even after the
+--json / --no-json must work wherever they appear in argv, even after the
 subcommand: agents append them out of habit and Click would otherwise reject
-them as unknown options. Hoisting happens before Click parses, following the
-active command's option arity so option *values* that look like flags are never
-mistaken for globals.
+them as unknown options. The same applies to the boolean global flags
+--no-interaction and --verbose, and to the value-taking global --detail
+(minimal/standard/full), which is what "--detail minimal" after a subcommand
+means today.
+
+Hoisting happens before Click parses, following the active command's option
+arity so option *values* that look like flags are never mistaken for globals.
 """
 
 from __future__ import annotations
 
+import os
+import sys
+from collections.abc import Sequence
+
 import click
+
+# Boolean root options that are safe to hoist from anywhere in argv.
+_HOISTED_FLAGS = frozenset({"--json", "--no-json", "--no-interaction", "--verbose"})
+# Value-taking root options that are safe to hoist (value follows or is attached).
+_HOISTED_VALUE_FLAGS = frozenset({"--detail"})
+
+
+def detect_json_output(args: Sequence[str]) -> bool:
+    """Best-effort output-mode detection for errors raised before Click parsing.
+
+    Mirrors the root callback precedence: explicit flag > ZOT_FORMAT > TTY
+    auto-detect (piped stdout => JSON). Used by the top-level error boundary so
+    usage errors raised during parsing still emit the right channel.
+    """
+    if "--json" in args:
+        return True
+    if "--no-json" in args:
+        return False
+    env_fmt = os.environ.get("ZOT_FORMAT", "").lower()
+    if env_fmt == "json":
+        return True
+    if env_fmt in ("table", "text"):
+        return False
+    return not sys.stdout.isatty()
 
 
 def _hoist_global_flags(args: list[str], command: click.Command) -> list[str]:
-    """Move standalone output flags to the root, preserving Click option values.
+    """Move standalone global flags to the root, preserving Click option values.
 
     Follow the active command's option arity before interpreting a token as a
-    global flag. In particular, a value such as `--json` must not disappear and
-    cause the following `--dry-run` to become an option value. An unconsumed
-    `--` terminates hoisting just as it terminates option parsing.
+    global flag. In particular, a value such as --json must not disappear and
+    cause the following --dry-run to become an option value. An unconsumed
+    -- terminates hoisting just as it terminates option parsing.
     """
 
     def options_for(cmd: click.Command) -> dict[str, click.Option]:
@@ -42,12 +74,21 @@ def _hoist_global_flags(args: list[str], command: click.Command) -> list[str]:
         if tok == "--":
             rest.extend([tok, *tokens])
             break
-        if tok in ("--json", "--no-json"):
+        if tok in _HOISTED_FLAGS:
             flags.append(tok)
             continue
 
-        rest.append(tok)
         name, separator, _value = tok.partition("=")
+        if name in _HOISTED_VALUE_FLAGS:
+            flags.append(tok)
+            if not separator:
+                try:
+                    flags.append(next(tokens))
+                except StopIteration:
+                    pass
+            continue
+
+        rest.append(tok)
         option = options.get(name)
         attached_value = bool(separator)
         if option is None and tok.startswith("-") and not tok.startswith("--"):

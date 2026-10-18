@@ -6,7 +6,7 @@ import pytest
 
 from zotero_cli.config import RerankConfig
 from zotero_cli.core.rag.providers.gitee import GiteeRerankerProvider, _extract_scores
-from zotero_cli.core.rag.rerank import rerank_chunks
+from zotero_cli.core.rag.rerank import UnsupportedRerankerProviderError, rerank_chunks
 
 
 def test_rerank_chunks_sorts_selected_candidates():
@@ -48,7 +48,7 @@ def test_rerank_chunks_returns_none_when_not_configured():
 
 
 def test_rerank_chunks_rejects_unknown_provider():
-    with pytest.raises(RuntimeError, match="Unsupported reranker provider"):
+    with pytest.raises(UnsupportedRerankerProviderError, match="Unsupported reranker provider"):
         rerank_chunks(
             "battery",
             [(1, 0.9, {"content": "text"})],
@@ -86,3 +86,39 @@ def test_gitee_reranker_posts_with_unified_headers():
     assert kwargs["headers"]["X-Failover-Enabled"] == "true"
     assert kwargs["json"]["query"] == "q"
     assert kwargs["json"]["documents"] == ["a", "b"]
+
+
+def test_unsupported_reranker_provider_error_is_a_value_error():
+    assert issubclass(UnsupportedRerankerProviderError, ValueError)
+
+
+def test_rerank_short_provider_scores_return_none_without_truncating(capsys):
+    candidates = [(1, 0.9, {"content": "alpha"}), (2, 0.8, {"content": "beta"})]
+
+    class ShortProvider:
+        def __init__(self, **kwargs):
+            pass
+
+        def score(self, query, documents, progress_callback=None):
+            return [0.5]
+
+    with patch("zotero_cli.core.rag.rerank.GiteeRerankerProvider", ShortProvider):
+        result = rerank_chunks("q", candidates, RerankConfig(api_key="k"))
+
+    assert result is None
+    assert "returned 1 scores for 2 candidates" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"results": [{"index": 0, "score": True}, {"index": 1, "score": 0.5}]},
+        {"scores": [0.1, float("nan")]},
+        {"scores": [float("inf")]},
+        {"results": [{"index": 0, "score": "high"}]},
+    ],
+    ids=["bool-score", "nan-score", "inf-score", "string-score"],
+)
+def test_reranker_rejects_non_numeric_or_non_finite_scores(payload):
+    with pytest.raises(RuntimeError):
+        _extract_scores(payload, expected_count=2 if "scores" not in payload or len(payload["scores"]) == 2 else 1)

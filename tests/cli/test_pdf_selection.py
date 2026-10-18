@@ -38,15 +38,17 @@ def test_specific_child_pdf_is_selected_even_with_same_filename(tmp_path):
         patch("zotero_cli.commands.attachments.pdf.MinerUParseCache") as cache_cls,
     ):
         reader_cls.return_value.get_pdf_attachments.return_value = [first, second]
-        cache_cls.return_value.get.return_value.markdown = "SI text"
-        cache_cls.return_value.get.return_value.fingerprint = "fingerprint"
-        cache_cls.return_value.get.return_value.model_version = "vlm"
-        cache_cls.return_value.get.return_value.root = tmp_path
+        parsed = cache_cls.return_value.lookup.return_value[0]
+        parsed.markdown = "SI text"
+        parsed.fingerprint = "fingerprint"
+        parsed.model_version = "vlm"
+        parsed.root = tmp_path
+        cache_cls.return_value.lookup.return_value = (parsed, "pdf-fingerprint")
         result = CliRunner().invoke(main, ["--json", "pdf", "PARENT", "--attachment", "SUPP001"])
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["data"]["markdown"] == "SI text"
     assert json.loads(result.output)["data"]["attachment_key"] == "SUPP001"
-    cache_cls.return_value.get.assert_called_once_with(second_path)
+    cache_cls.return_value.lookup.assert_called_once_with(second_path)
 
 
 def test_ambiguous_parent_pdf_does_not_pick_first():

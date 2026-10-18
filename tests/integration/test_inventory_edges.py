@@ -56,7 +56,7 @@ def _build_library(db_path: Path) -> None:
             "itemAttachments",
             "deletedItems",
             "itemRelations",
-            "fulltextItemWords",
+            "fulltextItems",
             "items",
         ):
             conn.execute(f"DELETE FROM {table}")
@@ -127,7 +127,8 @@ def inventory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> InventorySandb
         encoding="utf-8",
     )
     monkeypatch.setattr(config.paths, "config_file_path", lambda: isolated_config)
-    monkeypatch.setattr(workspace_store, "project_root", lambda: tmp_path)
+    monkeypatch.setattr(workspace_store, "workspace_root", lambda: tmp_path / ".workspace")
+    monkeypatch.setattr(workspace_store, "state_dir", lambda: tmp_path / ".zot" / "state")
     monkeypatch.setenv("ZOT_DATA_DIR", str(data_dir))
     monkeypatch.setenv("ZOT_PROFILE", "")
     monkeypatch.setenv("ZOT_PREFS_JS_PATH", "")
