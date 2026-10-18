@@ -1160,7 +1160,7 @@ class TestAiClientBounds:
 
         monkeypatch.setattr("zotero_cli.core.notes.client.OpenAI", FakeOpenAI)
         AiClient(_make_ai_config())
-        assert captured["timeout"] == 180.0
+        assert captured["timeout"] == 300.0
         assert captured["max_retries"] == 2
 
 

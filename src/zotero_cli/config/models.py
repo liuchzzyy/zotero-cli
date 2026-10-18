@@ -77,5 +77,5 @@ class AiNoteConfig:
     temperature: float = 0.7
     max_tokens: int = 0
     max_extracted_chars: int = 250000
-    timeout_seconds: float = 180.0
+    timeout_seconds: float = 300.0
     max_retries: int = 2

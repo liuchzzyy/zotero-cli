@@ -29,7 +29,8 @@ uv run zot --json pdf ITEMKEY --list-attachments
 MS/SI is now decided per **item**, by `resolve_pdf_kinds()` in `core/rag/metadata.py`,
 from the figure/table numbering inside `content_list.json` captions. The numbering is
 the most reliable signal available: an SI cover repeats the article title and even its
-filename, so no per-attachment text cue can separate the pair.
+filename, so no per-attachment text cue can separate the pair. The rule order, the
+accepted caption forms and the measured accuracy are in `pdf-kind-classification.md`.
 
 Accepted forms — the "S" sits either on the number or on a qualifier word, and MinerU
 produces both: `Figure S1`, `Fig. S1`, `Supplementary Figure 1`, `Supplementary Fig. 2-1`,
@@ -165,7 +166,8 @@ capability-level image rejection drops all images but keeps every text/table blo
 and appends an explicit "no images attached" notice. Main-text and supplementary
 document copies are deduped (longest copy kept) by original document text before
 numbering. `max_extracted_chars` is now a ceiling that fails the run instead of
-truncating evidence.
+truncating evidence; its default is 250,000 chars, and `timeout_seconds`
+defaults to 300 s (a 51-image, 201 k-char analysis call measured 106 s).
 Titles/authors/journal/date/DOI/full text are wrapped as untrusted data by the
 prompt templates; only the *short-note* prompt is still char-capped
 (220,000 after counting the template plus rendered metadata), while the analysis

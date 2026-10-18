@@ -483,7 +483,7 @@ def test_load_ai_note_config_env_override(tmp_path, monkeypatch):
 
 def test_ai_note_config_timing_defaults():
     cfg = AiNoteConfig()
-    assert cfg.timeout_seconds == 180.0
+    assert cfg.timeout_seconds == 300.0
     assert cfg.max_retries == 2
 
 

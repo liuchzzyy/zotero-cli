@@ -55,7 +55,7 @@ reasoning_effort = "max"
 temperature = 0.7
 max_tokens = 0
 max_extracted_chars = 250000
-timeout_seconds = 180.0
+timeout_seconds = 300.0
 max_retries = 2
 ```
 
