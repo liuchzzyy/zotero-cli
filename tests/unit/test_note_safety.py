@@ -14,7 +14,6 @@ from zotero_cli.cli import main
 from zotero_cli.config import AiNoteConfig, AppConfig
 from zotero_cli.core.mineru import MinerUParseResult
 from zotero_cli.core.notes.errors import NoteAnalysisError
-from zotero_cli.core.notes.figures import load_figures, mark_figures
 from zotero_cli.core.notes.pipeline import analyze_item
 from zotero_cli.models import Attachment, Item, Note
 
@@ -59,6 +58,9 @@ def analysis_inputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Ma
     root.mkdir()
     markdown = root / "document.md"
     markdown.write_text("Introduction. Current evidence.", encoding="utf-8")
+    (root / "content_list.json").write_text(
+        json.dumps([{"type": "text", "text": "Introduction. Current evidence.", "page_idx": 0}]), encoding="utf-8"
+    )
     parsed = MinerUParseResult(
         source_path=pdf,
         fingerprint="a" * 64,
@@ -153,10 +155,16 @@ def test_classification_network_failure_is_retryable_without_tagging(
     assert ai_client.chat.call_count == 3
 
 
-@pytest.mark.parametrize("escape", ["traversal", "absolute", "file-symlink", "directory-symlink", "prefix-sibling"])
-def test_figure_references_never_read_outside_parse_assets(
+@pytest.mark.parametrize(
+    "escape", ["traversal", "absolute", "file-symlink", "directory-symlink", "prefix-sibling", "no-symlink"]
+)
+def test_structured_image_paths_never_read_outside_parse_assets(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, escape: str
 ) -> None:
+    from types import SimpleNamespace
+
+    from zotero_cli.core.notes.structured_input import build_evidence, plan_request
+
     raw = tmp_path / "parse" / "raw"
     normal = raw / "images" / "normal.jpg"
     normal_bytes = _write_jpeg(normal)
@@ -174,8 +182,11 @@ def test_figure_references_never_read_outside_parse_assets(
     elif escape == "directory-symlink":
         (raw / "images" / "linked").symlink_to(outside.parent, target_is_directory=True)
         ref = "images/linked/private.jpg"
-    else:
+    elif escape == "prefix-sibling":
         ref = "images/../../raw-other/private.jpg"
+    else:
+        ref = "images/normal.jpg"
+
     reads: list[Path] = []
     read_bytes = Path.read_bytes
 
@@ -184,18 +195,28 @@ def test_figure_references_never_read_outside_parse_assets(
         return read_bytes(path)
 
     monkeypatch.setattr(Path, "read_bytes", track_reads)
-    text, refs = mark_figures(f"![]({ref})\n![](images/normal.jpg)", raw)
-    loaded = load_figures(refs, limit=12)
+    blocks = [
+        {"type": "image", "img_path": ref, "page_idx": 0},
+        {"type": "image", "img_path": "images/normal.jpg", "page_idx": 0},
+    ]
+    parsed = SimpleNamespace(root=tmp_path / "parse", content_list=blocks)
+    if escape == "no-symlink":
+        evidence = build_evidence([("ATT", "main", parsed)])
+        plan = plan_request(evidence, "prompt", "deepseek-flash")
+        assert [number for number, _ in plan.images] == [1, 2]
+        assert reads.count(normal.resolve()) == 2
+    else:
+        with pytest.raises(ValueError, match="escapes cache"):
+            build_evidence([("ATT", "main", parsed)])
+        assert reads == []
+    assert normal_bytes is not None
 
-    assert reads == [normal.resolve()]
-    assert len(loaded) == 1
-    number, data_url = loaded[0]
-    assert f"【图 {number}】" in text
-    assert data_url.startswith("data:image/jpeg;base64,")
-    assert base64.b64decode(data_url.split(",", 1)[1]) == normal_bytes
 
+def test_structured_image_loader_never_opens_nonregular_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
 
-def test_figure_loader_never_opens_nonregular_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from zotero_cli.core.notes.structured_input import build_evidence, plan_request
+
     raw = tmp_path / "raw"
     directory = raw / "images" / "directory.jpg"
     directory.mkdir(parents=True)
@@ -213,12 +234,17 @@ def test_figure_loader_never_opens_nonregular_file(tmp_path: Path, monkeypatch: 
         return read_bytes(path)
 
     monkeypatch.setattr(Path, "read_bytes", track_reads)
-    _, refs = mark_figures("![](images/directory.jpg)\n![](images/normal.jpg)", raw)
-    loaded = load_figures(refs, limit=12)
-
-    assert reads == [normal]
-    assert len(loaded) == 1
-    assert base64.b64decode(loaded[0][1].split(",", 1)[1]) == normal_bytes
+    blocks = [
+        {"type": "image", "img_path": "images/directory.jpg", "page_idx": 0},
+        {"type": "image", "img_path": "images/normal.jpg", "page_idx": 0},
+    ]
+    evidence = build_evidence([("ATT", "main", SimpleNamespace(root=raw.parent, content_list=blocks))])
+    # is_file() rejects the directory before any byte is read; a missing main
+    # image fails the whole request rather than silently dropping it.
+    with pytest.raises(ValueError, match="required main image 1 is unavailable"):
+        plan_request(evidence, "prompt", "deepseek-flash")
+    assert reads == []
+    assert normal_bytes is not None
 
 
 @pytest.mark.parametrize(

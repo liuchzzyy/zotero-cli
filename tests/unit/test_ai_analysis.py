@@ -20,7 +20,6 @@ from zotero_cli.core.notes.client import AiClient
 from zotero_cli.core.notes.constants import (
     ANALYZED_TAG,
     KEYWORDS_TAG,
-    MAX_PROMPT_CHARS,
     NO_KEYWORDS_TAG,
     NOT_ANALYZED_TAG,
     NOTE_TITLE_PREFIX,
@@ -68,7 +67,7 @@ def _make_attachment(tmp_path) -> Attachment:
 
 
 def _make_ai_config() -> AiNoteConfig:
-    return AiNoteConfig(api_key="k", base_url="http://x", model="m", max_extracted_chars=10000)
+    return AiNoteConfig(api_key="k", base_url="http://x", model="deepseek-flash", max_extracted_chars=10000)
 
 
 def _sections_json(n: int = 12) -> str:
@@ -89,7 +88,8 @@ def _parsed_result(att: Attachment, markdown: str, tmp_path, name: str = "mineru
     content_path = root / "content_list.json"
     manifest_path = root / "manifest.json"
     markdown_path.write_text(markdown)
-    content_path.write_text("[]")
+    blocks = [{"type": "text", "text": line, "page_idx": 0} for line in markdown.splitlines() if line.strip()]
+    content_path.write_text(json.dumps(blocks))
     manifest_path.write_text("{}")
     return MinerUParseResult(
         source_path=att.path,
@@ -929,7 +929,10 @@ def _make_parsed_document(tmp_path, name: str, markdown: str, *, image_count: in
     markdown_path = root / "document.md"
     markdown_path.write_text(markdown, encoding="utf-8")
     content_list_path = root / "content_list.json"
-    content_list_path.write_text("[]", encoding="utf-8")
+    blocks = [{"type": "text", "text": line, "page_idx": 0} for line in markdown.splitlines() if line.strip()]
+    for match in re.finditer(r"!\[\]\(images/(i[0-9]+\.jpg)\)", markdown):
+        blocks.append({"type": "image", "img_path": "images/" + match.group(1), "page_idx": 0})
+    content_list_path.write_text(json.dumps(blocks), encoding="utf-8")
     manifest_path = root / "manifest.json"
     manifest_path.write_text("{}", encoding="utf-8")
     parsed = MinerUParseResult(
@@ -999,7 +1002,7 @@ class TestDuplicateDocumentFigureNumbering:
             patch("zotero_cli.core.notes.templates.format_template", side_effect=capture),
         ):
             result = analyze_item(reader, MagicMock(), ai_client, "ABC123", dry_run=True)
-        return result, capture.prompts[-1]
+        return result, capture.prompts[-1] if capture.prompts else result["prompt_preview"]
 
     def test_single_pdf_keeps_its_numbering(self, tmp_path):
         docs = [_make_parsed_document(tmp_path, "single", _figure_markdown(3), image_count=3)]
@@ -1034,12 +1037,18 @@ class TestDuplicateDocumentFigureNumbering:
         with (
             patch("zotero_cli.core.notes.pipeline.MinerUParseCache.ensure_many", return_value=parses),
             patch("zotero_cli.core.notes.templates.format_template", side_effect=capture),
-            patch("zotero_cli.core.notes.pipeline.infer_pdf_kind", return_value="supplementary"),
+            patch(
+                "zotero_cli.core.notes.pipeline.resolve_pdf_kinds",
+                return_value={att.key: "supplementary" for att in attachments},
+            ),
         ):
             result = analyze_item(reader, MagicMock(), ai_client, "ABC123", dry_run=True)
         assert result["figure_refs"] == 2
         assert result["figures"] == 2
-        assert re.findall(r"【图 ([0-9]+)】", capture.prompts[-1]) == ["1", "2"]
+        assert re.findall(r"【图 ([0-9]+)】", capture.prompts[-1] if capture.prompts else result["prompt_preview"]) == [
+            "1",
+            "2",
+        ]
 
     def test_near_duplicate_longer_second_copy_is_renumbered(self, tmp_path):
         docs = [
@@ -1069,8 +1078,8 @@ class TestPromptInjectionHardening:
             patch("zotero_cli.core.notes.pipeline.MinerUParseCache.ensure_many", return_value={att.path: parsed}),
             patch("zotero_cli.core.notes.templates.format_template", side_effect=capture),
         ):
-            analyze_item(reader, MagicMock(), ai_client, "ABC123", dry_run=True)
-        prompt = capture.prompts[-1]
+            result = analyze_item(reader, MagicMock(), ai_client, "ABC123", dry_run=True)
+        prompt = capture.prompts[-1] if capture.prompts else result["prompt_preview"]
         assert "<untrusted-title>" in prompt and "</untrusted-title>" in prompt
         assert "Test Paper" in prompt
         assert "<untrusted-document>" in prompt
@@ -1241,15 +1250,16 @@ class TestDryRunSemantics:
         assert result["status"] == "dry_run"
         assert result["chars"] > 0
 
-    def test_dry_run_uses_explicit_char_limit_without_ai_client(self, tmp_path):
+    def test_dry_run_refuses_explicit_limit_instead_of_silently_truncating(self, tmp_path):
         att = _make_attachment(tmp_path)
         reader = MagicMock()
         reader.get_item.return_value = _make_item()
         reader.get_pdf_attachments.return_value = [att]
-        with _patch_mineru(att, "word " * 200, tmp_path):
-            result = analyze_item(reader, MagicMock(), None, "ABC123", dry_run=True, max_extracted_chars=100)
-        assert result["status"] == "dry_run"
-        assert result["chars"] == 100
+        with (
+            _patch_mineru(att, "word " * 200, tmp_path),
+            pytest.raises(NoteAnalysisError, match="no evidence truncated"),
+        ):
+            analyze_item(reader, MagicMock(), None, "ABC123", dry_run=True, max_extracted_chars=100)
 
     def test_non_dry_run_requires_ai_client(self, tmp_path):
         att = _make_attachment(tmp_path)
@@ -1262,25 +1272,17 @@ class TestDryRunSemantics:
 
 
 class TestPromptBounds:
-    def test_unbounded_config_still_caps_prompt_text(self, tmp_path):
+    def test_unbounded_config_refuses_oversized_required_text(self, tmp_path):
         att = _make_attachment(tmp_path)
         reader = MagicMock()
         reader.get_item.return_value = _make_item()
         reader.get_pdf_attachments.return_value = [att]
         ai_client = MagicMock()
-        ai_client.config = AiNoteConfig(api_key="k", base_url="http://x", model="m", max_extracted_chars=0)
-        capture = _PromptCapture()
-        markdown = "word " * 80000
-        with (
-            _patch_mineru(att, markdown, tmp_path),
-            patch("zotero_cli.core.notes.templates.format_template", side_effect=capture),
-        ):
-            result = analyze_item(reader, MagicMock(), ai_client, "ABC123", dry_run=True)
-        prompt = capture.prompts[-1]
-        assert len(prompt) == MAX_PROMPT_CHARS
-        assert 0 < result["chars"] < MAX_PROMPT_CHARS
+        ai_client.config = AiNoteConfig(api_key="k", base_url="http://x", model="deepseek-flash", max_extracted_chars=0)
+        with _patch_mineru(att, "word " * 100000, tmp_path), pytest.raises(NoteAnalysisError, match="required text"):
+            analyze_item(reader, MagicMock(), ai_client, "ABC123", dry_run=True)
 
-    def test_metadata_is_counted_against_the_hard_cap(self, tmp_path):
+    def test_metadata_is_counted_against_the_budget(self, tmp_path):
         att = _make_attachment(tmp_path)
         item = _make_item()
         item.title = "T" * 5_000
@@ -1289,31 +1291,16 @@ class TestPromptBounds:
         reader.get_item.return_value = item
         reader.get_pdf_attachments.return_value = [att]
         ai_client = MagicMock()
-        ai_client.config = AiNoteConfig(api_key="k", base_url="http://x", model="m", max_extracted_chars=0)
-        capture = _PromptCapture()
-        markdown = "word " * 40000
-        with (
-            _patch_mineru(att, markdown, tmp_path),
-            patch("zotero_cli.core.notes.templates.format_template", side_effect=capture),
-        ):
+        ai_client.config = AiNoteConfig(api_key="k", base_url="http://x", model="deepseek-flash", max_extracted_chars=0)
+        with _patch_mineru(att, "word " * 40000, tmp_path):
             result = analyze_item(reader, MagicMock(), ai_client, "ABC123", dry_run=True)
-        prompt = capture.prompts[-1]
-        assert len(prompt) <= MAX_PROMPT_CHARS
-        assert len(prompt) > MAX_PROMPT_CHARS - 1_000
-        assert 0 < result["chars"] < MAX_PROMPT_CHARS
-        assert "X" * 100 not in prompt  # author field was capped before rendering
+        assert result["status"] == "dry_run"
+        assert result["estimated_tokens_upper_bound"] > result["chars"]
+        assert result["chars"] > 200000
 
 
 class TestFigureCapAnnotation:
-    def test_cap_note_lists_attached_numbers(self):
-        note = pipeline_module._figure_cap_note([(1, "a"), (2, "b")], 5)
-        assert "只附上 2 张图片" in note
-        assert "【图 1】" in note and "【图 2】" in note
-        assert "其余 3 个图引用未随请求发送" in note
-        assert pipeline_module._figure_cap_note([], 3).startswith("【图片说明】本次请求未附任何图片")
-        assert pipeline_module._figure_cap_note([(1, "a")], 1) == ""
-
-    def test_analysis_prompt_annotates_when_cap_drops_figures(self, tmp_path):
+    def test_analysis_sends_every_main_image_instead_of_silently_dropping(self, tmp_path):
         docs = [_make_parsed_document(tmp_path, "many", _figure_markdown(20), image_count=20)]
         att, parsed = docs[0]
         reader = MagicMock()
@@ -1323,25 +1310,14 @@ class TestFigureCapAnnotation:
         writer.add_note.return_value = "NOTE1"
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        prompts: list[str] = []
-        responses = [
+        ai_client.chat.side_effect = [
             '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
             _sections_json(12),
         ]
-
-        def fake_chat(prompt, **kwargs):
-            prompts.append(prompt)
-            return responses[len(prompts) - 1]
-
-        ai_client.chat.side_effect = fake_chat
         with patch("zotero_cli.core.notes.pipeline.MinerUParseCache.ensure_many", return_value={att.path: parsed}):
             result = analyze_item(reader, writer, ai_client, "ABC123", no_short_note=True)
         assert result["status"] == "ok"
-        analysis_prompt = prompts[1]
-        assert "【图片说明】" in analysis_prompt
-        assert "只附上 12 张图片" in analysis_prompt
-        assert "【图 1】" in analysis_prompt and "【图 12】" in analysis_prompt
-        assert "其余 8 个图引用未随请求发送" in analysis_prompt
+        assert len(ai_client.chat.call_args.kwargs["figures"]) == 20
 
 
 class TestPlainTextNoteTitle:

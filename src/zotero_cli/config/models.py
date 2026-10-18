@@ -76,6 +76,6 @@ class AiNoteConfig:
     reasoning_effort: str = "max"
     temperature: float = 0.7
     max_tokens: int = 0
-    max_extracted_chars: int = 180000
+    max_extracted_chars: int = 250000
     timeout_seconds: float = 180.0
     max_retries: int = 2

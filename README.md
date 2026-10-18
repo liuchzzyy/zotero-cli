@@ -54,7 +54,7 @@ fallback_models = ["<备用模型1>", "<备用模型2>"]
 reasoning_effort = "max"
 temperature = 0.7
 max_tokens = 0
-max_extracted_chars = 180000
+max_extracted_chars = 250000
 timeout_seconds = 180.0
 max_retries = 2
 ```

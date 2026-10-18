@@ -14,6 +14,13 @@ logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = "你是一位专业的科研文献分析助手，擅长深入分析学术论文并提取关键信息。"
 
+# Appended only when a model rejects image input: every text/table block is
+# still analysed, but no figure pixels were seen.
+TEXT_ONLY_NOTICE = (
+    "\n\n【图像说明】当前模型不支持图像输入，本次请求未附任何图片。"
+    "图号与图注仍可作为文字证据；不得声称看过图内曲线、坐标、形貌或颜色。"
+)
+
 # Providers word the same limitation differently; match only capability
 # rejections. Generic errors that merely mention "image" (payload size, bad URL)
 # must not silently downgrade the request to text-only.
@@ -51,6 +58,10 @@ class AiClient:
             timeout=timeout_seconds,
             max_retries=max_retries,
         )
+        # Last observed provider usage for diagnostics; never carries the payload.
+        self.last_usage: dict[str, int] | None = None
+        self.last_model: str = ""
+        self.usage_history: list[dict[str, Any]] = []
 
     def get_model_chain(self) -> list[str]:
         chain = [self.config.model] if self.config.model else []
@@ -71,7 +82,27 @@ class AiClient:
 
     def _send(self, **kwargs: Any) -> str:
         response = self._client.chat.completions.create(**kwargs)
-        return (response.choices[0].message.content or "").strip()
+        usage = getattr(response, "usage", None)
+        self.last_usage = (
+            {
+                "prompt_tokens": int(getattr(usage, "prompt_tokens", 0) or 0),
+                "completion_tokens": int(getattr(usage, "completion_tokens", 0) or 0),
+            }
+            if usage is not None
+            else None
+        )
+        self.last_model = str(getattr(response, "model", "") or kwargs.get("model", ""))
+        if self.last_usage is not None:
+            self.usage_history.append({**self.last_usage, "model": self.last_model})
+        choice = response.choices[0]
+        # A length stop means the note JSON is incomplete; it must never be
+        # written as a finished analysis, so surface it instead of the partial text.
+        if getattr(choice, "finish_reason", None) == "length":
+            raise RuntimeError(
+                "AI truncated (finish_reason=length): the analysis output hit the "
+                "max_tokens limit; raise the output allowance or shorten the prompt"
+            )
+        return (choice.message.content or "").strip()
 
     def chat(
         self,
@@ -112,7 +143,9 @@ class AiClient:
                     logger.warning(msg)
                     if progress:
                         progress("fallback", msg)
-                    create_kwargs["messages"][1]["content"] = prompt
+                    # Keep every text/table block; drop only the image parts and
+                    # state that plainly so the note cannot claim visual evidence.
+                    create_kwargs["messages"][1]["content"] = prompt + TEXT_ONLY_NOTICE
                     try:
                         return self._send(**create_kwargs)
                     except Exception as text_only_error:

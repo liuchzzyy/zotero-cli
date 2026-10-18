@@ -26,8 +26,36 @@ uv run zot --json pdf ITEMKEY --list-attachments
   different papers); a high overlap means a true duplicate that will double the
   prompt.
 
-`infer_pdf_kind` then routes main text and SI into the prompt in the right order,
-and a `pdf_count` of 2 is expected for a normal paper + SI pair.
+MS/SI is now decided per **item**, by `resolve_pdf_kinds()` in `core/rag/metadata.py`,
+from the figure/table numbering inside `content_list.json` captions. The numbering is
+the most reliable signal available: an SI cover repeats the article title and even its
+filename, so no per-attachment text cue can separate the pair.
+
+Accepted forms — the "S" sits either on the number or on a qualifier word, and MinerU
+produces both: `Figure S1`, `Fig. S1`, `Supplementary Figure 1`, `Supplementary Fig. 2-1`,
+`Table S1`, `Supplementary Table 1`, against plain `Figure 1`, `Fig. 2`, `Scheme 1`,
+`Table 1`. Panel fragments (`a b`, `C`, `(a-1)`) carry no label and are ignored. Rules run
+in order: one S-numbered document is the SI; failing that, one document carrying *any*
+S-numbered caption (a Nature-style SI numbers figures plainly but tables
+"Supplementary Table 1"); then one plainly numbered document with everything else as SI;
+then `infer_pdf_kind` (cover line, filename, front matter); then the longer document.
+
+Front matter (`abstract` + `introduction`) always blocks a supplementary verdict — a
+merged article+SI PDF has both — because demoting a real article is the costly error: its
+figures lose the "required" status and get sampled away by the SI cap.
+
+What to check on a run: `pdf_count`, and that `main_images` is non-zero and roughly the
+number of panels you expect in the article. `omitted_images` should be zero except for
+SIs bigger than 30 panels (then it equals `si_candidates − si_images`), and
+`skipped_images` lists degenerate attachments under 1 kB or over 5 MB that were dropped
+with a prompt notice instead of failing the run.
+
+Known limits of the mechanism: a supplement that numbers its figures plainly *and* has no
+S-numbered table captions cannot be told apart from the article by numbering, and a pair
+of scanned old papers with no captions falls through to the filename heuristics. On the
+194 cached two-PDF items here the rule resolves every item to exactly one main text;
+cross-checked against cover/filename ground truth, agreement is 111/113 with no
+article→SI errors (the two misses were my own labels being wrong).
 
 ## 2. Read the MinerU cache directly for spot checks
 
@@ -118,23 +146,30 @@ with pyzotero (see the SKILL.md snippet for the exact client construction).
 
 ## 5. Check what the model could actually see
 
-Figures are attached to the request as multimodal parts, but the failure mode is
-worth knowing: MinerU leaves only `![](images/<sha>.jpg)` where each plot belongs,
-so a prompt assembled from `document.md` alone makes the model grade captions it
-never saw. Confirm attachment actually happened before repeating any judgement
-about plots.
+The note is built from MinerU `content_list.json`, not `document.md`: `image` and
+`chart` blocks become `【图 N】` markers **and** payload parts read from `raw/`, so a
+chart panel that Markdown never referenced is still attached. The request is
+budgeted as one preflighted call — `min(route context, 500k)` minus rendered text,
+output reserve and safety margin buys images at a per-image ceiling. **Every
+main-text image must fit or the run fails**; SI is capped at 30 and prioritised by
+`Figure S<n>` references in the main text, and the prompt lists the SI numbers that
+were not sent so the model cannot describe those panels.
 
-Operational notes: number the markers `【图 N】` in the prompt text so the model can
-cite a panel; send main-text panels before SI ones, because a cap consumed by
-supplementary pages silently drops the main evidence; cap the count (12 panels, plus
-20 MiB of raw image bytes per request); and lower that cap on a parse-failure retry —
-a truncated JSON answer is the usual reason a run fails once figures are attached.
-Main-text and supplementary document copies are separately deduped (longest copy
-kept) before figure numbering; panels beyond the 12-figure/20 MiB cap are not
-attached, and the prompt says which figure numbers actually went to the model.
+Read `--dry-run`'s `main_images`, `si_images`, `si_candidates`,
+`estimated_tokens_upper_bound`, `request_bytes` and `budget_model` before trusting a
+run, and compare `estimate` with the provider's reported `usage` afterwards — the
+estimate is a conservative bound, not a tokenizer. A route without a verified
+context/image budget raises `validation_error` rather than guessing. A
+`finish_reason=length` answer is rejected (never written as a note); a
+capability-level image rejection drops all images but keeps every text/table block
+and appends an explicit "no images attached" notice. Main-text and supplementary
+document copies are deduped (longest copy kept) by original document text before
+numbering. `max_extracted_chars` is now a ceiling that fails the run instead of
+truncating evidence.
 Titles/authors/journal/date/DOI/full text are wrapped as untrusted data by the
-prompt templates, and the whole prompt is capped at 220,000 chars after counting
-the template plus rendered metadata. A typed writer failure with `committed` set
+prompt templates; only the *short-note* prompt is still char-capped
+(220,000 after counting the template plus rendered metadata), while the analysis
+prompt is bounded by `max_extracted_chars` and the 500k image budget instead. A typed writer failure with `committed` set
 means the note write may already have landed: verify before retrying, and remember
 `--force` appends notes instead of replacing them. Definite rejections
 (`validation_error`/`not_found`/auth) are non-committed and release the idempotency
@@ -151,9 +186,21 @@ path can be probed outside the note pipeline: one direct call with a handful of
 figures, asking for figure type, axis ranges and readable annotations, costs
 nothing in the library and settles whether images work at all.
 
-Two operational notes: cap how many figures go into one request (a dozen panels
-is already a large payload), and lower that cap on a parse-failure retry — a
-truncated JSON answer is the usual reason a run fails once figures are attached.
+Two operational notes. There is no figure count cap any more: every main-text
+panel is mandatory and the run fails rather than dropping one, SI is capped at
+30, and a parse-retry resends the *same* image set (only an explicit
+image-capability rejection drops all images, keeping every text block). And a
+`finish_reason=length` answer is rejected instead of being saved, so a truncated
+JSON note cannot land in the library — read the error rather than re-running.
+
+For a scheduled collection run (`tools/ainote/scheduled_analyze.py`), the new
+fail-closed errors are permanent, not transient: an item whose structured text
+exceeds `max_extracted_chars` or whose main figures exceed the token budget can
+never succeed on retry. The scheduler counts non-committed attempts and parks the
+item as `unanalyzable` after three, reports it under `blocked` rather than
+`failed`, and skips it afterwards; clear it with `--retry-parked` after fixing
+the cause. A *committed* failure is never parked.
+
 ## 6. Shape of the report to the user
 
 1. Bibliographic identification (authors, journal, year, DOI) and which

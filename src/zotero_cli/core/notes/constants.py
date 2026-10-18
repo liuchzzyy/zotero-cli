@@ -8,14 +8,12 @@ KEYWORDS_TAG = "ai/keywords"
 NO_KEYWORDS_TAG = "ai/no_keywords"
 NOTE_TITLE_PREFIX = "AI条目分析 - "
 
-# Vision tokens dominate the request; a dozen figures covers the main evidence
-# panels without making every run expensive.
-MAX_FIGURES = 12
 MIN_SECTIONS = 10
 
-# Hard ceiling for a rendered prompt (template + untrusted payload). The
-# configurable max_extracted_chars may be larger (or 0 for no limit); this bound
-# protects the request size and model context regardless of config.
+# Hard ceiling for the *short-note* prompt (template + the AI note it condenses).
+# The analysis prompt is bounded instead by `[ai_notes].max_extracted_chars`
+# (default 250,000, 0 = no limit) and by the 500k-token image budget in
+# `core/notes/structured_input.py`; the two limits are independent.
 MAX_PROMPT_CHARS = 220_000
 PROMPT_RESERVE_CHARS = 2_000
 

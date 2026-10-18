@@ -10,7 +10,6 @@ an existing AI note without regenerating it.
 from __future__ import annotations
 
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
 from zotero_cli.core.mineru import MinerUError, MinerUParseCache, MinerUParseResult
@@ -30,7 +29,6 @@ from zotero_cli.core.notes.constants import (
     MAX_AUTHORS_CHARS,
     MAX_DATE_CHARS,
     MAX_DOI_CHARS,
-    MAX_FIGURES,
     MAX_JOURNAL_CHARS,
     MAX_TITLE_CHARS,
     MIN_SECTIONS,
@@ -47,17 +45,16 @@ from zotero_cli.core.notes.documents import (
     _sections_to_text,
 )
 from zotero_cli.core.notes.errors import NoteAnalysisError
-from zotero_cli.core.notes.figures import load_figures, mark_figures
 from zotero_cli.core.notes.renderer import render_note
 from zotero_cli.core.notes.short_note import _generate_short_note
+from zotero_cli.core.notes.structured_input import build_evidence, plan_request
 from zotero_cli.core.notes.templates import (
     fit_text_to_prompt,
     format_template,
     load_template,
-    render_bounded_prompt,
 )
 from zotero_cli.core.notes.text import join_spaced_digits, prepare
-from zotero_cli.core.rag import clean_html, infer_pdf_kind
+from zotero_cli.core.rag import PdfDocument, clean_html, resolve_pdf_kinds
 from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.core.zotero.writer import ZoteroWriter
 from zotero_cli.models import Item
@@ -110,39 +107,6 @@ def _wrap_field(value: str, label: str, max_chars: int) -> str:
 def _plain_title(title: str) -> str:
     """Render a Zotero item title as plain text for the note h1 title."""
     return " ".join(clean_html(title or "").split())
-
-
-def _figure_cap_note(figures: list[tuple[int, str]], total_refs: int) -> str:
-    """Tell the model exactly which figure numbers were attached to the request."""
-    if total_refs <= len(figures):
-        return ""
-    if not figures:
-        return f"【图片说明】本次请求未附任何图片（共 {total_refs} 个图引用）；请勿描述或引用图内信息。"
-    numbers = "、".join(f"【图 {number}】" for number, _ in figures)
-    omitted = total_refs - len(figures)
-    return (
-        f"【图片说明】本次请求只附上 {len(figures)} 张图片：{numbers}；"
-        f"其余 {omitted} 个图引用未随请求发送，请勿引用其图像内容。"
-    )
-
-
-def _keep_documents(docs: list[tuple[str, Path]]) -> list[tuple[str, Path]]:
-    """Drop duplicate document copies BEFORE figure marking/numbering."""
-    kept_indices = _kept_duplicate_indices([text for text, _ in docs])
-    return [docs[index] for index in kept_indices]
-
-
-def _mark_documents(docs: list[tuple[str, Path]], start: int) -> tuple[list[str], list[tuple[int, Path]], int]:
-    """Mark figures in document order, returning marked texts, refs and next number."""
-    texts: list[str] = []
-    refs: list[tuple[int, Path]] = []
-    next_number = start
-    for text, raw_dir in docs:
-        marked, doc_refs = mark_figures(text, raw_dir, start=next_number)
-        next_number += len(doc_refs)
-        texts.append(marked)
-        refs.extend(doc_refs)
-    return texts, refs, next_number
 
 
 def _analyze_short_note_only(
@@ -271,43 +235,39 @@ def analyze_item(
         code = "configuration_error" if "token not configured" in message.lower() else "network_error"
         raise NoteAnalysisError(message, code=code, retryable=code == "network_error") from exc
 
-    main_docs: list[tuple[str, Path]] = []
-    supp_docs: list[tuple[str, Path]] = []
+    parsed_pairs: list[tuple[Any, MinerUParseResult]] = []
     for att in attachments:
-        if att.path is None or att.path not in pdf_parses:
+        if att.path is None:
             continue
-        parsed = pdf_parses[att.path]
-        if not isinstance(parsed, MinerUParseResult):
-            continue
-        text = parsed.markdown
-        if not text.strip():
-            continue
-        raw_dir = parsed.root / "raw"
-        kind = infer_pdf_kind(parsed.markdown, att.filename or att.key)
-        if kind == "supplementary":
-            supp_docs.append((text, raw_dir))
-        else:
-            main_docs.append((text, raw_dir))
-
-    # Dedupe raw document copies before numbering figures: numbering the dropped
-    # copy first would leave prompt markers aligned with refs that are no longer
-    # sent (or labels attached from the dropped copy).
-    main_docs = _keep_documents(main_docs)
-    supp_docs = _keep_documents(supp_docs)
-    if not main_docs and supp_docs:
-        main_docs, supp_docs = supp_docs, []
-    main_parts, main_figure_refs, next_number = _mark_documents(main_docs, 1)
-    supp_parts, supp_figure_refs, _ = _mark_documents(supp_docs, next_number)
-
-    main_text = "\n\n".join(main_parts)
+        parsed = pdf_parses.get(att.path)
+        if isinstance(parsed, MinerUParseResult):
+            parsed_pairs.append((att, parsed))
+    # Caption numbering decides MS vs SI for the whole item at once: an SI cover
+    # usually repeats the article's title and filename, so only the comparison
+    # between the attachments is reliable (see `resolve_pdf_kinds`).
+    kinds = resolve_pdf_kinds(
+        [
+            PdfDocument(att.key, att.filename or att.key, parsed.markdown, parsed.content_list)
+            for att, parsed in parsed_pairs
+        ]
+    )
+    structured_docs: list[tuple[str, str, MinerUParseResult]] = [
+        (att.key, kinds[att.key], parsed) for att, parsed in parsed_pairs
+    ]
+    structured_docs.sort(key=lambda doc: doc[1] != "main")
+    # Drop repeated attachment copies across the whole item, not per kind: the
+    # same PDF can be attached twice, and classifying one copy as supplementary
+    # must not keep both. The survivor keeps its own kind.
+    kept_indices = _kept_duplicate_indices([doc[2].markdown for doc in structured_docs])
+    structured_docs = [structured_docs[index] for index in kept_indices]
+    try:
+        evidence = build_evidence(structured_docs)
+    except ValueError as exc:
+        raise NoteAnalysisError(str(exc), code="validation_error") from exc
+    main_text = evidence.text
     if not main_text.strip():
-        failures = [str(value) for value in pdf_parses.values() if isinstance(value, Exception)]
-        detail = f"：{failures[0]}" if failures else ""
-        raise NoteAnalysisError(f"条目 '{key}' 的 MinerU Markdown 为空{detail}", code="runtime_error")
-
+        raise NoteAnalysisError(f"条目 '{key}' 的 MinerU structured content 为空", code="runtime_error")
     full_text = main_text
-    if supp_parts:
-        full_text += "\n\n## 支撑信息\n\n" + "\n\n".join(supp_parts)
 
     # Preview a metadata/default template without sending text to the model.
     if dry_run:
@@ -330,20 +290,17 @@ def analyze_item(
     else:
         max_chars = max_extracted_chars
 
-    cleaned = join_spaced_digits(clean_html(full_text))
+    cleaned = join_spaced_digits(full_text)
     if max_chars > 0 and len(cleaned) > max_chars:
-        cleaned = cleaned[:max_chars]
+        raise NoteAnalysisError(
+            "required structured text exceeds configured max_extracted_chars; no evidence truncated",
+            code="validation_error",
+        )
 
-    # Main-text panels are the evidence being judged; only spend leftover slots
-    # on supporting information.
-    figures = load_figures(main_figure_refs, MAX_FIGURES)
-    figures += load_figures(supp_figure_refs, MAX_FIGURES - len(figures))
-    total_refs = len(main_figure_refs) + len(supp_figure_refs)
-    if progress and total_refs:
-        progress("figures", f"附图 {len(figures)}/{total_refs} 张随请求发送")
-
+    total_refs = evidence.main_count + evidence.si_count
+    # Preflight the entire, source-labelled prompt before any Zotero mutation.
     wrapped_fulltext = wrap_untrusted(cleaned, "document")
-    used_fulltext, prompt = render_bounded_prompt(
+    prompt = format_template(
         template,
         title=_wrap_field(item.title, "title", MAX_TITLE_CHARS),
         authors=_wrap_field(_item_authors(item), "authors", MAX_AUTHORS_CHARS),
@@ -351,10 +308,34 @@ def analyze_item(
         date=_wrap_field(item.date or "", "date", MAX_DATE_CHARS),
         doi=_wrap_field(item.doi or "", "doi", MAX_DOI_CHARS),
         fulltext=wrapped_fulltext,
-        prefix=_figure_cap_note(figures, total_refs),
     )
-    wrapper_overhead = len(wrap_untrusted("", "document"))
-    chars_used = max(0, len(used_fulltext) - wrapper_overhead)
+    model = ai_client.config.model if ai_client is not None else "deepseek-flash"
+    try:
+        plan = plan_request(evidence, prompt, model)
+    except ValueError as exc:
+        raise NoteAnalysisError(str(exc), code="validation_error") from exc
+    figures = plan.images
+    sent_numbers = {number for number, _ in figures}
+    requested_numbers = [number for number, _ in evidence.main_images] + [
+        number for number, _ in evidence.si_candidates
+    ]
+    omitted_numbers = [number for number in requested_numbers if number not in sent_numbers]
+    if omitted_numbers:
+        prompt += (
+            "\n\n【图像覆盖说明】以下图像只有文字/图注而未附图像，请勿声称直接看过图内曲线、坐标或形貌："
+            + "、".join(f"【图 {number}】" for number in omitted_numbers)
+        )
+        try:
+            plan = plan_request(evidence, prompt, model)
+        except ValueError as exc:
+            raise NoteAnalysisError(str(exc), code="validation_error") from exc
+        figures = plan.images
+    chars_used = len(cleaned)
+    if progress:
+        progress(
+            "figures",
+            f"正文 {evidence.main_count}/{evidence.main_count}，SI {len(plan.si_images)}/{evidence.si_count} 张随请求发送",
+        )
 
     if dry_run:
         return {
@@ -363,10 +344,18 @@ def analyze_item(
             "item_type": item.item_type,
             "paper_type": paper_type,
             "template": template_name,
-            "pdf_count": len(pdf_paths),
+            "pdf_count": len(structured_docs),
             "chars": chars_used,
             "figures": len(figures),
             "figure_refs": total_refs,
+            "main_images": evidence.main_count,
+            "si_images": len(plan.si_images),
+            "si_candidates": evidence.si_count,
+            "omitted_images": len(omitted_numbers),
+            "skipped_images": plan.skipped,
+            "estimated_tokens_upper_bound": plan.estimated_tokens,
+            "request_bytes": plan.request_bytes,
+            "budget_model": plan.model,
             "prompt_preview": prompt[:1200],
         }
 
@@ -382,10 +371,9 @@ def analyze_item(
     except NoteAnalysisError:
         if progress:
             progress("retry", "AI 输出无法解析为 JSON，追加格式要求重试一次")
-        # A long answer gets truncated when the context is already full of
-        # figures, so the retry carries half of them.
-        retry_figures = figures[: max(1, len(figures) // 2)] if figures else figures
-        retry_answer = _chat(client, prompt + PARSE_RETRY_SUFFIX, progress=progress, figures=retry_figures)
+        # A format retry must use the same image set. Only an explicit
+        # image-capability rejection in AiClient may retry with zero images.
+        retry_answer = _chat(client, prompt + PARSE_RETRY_SUFFIX, progress=progress, figures=figures)
         try:
             sections = extract_json_object(retry_answer).get("sections", [])
         except NoteAnalysisError as retry_error:

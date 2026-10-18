@@ -15,18 +15,25 @@ from zotero_cli.core.rag.chunking import (
 from zotero_cli.core.rag.embeddings import EmbeddingProvider, embed_texts
 from zotero_cli.core.rag.fusion import reciprocal_rank_fusion, weighted_reciprocal_rank_fusion
 from zotero_cli.core.rag.metadata import (
+    CaptionCounts,
+    PdfDocument,
     build_metadata_chunk,
+    caption_counts,
     clean_html,
     filter_ranked_results_by_pdf_kind,
     get_pdf_kind_from_source,
     infer_pdf_kind,
+    resolve_pdf_kinds,
     tokenize,
 )
 
 __all__ = [
+    "CaptionCounts",
     "EmbeddingProvider",
+    "PdfDocument",
     "MinerUStructuredChunk",
     "build_metadata_chunk",
+    "caption_counts",
     "cascade_chunk",
     "chunk_mineru_content",
     "chunk_text",
@@ -36,6 +43,7 @@ __all__ = [
     "get_pdf_kind_from_source",
     "infer_pdf_kind",
     "reciprocal_rank_fusion",
+    "resolve_pdf_kinds",
     "tokenize",
     "weighted_reciprocal_rank_fusion",
 ]
