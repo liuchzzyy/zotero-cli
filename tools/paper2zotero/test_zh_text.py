@@ -43,8 +43,10 @@ class FlattenTests(unittest.TestCase):
 
 class SpacingTests(unittest.TestCase):
     def test_a_space_goes_at_every_cjk_latin_boundary(self):
-        self.assertEqual(zh_text.normalize("层状δ-MnO2正极在5 A g^-1下提供300 mAh g^-1"),
-                         "层状 δ-MnO2 正极在 5 A g^-1 下提供 300 mAh g^-1")
+        self.assertEqual(
+            zh_text.normalize("层状δ-MnO2正极在5 A g^-1下提供300 mAh g^-1"),
+            "层状 δ-MnO2 正极在 5 A g^-1 下提供 300 mAh g^-1",
+        )
 
     def test_the_charge_sign_ends_the_latin_run(self):
         self.assertEqual(zh_text.normalize("Mg2+嵌入"), "Mg2+ 嵌入")
@@ -75,11 +77,11 @@ class IdempotenceTests(unittest.TestCase):
 
 class AbstractTests(unittest.TestCase):
     def test_a_leading_abstract_label_is_dropped(self):
-        self.assertEqual(zh_text.normalize_abstract("摘要 高能量密度锂金属电池的界面化学。"),
-                         "高能量密度锂金属电池的界面化学。")
+        self.assertEqual(
+            zh_text.normalize_abstract("摘要 高能量密度锂金属电池的界面化学。"), "高能量密度锂金属电池的界面化学。"
+        )
         self.assertEqual(zh_text.normalize_abstract("摘要：界面化学。"), "界面化学。")
-        self.assertEqual(zh_text.normalize_abstract("Abstract: interface chemistry."),
-                         "interface chemistry.")
+        self.assertEqual(zh_text.normalize_abstract("Abstract: interface chemistry."), "interface chemistry.")
 
     def test_text_that_only_mentions_the_word_is_not_mangled(self):
         text = "本文摘要汇总了界面化学的结果。"

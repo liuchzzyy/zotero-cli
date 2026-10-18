@@ -17,11 +17,12 @@ import sys
 import tempfile
 import uuid
 from pathlib import Path
+from typing import Any
 
 import zh_text
 
 from zotero_cli.config import load_config, resolve_write_credentials
-from zotero_cli.core.writer import ZoteroWriter
+from zotero_cli.core.zotero.writer import ZoteroWriter
 
 SCIENTIST_HOME = Path("/Users/liuchzzyy/.hermes/profiles/scientist")
 STATE_FILE = Path(__file__).resolve().parent / "backfill_titles_state.json"
@@ -40,6 +41,8 @@ def select_missing(items: list[dict]) -> list[dict[str, str]]:
     chosen = []
     for item in items:
         data = item.get("data") or {}
+        if data.get("itemType") in {"attachment", "note"}:
+            continue
         title = data.get("title") or ""
         extra = data.get("extra") or ""
         if not isinstance(title, str) or not title.strip() or not isinstance(extra, str):
@@ -94,10 +97,25 @@ def translate_batch(batch: list[dict[str, str]]) -> dict[str, str]:
         for _ in range(3):
             try:
                 result = subprocess.run(
-                    ["hermes", "chat", "-Q", "--ignore-rules", "-t", "browser", "--max-turns", "1",
-                     "--source", "tool", "--in", str(Path(__file__).resolve().parent),
-                     "--query-file", str(query)],
-                    capture_output=True, text=True, timeout=240,
+                    [
+                        "hermes",
+                        "chat",
+                        "-Q",
+                        "--ignore-rules",
+                        "-t",
+                        "browser",
+                        "--max-turns",
+                        "1",
+                        "--source",
+                        "tool",
+                        "--in",
+                        str(Path(__file__).resolve().parent),
+                        "--query-file",
+                        str(query),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=240,
                     env={**os.environ, "HERMES_HOME": str(SCIENTIST_HOME)},
                 )
                 if result.returncode:
@@ -114,8 +132,9 @@ def merge_extra(extra: str, title_zh: str) -> str:
         raise BackfillError("Extra 已存在 translated-title，拒绝覆盖")
     if not title_zh.strip() or not CHINESE_RE.search(title_zh) or "\n" in title_zh or "\r" in title_zh:
         raise BackfillError("中文标题无效")
-    return "\n".join([*(extra.rstrip().splitlines() if extra.strip() else []),
-                      f"translated-title: {zh_text.normalize(title_zh)}"])
+    return "\n".join(
+        [*(extra.rstrip().splitlines() if extra.strip() else []), f"translated-title: {zh_text.normalize(title_zh)}"]
+    )
 
 
 def _write_state(path: Path, state: list[dict]) -> None:
@@ -126,6 +145,7 @@ def _write_state(path: Path, state: list[dict]) -> None:
     into place. `replace` (rename(2)) makes the switch atomic, so the checkpoint is
     always either the previous one or a complete new one.
     """
+    path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f"{path.name}.{os.getpid()}-{uuid.uuid4().hex[:8]}.tmp")
     try:
         tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -135,7 +155,7 @@ def _write_state(path: Path, state: list[dict]) -> None:
         raise
 
 
-def update_one(api, writer, row: dict[str, str], title_zh: str) -> str:
+def update_one(api: Any, writer: ZoteroWriter, row: dict[str, str], title_zh: str) -> str:
     """Read latest item, preserve current Extra, update and verify exact target."""
     key = row["key"]
     current = api.item(key)
@@ -148,7 +168,11 @@ def update_one(api, writer, row: dict[str, str], title_zh: str) -> str:
     if TRANSLATED_TITLE_RE.search(extra):
         return "already_translated"
     new_extra = merge_extra(extra, title_zh)
-    writer.update_item(key, {"extra": new_extra})
+    version = current.get("version")
+    if isinstance(version, int):
+        writer.update_item(key, {"extra": new_extra}, expected_version=version)
+    else:
+        writer.update_item(key, {"extra": new_extra})
     verify = api.item(key)
     verified = verify.get("data", {})
     if verify.get("key") != key or verified.get("title") != row["title"] or verified.get("extra") != new_extra:
@@ -160,43 +184,89 @@ def update_one(api, writer, row: dict[str, str], title_zh: str) -> str:
 
 def stage_translations(items: list[dict], path: Path, *, batch_size: int = 5) -> list[dict[str, str]]:
     """Stage every missing translation before any remote mutation; resume safely."""
-    if path.exists():
-        state = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(state, list) or not all(isinstance(r, dict) for r in state):
-            raise BackfillError(f"翻译暂存文件无效：{path}")
-        expected = {r["key"]: r["title"] for r in items}
-        if {r.get("key"): r.get("title") for r in state} != expected:
-            raise BackfillError("Zotero 库存与翻译暂存文件不一致，拒绝覆盖")
-        return state
-    translations = {}
-    for start in range(0, len(items), batch_size):
-        batch = items[start:start + batch_size]
-        translations.update(translate_batch(batch))
-        print(f"翻译进度 {len(translations)}/{len(items)}", flush=True)
-    if len(translations) != len(items):
-        raise BackfillError("翻译结果不完整")
-    state = [{**row, "title_zh": translations[row["key"]], "status": "pending"} for row in items]
-    _write_state(path, state)
+    if batch_size < 1:
+        raise BackfillError("batch_size 必须为正整数")
+    saved = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+    if not isinstance(saved, list) or not all(
+        isinstance(row, dict) and isinstance(row.get("key"), str) for row in saved
+    ):
+        raise BackfillError(f"翻译暂存文件无效：{path}")
+    state_map = {row["key"]: row for row in saved}
+    if len(state_map) != len(saved):
+        raise BackfillError("翻译暂存文件包含重复 key")
+    state = []
+    for item in items:
+        previous = state_map.get(item["key"])
+        if previous is not None and (
+            previous.get("title") != item["title"] or (previous.get("doi") or "") != (item.get("doi") or "")
+        ):
+            raise BackfillError(f"Zotero 库存与翻译暂存文件不一致：{item['key']}")
+        row = previous if previous is not None else {**item, "status": "pending"}
+        state_map[item["key"]] = row
+        state.append(row)
+    pending = [row for row in state if not row.get("title_zh")]
+    for start in range(0, len(pending), batch_size):
+        batch = pending[start : start + batch_size]
+        translations = translate_batch(batch)
+        if set(translations) != {row["key"] for row in batch}:
+            raise BackfillError("翻译结果不完整")
+        for row in batch:
+            merge_extra("", translations[row["key"]])
+            row["title_zh"] = translations[row["key"]]
+        _write_state(path, list(state_map.values()))
+        print(f"翻译进度 {sum(bool(row.get('title_zh')) for row in state)}/{len(state)}", flush=True)
+    for row in state:
+        merge_extra("", row["title_zh"])
     return state
 
 
-def run_backfill(api, writer, path: Path, *, dry_run: bool = False) -> dict[str, int]:
+def resolve_collection_items(api: Any, collection_name_or_key: str) -> list[dict]:
+    """Find all items in a collection by name or key."""
+    try:
+        col = api.collection(collection_name_or_key)
+        if col and "key" in col:
+            return list(api.everything(api.collection_items(collection_name_or_key)))
+    except Exception:
+        pass
+
+    all_collections = api.everything(api.collections())
+    keyed = [collection for collection in all_collections if collection.get("key") == collection_name_or_key]
+    matches = keyed or [
+        collection
+        for collection in all_collections
+        if (collection.get("data") or {}).get("name", "").strip().casefold()
+        == collection_name_or_key.strip().casefold()
+    ]
+    if not matches:
+        raise BackfillError(f"未找到名为或 key 为 '{collection_name_or_key}' 的集合")
+    if len(matches) != 1:
+        keys = ", ".join(collection["key"] for collection in matches)
+        raise BackfillError(f"多个集合同名，请使用 key：{keys}")
+    return list(api.everything(api.collection_items(matches[0]["key"])))
+
+
+def run_backfill(
+    api: Any, writer: ZoteroWriter, path: Path, *, dry_run: bool = False, collection: str | None = None
+) -> dict[str, int]:
     """Inventory, stage, update, verify and checkpoint each item."""
-    items = api.everything(api.top(limit=100))
+    if collection:
+        items = resolve_collection_items(api, collection)
+    else:
+        items = api.everything(api.top(limit=100))
     missing = select_missing(items)
     if dry_run:
-        by_type = {}
+        by_type: dict[str, int] = {}
+        missing_keys = {row["key"] for row in missing}
         for item in items:
             typ = item.get("data", {}).get("itemType", "")
-            if item.get("key") in {r["key"] for r in missing}:
+            if item.get("key") in missing_keys:
                 by_type[typ] = by_type.get(typ, 0) + 1
         print(f"缺少翻译且有标题：{len(missing)}；按类型：{by_type}")
         return {"missing": len(missing), "updated": 0, "already_translated": 0}
     state = stage_translations(missing, path)
     counts = {"missing": len(state), "updated": 0, "already_translated": 0}
     for row in state:
-        if row["status"] in {"updated", "already_translated"}:
-            continue
+        # The fresh inventory says this title is missing; cached completion is not proof otherwise.
         result = update_one(api, writer, row, row["title_zh"])
         row["status"] = result
         counts[result] += 1
@@ -207,6 +277,7 @@ def run_backfill(api, writer, path: Path, *, dry_run: bool = False) -> dict[str,
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="为 Zotero 全库缺少中文翻译的标题补写 translated-title")
+    parser.add_argument("--collection", help="目标集合名称或 key（例如 '00 | 收件箱' 或 'AG7NQ5UW'）")
     parser.add_argument("--apply", action="store_true", help="实际写入；默认只统计")
     args = parser.parse_args(argv)
     config = load_config()
@@ -214,7 +285,7 @@ def main(argv: list[str] | None = None) -> None:
     if not library_id or not api_key:
         raise BackfillError("Zotero API 凭据缺失")
     writer = ZoteroWriter(library_id, api_key)
-    result = run_backfill(writer._zot, writer, STATE_FILE, dry_run=not args.apply)
+    result = run_backfill(writer._zot, writer, STATE_FILE, dry_run=not args.apply, collection=args.collection)
     print(f"结果：{result}")
 
 

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from zotero_cli.core.reader import ZoteroReader
+from zotero_cli.core.zotero.reader import ZoteroReader
 
 
 @pytest.fixture

@@ -1,7 +1,7 @@
 import json
 
-from zotero_cli.formatter import format_collections, format_error, format_item_detail, format_items, format_notes
 from zotero_cli.models import Collection, Creator, Item, Note
+from zotero_cli.output.renderers import format_collections, format_error, format_item_detail, format_items, format_notes
 
 
 def _make_item(key="K1", title="Test") -> Item:

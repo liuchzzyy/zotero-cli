@@ -6,9 +6,8 @@ import json
 
 from tests.support import invoke_cli as _run
 
-from zotero_cli.core.semantic_scholar import (
+from zotero_cli.core.zotero.publication_status import (
     PublicationStatus,
-    extract_arxiv_id,
     extract_preprint_info,
 )
 
@@ -30,37 +29,39 @@ class TestUpdateStatusCli:
         assert env["error"]["code"] == "not_found"
 
 
-class TestExtractArxivId:
-    def test_abs_url(self) -> None:
-        assert extract_arxiv_id(url="https://arxiv.org/abs/1706.03762") == "1706.03762"
+class TestExtractArxivIds:
+    """arXiv ID forms that update-status must recognise as preprints."""
 
     def test_pdf_url(self) -> None:
-        assert extract_arxiv_id(url="https://arxiv.org/pdf/2301.08745") == "2301.08745"
+        info = extract_preprint_info(url="https://arxiv.org/pdf/2301.08745")
+        assert info is not None
+        assert info.source == "arxiv"
+        assert info.preprint_id == "2301.08745"
 
     def test_url_with_version(self) -> None:
-        assert extract_arxiv_id(url="https://arxiv.org/abs/1706.03762v5") == "1706.03762"
+        info = extract_preprint_info(url="https://arxiv.org/abs/1706.03762v5")
+        assert info is not None
+        assert info.preprint_id == "1706.03762"
 
     def test_arxiv_doi(self) -> None:
-        assert extract_arxiv_id(doi="10.48550/arXiv.2303.08774") == "2303.08774"
+        info = extract_preprint_info(doi="10.48550/arXiv.2303.08774")
+        assert info is not None
+        assert info.source == "arxiv"
+        assert info.preprint_id == "2303.08774"
 
     def test_extra_field(self) -> None:
-        assert extract_arxiv_id(extra="arXiv:2201.11903") == "2201.11903"
-
-    def test_no_arxiv(self) -> None:
-        assert extract_arxiv_id(url="https://example.com", doi="10.1000/xyz") is None
-
-    def test_none_inputs(self) -> None:
-        assert extract_arxiv_id() is None
+        info = extract_preprint_info(extra="arXiv:2201.11903")
+        assert info is not None
+        assert info.preprint_id == "2201.11903"
 
     def test_old_format_id(self) -> None:
-        assert extract_arxiv_id(url="https://arxiv.org/abs/cs/0612047") == "cs/0612047"
+        info = extract_preprint_info(url="https://arxiv.org/abs/cs/0612047")
+        assert info is not None
+        assert info.source == "arxiv"
+        assert info.preprint_id == "cs/0612047"
 
-    def test_five_digit_id(self) -> None:
-        assert extract_arxiv_id(url="https://arxiv.org/abs/2301.12345") == "2301.12345"
-
-    def test_biorxiv_returns_none(self) -> None:
-        """extract_arxiv_id should NOT match bioRxiv."""
-        assert extract_arxiv_id(url="https://www.biorxiv.org/content/10.1101/2023.05.22.540599v1") is None
+    def test_non_arxiv_doi_is_ignored(self) -> None:
+        assert extract_preprint_info(doi="10.1000/xyz") is None
 
 
 class TestExtractPreprintInfo:

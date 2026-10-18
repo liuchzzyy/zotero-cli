@@ -69,4 +69,3 @@ def check_for_update(current_version: str) -> str | None:
         return None
     except Exception:
         return None
-

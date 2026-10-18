@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,9 @@ from zotero_cli.config import AppConfig
 @pytest.fixture(autouse=True)
 def isolate_test_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep tests deterministic and disconnected from the user's live services."""
+    for name in tuple(os.environ):
+        if name.startswith("ZOT_"):
+            monkeypatch.delenv(name)
     monkeypatch.setenv("ZOT_DATA_DIR", str(FIXTURES_DIR))
     monkeypatch.setenv("ZOT_FORMAT", "table")
     for name in (

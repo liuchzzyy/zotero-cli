@@ -6,7 +6,7 @@ import json
 
 from tests.support import invoke_agent_cli as _run
 
-from zotero_cli.exit_codes import EXIT_OK
+from zotero_cli.output.exit_codes import EXIT_OK
 
 
 def _parse_ndjson(s: str) -> list[dict]:
@@ -93,7 +93,8 @@ class TestEmitProgress:
         import sys
         from io import StringIO
 
-        from zotero_cli.formatter import emit_progress, request_scope
+        from zotero_cli.output.envelope import request_scope
+        from zotero_cli.output.streaming import emit_progress
 
         captured = StringIO()
         old = sys.stderr

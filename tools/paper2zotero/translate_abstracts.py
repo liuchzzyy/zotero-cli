@@ -29,7 +29,7 @@ from typing import Any
 import zh_text
 
 from zotero_cli.config import load_config, resolve_write_credentials
-from zotero_cli.core.writer import ZoteroWriter
+from zotero_cli.core.zotero.writer import ZoteroWriter
 
 SCIENTIST_HOME = Path("/Users/liuchzzyy/.hermes/profiles/scientist")
 TOOLS_DIR = Path(__file__).resolve().parent
@@ -53,6 +53,14 @@ class AbstractTranslationError(RuntimeError):
     """An abstract could not be safely translated, validated, or verified."""
 
 
+def validate_translation(text: object, key: str) -> str:
+    """Validate the normalized body, not the model's label-bearing raw output."""
+    try:
+        return zh_text.require_chinese_abstract(text)
+    except ValueError as exc:
+        raise AbstractTranslationError(f"条目未返回有效中文摘要: {key}: {exc}") from exc
+
+
 def is_predominantly_chinese(text: str) -> bool:
     """Return True if text already contains significant Chinese characters (>20% of non-whitespace)."""
     cleaned = "".join(text.split())
@@ -68,7 +76,7 @@ def clean_source_abstract(text: str) -> str:
     # Remove metadata repeat: "The foo bar. , The foo bar..."
     repeat_match = re.match(r"^([^.!?\n]{20,200}[.!?])\s*,\s*\1\s*", stripped)
     if repeat_match:
-        stripped = stripped[repeat_match.end(1) + 1:].strip()
+        stripped = stripped[repeat_match.end(1) + 1 :].strip()
         if stripped.startswith(","):
             stripped = stripped[1:].strip()
     return stripped
@@ -118,12 +126,15 @@ def select_items_to_translate(
             continue
 
         cleaned_abstract = clean_source_abstract(raw_abstract)
-        selected.append({
-            "key": key,
-            "title": title,
-            "doi": doi,
-            "abstract": cleaned_abstract,
-        })
+        selected.append(
+            {
+                "key": key,
+                "title": title,
+                "doi": doi,
+                "abstract": cleaned_abstract,
+                "source_abstract": raw_abstract,
+            }
+        )
         stats["needs_translation"] += 1
 
     return selected, stats
@@ -144,7 +155,9 @@ def parse_model_response(raw_output: str, batch: list[dict[str, str]]) -> dict[s
         raise AbstractTranslationError(f"模型未返回有效 JSON: {exc} | 原始输出: {raw_output[:120]}") from exc
 
     if not isinstance(payload, list) or len(payload) != len(batch):
-        raise AbstractTranslationError(f"模型返回条数 ({len(payload) if isinstance(payload, list) else 'invalid'}) 与输入 ({len(batch)}) 不符")
+        raise AbstractTranslationError(
+            f"模型返回条数 ({len(payload) if isinstance(payload, list) else 'invalid'}) 与输入 ({len(batch)}) 不符"
+        )
 
     expected_keys = {row["key"] for row in batch}
     translated = {}
@@ -155,9 +168,7 @@ def parse_model_response(raw_output: str, batch: list[dict[str, str]]) -> dict[s
         abstract_zh = row.get("abstract_zh")
         if key not in expected_keys or key in translated:
             raise AbstractTranslationError(f"模型返回了未预期的或重复的 key: {key}")
-        if not isinstance(abstract_zh, str) or not abstract_zh.strip() or not CHINESE_RE.search(abstract_zh):
-            raise AbstractTranslationError(f"条目未返回有效中文摘要: {key}")
-        translated[key] = abstract_zh.strip()
+        translated[key] = validate_translation(abstract_zh, key)
 
     return translated
 
@@ -166,10 +177,7 @@ def translate_batch(batch: list[dict[str, str]]) -> dict[str, str]:
     """Translate a batch of abstracts using hermes CLI; retries up to 3 times."""
     scratch = SCIENTIST_HOME / "cache/scratch"
     scratch.mkdir(parents=True, exist_ok=True)
-    query_rows = [
-        {"key": row["key"], "title": row["title"], "abstract": row["abstract"]}
-        for row in batch
-    ]
+    query_rows = [{"key": row["key"], "title": row["title"], "abstract": row["abstract"]} for row in batch]
     with tempfile.TemporaryDirectory(prefix="zotero-abstract-trans-", dir=scratch) as directory:
         query_file = Path(directory) / "query.txt"
         query_file.write_text(PROMPT + json.dumps(query_rows, ensure_ascii=False), encoding="utf-8")
@@ -178,9 +186,20 @@ def translate_batch(batch: list[dict[str, str]]) -> dict[str, str]:
             try:
                 result = subprocess.run(
                     [
-                        "hermes", "chat", "-Q", "--ignore-rules", "-t", "browser", "--max-turns", "1",
-                        "--source", "tool", "--in", str(TOOLS_DIR),
-                        "--query-file", str(query_file),
+                        "hermes",
+                        "chat",
+                        "-Q",
+                        "--ignore-rules",
+                        "-t",
+                        "browser",
+                        "--max-turns",
+                        "1",
+                        "--source",
+                        "tool",
+                        "--in",
+                        str(TOOLS_DIR),
+                        "--query-file",
+                        str(query_file),
                     ],
                     capture_output=True,
                     text=True,
@@ -214,31 +233,42 @@ def stage_translations(
     custom_translator: Any = None,
 ) -> list[dict[str, Any]]:
     """Stage translations before making remote mutations, with resumption support."""
+    if batch_size < 1:
+        raise AbstractTranslationError("batch_size 必须为正整数")
+    saved: Any = []
     if path.exists():
         try:
-            state = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(state, list) and all(isinstance(r, dict) for r in state):
-                expected_keys = {r["key"] for r in candidates}
-                if {r.get("key") for r in state} == expected_keys:
-                    return state
-        except Exception:
-            pass  # regenerate if corrupt or mismatch
+            saved = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            saved = []
+    state_map = (
+        {r["key"]: r for r in saved if isinstance(r, dict) and isinstance(r.get("key"), str)}
+        if isinstance(saved, list)
+        else {}
+    )
+    state: list[dict[str, Any]] = []
+    pending: list[dict[str, Any]] = []
+    for candidate in candidates:
+        previous = state_map.get(candidate["key"])
+        # A key identifies the record, not the text which was translated. Missing
+        # identity fields in legacy checkpoints cannot establish a safe match.
+        matches = previous is not None and all(
+            previous.get(field) == candidate.get(field) for field in ("title", "doi", "abstract", "source_abstract")
+        )
+        if matches and previous is not None and "abstract_zh" in previous:
+            previous["abstract_zh"] = validate_translation(previous["abstract_zh"], candidate["key"])
+            state.append(previous)
+        else:
+            row = {**candidate, "status": "pending"}
+            state.append(row)
+            pending.append(row)
 
     translator = custom_translator or translate_batch
-    translations: dict[str, str] = {}
-    for start in range(0, len(candidates), batch_size):
-        batch = candidates[start:start + batch_size]
-        translations.update(translator(batch))
-
-    state = []
-    for row in candidates:
-        raw_zh = translations[row["key"]]
-        normalised_zh = zh_text.normalize_abstract(raw_zh)
-        state.append({
-            **row,
-            "abstract_zh": normalised_zh,
-            "status": "pending",
-        })
+    for start in range(0, len(pending), batch_size):
+        batch = pending[start : start + batch_size]
+        translations = translator(batch)
+        for row in batch:
+            row["abstract_zh"] = validate_translation(translations[row["key"]], row["key"])
 
     _write_state(path, state)
     return state
@@ -247,16 +277,33 @@ def stage_translations(
 def update_one_abstract(api: Any, writer: ZoteroWriter, row: dict[str, Any], abstract_zh: str) -> str:
     """Write normalised Chinese abstract to abstractNote and verify via Web API readback."""
     key = row["key"]
+    abstract_zh = validate_translation(abstract_zh, key)
     item = api.item(key)
     data = item.get("data", {})
     if item.get("key") != key:
         raise AbstractTranslationError(f"条目 key 在准备更新时变化: {key}")
 
-    current_abstract = data.get("abstractNote", "")
+    current_abstract = data.get("abstractNote") or ""
     if current_abstract == abstract_zh:
         return "already_up_to_date"
 
-    writer.update_item(key, {"abstractNote": abstract_zh})
+    if "title" in row and (data.get("title") or "") != row["title"]:
+        raise AbstractTranslationError(f"条目 title 在准备更新时变化: {key}")
+    if "doi" in row and (data.get("DOI") or "") != row["doi"]:
+        raise AbstractTranslationError(f"条目 DOI 在准备更新时变化: {key}")
+    planned_source = row.get("source_abstract", row.get("abstract"))
+    if not isinstance(planned_source, str) or current_abstract != planned_source:
+        raise AbstractTranslationError(f"条目摘要与暂存 source 不一致，拒绝覆盖: {key}")
+    if is_predominantly_chinese(zh_text.normalize_abstract(current_abstract)):
+        raise AbstractTranslationError(f"条目已有不同的中文摘要，拒绝覆盖: {key}")
+
+    version = item.get("version")
+    if type(version) is int:
+        writer.update_item(key, {"abstractNote": abstract_zh}, expected_version=version)
+    else:
+        # Legacy test doubles lack versions; actual Zotero API documents carry
+        # the integer used by the writer's optimistic concurrency precondition.
+        writer.update_item(key, {"abstractNote": abstract_zh})
 
     # Verify via immediate Web API readback
     verify_item = api.item(key)
@@ -306,24 +353,25 @@ def resolve_collection_items(api: Any, collection_name_or_key: str) -> list[dict
     # First check if directly a collection key
     try:
         col = api.collection(collection_name_or_key)
-        if col and "key" in col:
-            return api.everything(api.collection_items(collection_name_or_key))
+        if isinstance(col, dict) and col.get("key") == collection_name_or_key:
+            return list(api.everything(api.collection_items(collection_name_or_key)))
     except Exception:
         pass
 
     # Search all collections by name
     all_collections = api.everything(api.collections())
-    target_key = None
-    for c in all_collections:
-        c_data = c.get("data", {})
-        if c.get("key") == collection_name_or_key or c_data.get("name", "").strip().lower() == collection_name_or_key.strip().lower():
-            target_key = c.get("key")
-            break
-
-    if not target_key:
+    keyed = [c for c in all_collections if c.get("key") == collection_name_or_key]
+    matches = keyed or [
+        c
+        for c in all_collections
+        if (c.get("data") or {}).get("name", "").strip().casefold() == collection_name_or_key.strip().casefold()
+    ]
+    if not matches:
         raise AbstractTranslationError(f"未找到名为或 key 为 '{collection_name_or_key}' 的集合")
-
-    return api.everything(api.collection_items(target_key))
+    if len(matches) != 1:
+        keys = ", ".join(c["key"] for c in matches)
+        raise AbstractTranslationError(f"多个集合同名，请使用 key：{keys}")
+    return list(api.everything(api.collection_items(matches[0]["key"])))
 
 
 def main(argv: list[str] | None = None) -> None:

@@ -34,8 +34,18 @@ class TranslateAbstractsTests(unittest.TestCase):
 
     def test_select_items_skips_empty_and_existing_chinese(self) -> None:
         items = [
-            {"key": "A", "data": {"title": "Paper A", "abstractNote": "Aqueous battery with MnO2", "itemType": "journalArticle"}},
-            {"key": "B", "data": {"title": "Paper B", "abstractNote": "水系锌离子电池电化学性能研究", "itemType": "journalArticle"}},
+            {
+                "key": "A",
+                "data": {"title": "Paper A", "abstractNote": "Aqueous battery with MnO2", "itemType": "journalArticle"},
+            },
+            {
+                "key": "B",
+                "data": {
+                    "title": "Paper B",
+                    "abstractNote": "水系锌离子电池电化学性能研究",
+                    "itemType": "journalArticle",
+                },
+            },
             {"key": "C", "data": {"title": "Paper C", "abstractNote": "", "itemType": "journalArticle"}},
             {"key": "D", "data": {"title": "Paper D", "abstractNote": None, "itemType": "journalArticle"}},
             {"key": "E", "data": {"title": "Note E", "abstractNote": "Note text", "itemType": "note"}},
@@ -96,7 +106,9 @@ class TranslateAbstractsTests(unittest.TestCase):
             {"key": "KEY1", "data": {"abstractNote": "新中文摘要"}},
         ]
         writer = Mock()
-        status = trans.update_one_abstract(api, writer, {"key": "KEY1"}, "新中文摘要")
+        status = trans.update_one_abstract(
+            api, writer, {"key": "KEY1", "abstract": "Old English abstract"}, "新中文摘要"
+        )
         self.assertEqual(status, "updated")
         writer.update_item.assert_called_once_with("KEY1", {"abstractNote": "新中文摘要"})
         self.assertEqual(api.item.call_count, 2)
@@ -117,7 +129,7 @@ class TranslateAbstractsTests(unittest.TestCase):
         ]
         writer = Mock()
         with self.assertRaises(trans.AbstractTranslationError):
-            trans.update_one_abstract(api, writer, {"key": "KEY1"}, "期望写入的内容")
+            trans.update_one_abstract(api, writer, {"key": "KEY1", "abstract": "Old English"}, "期望写入的内容")
 
     def test_dry_run_does_not_mutate(self) -> None:
         candidates = [{"key": "KEY1", "title": "T1", "abstract": "Eng"}]
@@ -134,7 +146,9 @@ class TranslateAbstractsTests(unittest.TestCase):
     def test_model_invokes_hermes_cli_with_retries(self) -> None:
         batch = [{"key": "K1", "title": "T1", "abstract": "Abs"}]
         bad = CompletedProcess([], 0, stdout="[]", stderr="")
-        good = CompletedProcess([], 0, stdout='[{"key": "K1", "title": "T1", "abstract_zh": "有效中文摘要"}]', stderr="")
+        good = CompletedProcess(
+            [], 0, stdout='[{"key": "K1", "title": "T1", "abstract_zh": "有效中文摘要"}]', stderr=""
+        )
         with patch.object(trans.subprocess, "run", side_effect=[bad, good]) as mock_run:
             res = trans.translate_batch(batch)
             self.assertEqual(res, {"K1": "有效中文摘要"})

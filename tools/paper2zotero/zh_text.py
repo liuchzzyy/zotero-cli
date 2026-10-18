@@ -13,7 +13,7 @@ Zotero renders `abstractNote` and an Extra line as plain text, so a surviving
 script character is visible damage rather than typography.
 
 The character classes and the Unicode flattening come from
-`zotero_cli.core.note_text`, so an abstract translated here and an AI note
+`zotero_cli.core.notes.text`, so an abstract translated here and an AI note
 rendered by the package cannot drift apart. Those two functions do not cover
 HTML or LaTeX script markup, which a model may emit instead of a Unicode
 character, so this module flattens those first, then delegates.
@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import re
 
-from zotero_cli.core.note_text import pad_cjk_latin, plain_super_subscripts
+from zotero_cli.core.notes.text import pad_cjk_latin, plain_super_subscripts
 
 # `<sub>2</sub>` carries the same meaning as `₂`; the tag goes, the digit stays.
 _SCRIPT_TAG = re.compile(r"</?(?:sup|sub)\b[^>]*>", re.IGNORECASE)
@@ -71,7 +71,22 @@ _LEADING_LABEL = re.compile(r"^\s*(?:abstract|摘要)\s*[:：]?\s*", re.IGNORECA
 
 def normalize_abstract(text: str) -> str:
     """`normalize` for an abstract, without a leading "摘要：" label."""
-    return normalize(_LEADING_LABEL.sub("", normalize(text)))
+    normalized = normalize(text)
+    while True:
+        stripped = _LEADING_LABEL.sub("", normalized)
+        if stripped == normalized:
+            return normalized
+        normalized = normalize(stripped)
+
+
+def require_chinese_abstract(text: object) -> str:
+    """Normalize a translation and reject empty/label-only or non-Chinese output."""
+    if not isinstance(text, str):
+        raise ValueError("中文摘要必须是非空文本")
+    normalized = normalize_abstract(text)
+    if not normalized or not re.search(r"[\u4e00-\u9fff]", normalized):
+        raise ValueError("正规化后的中文摘要为空或不含中文正文")
+    return normalized
 
 
 def has_script(text: str) -> bool:

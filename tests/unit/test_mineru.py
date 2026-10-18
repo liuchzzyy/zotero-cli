@@ -5,14 +5,8 @@ import json
 import zipfile
 from unittest.mock import MagicMock
 
-from zotero_cli.core.mineru import (
-    MinerUParseCache,
-    MinerUParseResult,
-    _read_archive,
-    _RemoteParse,
-    _safe_extract_zip,
-    extract_doi_from_markdown,
-)
+from zotero_cli.core.mineru import MinerUParseCache, MinerUParseResult, extract_doi_from_markdown
+from zotero_cli.core.mineru.client import _read_archive, _RemoteParse, _safe_extract_zip
 
 
 def _archive(markdown: str = "# Paper\nBody", content: list[dict] | None = None) -> bytes:
@@ -91,3 +85,10 @@ def test_parse_cache_key_changes_with_pdf_content(tmp_path) -> None:
 def test_extract_doi_from_mineru_markdown() -> None:
     assert extract_doi_from_markdown("DOI: 10.1234/example.paper).") == "10.1234/example.paper"
     assert extract_doi_from_markdown("no identifier") is None
+
+
+def test_mineru_client_disables_trust_env() -> None:
+    from zotero_cli.core.mineru import MinerUClient
+
+    client = MinerUClient("fake-token")
+    assert client._session.trust_env is False

@@ -11,20 +11,20 @@ from tests.support import invoke_cli as _invoke
 
 from zotero_cli.config import VectorStoreConfig
 from zotero_cli.core.mineru import MinerUError, MinerUParseResult
-from zotero_cli.core.rag_index import RagIndex
+from zotero_cli.core.rag.index import RagIndex
 
 
 def _patch_workspace(tmp_path):
     """Patch workspace dirs + vector store so tests are fully isolated."""
     stack = ExitStack()
-    stack.enter_context(patch("zotero_cli.core.workspace.workspaces_dir", return_value=tmp_path))
+    stack.enter_context(patch("zotero_cli.core.workspace_store.workspaces_dir", return_value=tmp_path))
     stack.enter_context(
         patch(
-            "zotero_cli.commands.workspace.load_vector_store_config",
+            "zotero_cli.commands.workspace.indexing.load_vector_store_config",
             return_value=VectorStoreConfig(path=str(tmp_path / "_qdrant")),
         )
     )
-    cache_cls = stack.enter_context(patch("zotero_cli.commands.workspace.MinerUParseCache"))
+    cache_cls = stack.enter_context(patch("zotero_cli.commands.workspace.indexing.MinerUParseCache"))
 
     def fake_ensure_many(paths, _progress=None):
         results = {}
@@ -112,7 +112,7 @@ class TestWorkspaceIndex:
         with (
             _patch_workspace(tmp_path),
             patch(
-                "zotero_cli.commands.workspace.embed_texts",
+                "zotero_cli.commands.workspace.indexing.embed_texts",
                 side_effect=AssertionError("should not embed"),
             ) as embed_mock,
         ):
@@ -138,7 +138,7 @@ class TestWorkspaceIndex:
             idx.close()
 
     def test_failed_mineru_parse_remains_pending_for_retry(self, tmp_path):
-        with _patch_workspace(tmp_path), patch("zotero_cli.commands.workspace.MinerUParseCache") as cache_cls:
+        with _patch_workspace(tmp_path), patch("zotero_cli.commands.workspace.indexing.MinerUParseCache") as cache_cls:
             cache_cls.return_value.ensure_many.side_effect = lambda paths, _progress=None: {
                 path: MinerUError("cloud parse failed") for path in paths
             }
@@ -209,7 +209,7 @@ class TestWorkspaceQuery:
             selected = candidates[:top_n]
             return [(cid, 10.0 - idx, chunk) for idx, (cid, _score, chunk) in enumerate(selected)] + candidates[top_n:]
 
-        with _patch_workspace(tmp_path), patch("zotero_cli.commands.workspace.rerank_chunks", fake_rerank):
+        with _patch_workspace(tmp_path), patch("zotero_cli.commands.workspace.query.rerank_chunks", fake_rerank):
             _invoke(["workspace", "new", "test-q"])
             _invoke(["workspace", "add", "test-q", "ATTN001"])
             _invoke(["workspace", "index", "test-q"])

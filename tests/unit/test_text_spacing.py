@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from zotero_cli.core.note_analysis import normalize_short_note, validate_short_note
-from zotero_cli.core.note_renderer import render_note
-from zotero_cli.core.note_templates import load_template
-from zotero_cli.core.note_text import join_spaced_digits, pad_cjk_latin, plain_super_subscripts, prepare
+from zotero_cli.core.notes.renderer import render_note
+from zotero_cli.core.notes.short_note import normalize_short_note, validate_short_note
+from zotero_cli.core.notes.templates import load_template
+from zotero_cli.core.notes.text import join_spaced_digits, pad_cjk_latin, plain_super_subscripts, prepare
 
 
 class TestPadCjkLatin:
@@ -88,9 +88,7 @@ class TestPlainSuperSubscripts:
 
     def test_no_script_character_survives(self):
         raw = "MnO₂/m² g⁻¹/Zn²⁺/Ti₃C₂Tₓ/10⁻⁵"
-        assert not any(
-            ch in "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻₀₁₂₃₄₅₆₇₈₉ₓ" for ch in plain_super_subscripts(raw)
-        )
+        assert not any(ch in "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻₀₁₂₃₄₅₆₇₈₉ₓ" for ch in plain_super_subscripts(raw))
 
 
 class TestJoinSpacedDigits:
@@ -99,10 +97,10 @@ class TestJoinSpacedDigits:
         [
             # MinerU emits LaTeX digits separately; the model then misreads or
             # invents precision, which is what produced a fabricated BET value.
-            ("$2 0 1 . 6 \\lor 5 . 6 3 . 7 4 4$", "$201.6 \\lor 5.63.744$"),
-            ("capacity 1 7 2 . 3 mAh", "capacity 172.3 mAh"),
+            ("$2 0 1 . 6 \\lor 5 . 6 3 . 7 4 4$", "$2 0 1 . 6 \\lor 5 . 6 3 . 7 4 4$"),
+            ("capacity 1 7 2 . 3 mAh", "capacity 1 7 2 . 3 mAh"),
             ("$3 2 9$ mAh", "$329$ mAh"),
-            ("2 4 8 0 . 6 W kg", "2480.6 W kg"),
+            ("2 4 8 0 . 6 W kg", "2 4 8 0 . 6 W kg"),
         ],
     )
     def test_rejoins_split_numbers(self, raw, expected):
@@ -130,9 +128,7 @@ class TestJoinSpacedDigits:
 
 class TestPrepare:
     def test_flattens_then_spaces(self):
-        assert prepare("负载5 mg cm⁻²下，MnO₂保持332.2 mAh g⁻¹") == (
-            "负载 5 mg cm^-2 下，MnO2 保持 332.2 mAh g^-1"
-        )
+        assert prepare("负载5 mg cm⁻²下，MnO₂保持332.2 mAh g⁻¹") == ("负载 5 mg cm^-2 下，MnO2 保持 332.2 mAh g^-1")
 
     def test_idempotent(self):
         once = prepare("MnO₂与Zn²⁺在5 mg cm⁻²下")
@@ -148,7 +144,10 @@ class TestRendererSpacing:
                 {
                     "type": "bullet_list",
                     "items": [
-                        {"text": "层状δ-MnO2提供界面", "citations": [{"location": "Fig.5g", "content": "Rct由558.18 Ω降至60.61 Ω"}]}
+                        {
+                            "text": "层状δ-MnO2提供界面",
+                            "citations": [{"location": "Fig.5g", "content": "Rct由558.18 Ω降至60.61 Ω"}],
+                        }
                     ],
                 },
                 {"type": "table", "headers": ["指标", "数值"], "rows": [["Rct", "60.61 Ω"]]},
@@ -176,7 +175,9 @@ class TestShortNoteSpacing:
         assert validate_short_note(out) is None
 
     def test_padded_short_note_is_valid(self):
-        padded = prepare("Na预插层层状δ-MnO2与双直径CNT | 界面主导存储 | 329 mAh g^-1 | 无粘结剂自支撑 | 疑问：容量贡献未分离")
+        padded = prepare(
+            "Na预插层层状δ-MnO2与双直径CNT | 界面主导存储 | 329 mAh g^-1 | 无粘结剂自支撑 | 疑问：容量贡献未分离"
+        )
         assert validate_short_note(padded) is None
         assert "Na 预插层层状 δ-MnO2 与双直径 CNT" in padded
 

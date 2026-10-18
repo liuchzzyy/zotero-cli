@@ -18,6 +18,7 @@ class BackfillTests(unittest.TestCase):
             {"key": "C", "data": {"title": "", "extra": "", "itemType": "note"}},
             {"key": "D", "data": {"title": "Blog", "extra": "Translated-Title: 译文", "itemType": "blogPost"}},
             {"key": "E", "data": {"title": "Other", "extra": "unrelated: 中文"}},
+            {"key": "F", "data": {"title": "Paper.pdf", "extra": "", "itemType": "attachment"}},
         ]
         self.assertEqual([x["key"] for x in backfill.select_missing(items)], ["A", "E"])
 
@@ -30,8 +31,13 @@ class BackfillTests(unittest.TestCase):
 
     def test_model_uses_query_file_and_retries_invalid_answer(self):
         rows = [{"key": "A1234567", "title": "Operando XAS of MnO2 cathodes"}]
-        bad = CompletedProcess([], 0, stdout='[]', stderr='')
-        good = CompletedProcess([], 0, stdout='[{"key":"A1234567","title":"Operando XAS of MnO2 cathodes","title_zh":"MnO2 正极的原位 XAS 研究"}]', stderr='')
+        bad = CompletedProcess([], 0, stdout="[]", stderr="")
+        good = CompletedProcess(
+            [],
+            0,
+            stdout='[{"key":"A1234567","title":"Operando XAS of MnO2 cathodes","title_zh":"MnO2 正极的原位 XAS 研究"}]',
+            stderr="",
+        )
 
         with patch.object(backfill.subprocess, "run", side_effect=[bad, good]) as model:
             self.assertEqual(backfill.translate_batch(rows), {"A1234567": "MnO2 正极的原位 XAS 研究"})
@@ -43,13 +49,16 @@ class BackfillTests(unittest.TestCase):
 
     def test_normalise_multiline_jats_title_without_changing_source(self):
         original = "Interlayer‐Engineered 1T‐MoSe\n   <sub>2</sub> Enabling Reversible Mn"
-        self.assertEqual(backfill._normalise_input_title(original),
-                         "Interlayer‐Engineered 1T‐MoSe 2 Enabling Reversible Mn")
+        self.assertEqual(
+            backfill._normalise_input_title(original), "Interlayer‐Engineered 1T‐MoSe 2 Enabling Reversible Mn"
+        )
         self.assertIn("<sub>2</sub>", original)
 
     def test_append_preserves_existing_extra_lines(self):
-        self.assertEqual(backfill.merge_extra("funder: ABC\nshort-note: keep", "水系 Zn–MnO₂ 正极"),
-                         "funder: ABC\nshort-note: keep\ntranslated-title: 水系 Zn–MnO2 正极")
+        self.assertEqual(
+            backfill.merge_extra("funder: ABC\nshort-note: keep", "水系 Zn–MnO₂ 正极"),
+            "funder: ABC\nshort-note: keep\ntranslated-title: 水系 Zn–MnO2 正极",
+        )
 
     def test_backfilled_title_is_flattened_and_spaced_like_imported_titles(self):
         merged = backfill.merge_extra("", "层状δ-MnO₂正极在5 A g⁻¹下提供300 mAh g⁻¹")
@@ -60,7 +69,10 @@ class BackfillTests(unittest.TestCase):
         api = Mock()
         api.item.side_effect = [
             {"key": "A1234567", "data": {"title": "Cathode", "DOI": "10.1000/a", "extra": "funder: ABC"}},
-            {"key": "A1234567", "data": {"title": "Cathode", "DOI": "10.1000/a", "extra": "funder: ABC\ntranslated-title: 正极"}},
+            {
+                "key": "A1234567",
+                "data": {"title": "Cathode", "DOI": "10.1000/a", "extra": "funder: ABC\ntranslated-title: 正极"},
+            },
         ]
         writer = Mock()
         backfill.update_one(api, writer, {"key": "A1234567", "title": "Cathode", "doi": "10.1000/a"}, "正极")
@@ -80,18 +92,40 @@ class BackfillTests(unittest.TestCase):
         api = Mock()
         api.item.return_value = {"key": "A1234567", "data": {"title": "Cathode", "extra": "translated-title: 已有翻译"}}
         writer = Mock()
-        self.assertEqual(backfill.update_one(api, writer, {"key": "A1234567", "title": "Cathode"}, "新译文"), "already_translated")
+        self.assertEqual(
+            backfill.update_one(api, writer, {"key": "A1234567", "title": "Cathode"}, "新译文"), "already_translated"
+        )
         writer.update_item.assert_not_called()
 
     def test_stage_must_complete_before_any_remote_write(self):
-        items = [{"key": "A1234567", "data": {"title": "A", "extra": ""}},
-                 {"key": "B1234567", "data": {"title": "B", "extra": ""}}]
+        items = [
+            {"key": "A1234567", "data": {"title": "A", "extra": ""}},
+            {"key": "B1234567", "data": {"title": "B", "extra": ""}},
+        ]
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "state.json"
-            with patch.object(backfill, "translate_batch", side_effect=[{"A1234567": "甲"}, backfill.BackfillError("model failed")]):
+            with patch.object(
+                backfill, "translate_batch", side_effect=[{"A1234567": "甲"}, backfill.BackfillError("model failed")]
+            ):
                 with self.assertRaises(backfill.BackfillError):
                     backfill.stage_translations(items, path, batch_size=1)
-            self.assertFalse(path.exists())
+            saved = backfill.json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(saved[0]["title_zh"], "甲")
+            self.assertFalse(saved[1].get("title_zh"))
+
+    def test_resolve_collection_by_key_or_name(self):
+        api = Mock()
+        api.collection.return_value = {"key": "COL1", "data": {"name": "Inbox"}}
+        api.collection_items.return_value = [{"key": "A"}]
+        api.everything.side_effect = lambda x: x
+        res = backfill.resolve_collection_items(api, "COL1")
+        self.assertEqual(res, [{"key": "A"}])
+
+        api.collection.side_effect = Exception("not a key")
+        api.collections.return_value = [{"key": "COL2", "data": {"name": "00 | 收件箱"}}]
+        api.collection_items.return_value = [{"key": "B"}]
+        res2 = backfill.resolve_collection_items(api, "00 | 收件箱")
+        self.assertEqual(res2, [{"key": "B"}])
 
 
 if __name__ == "__main__":

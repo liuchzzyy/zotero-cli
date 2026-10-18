@@ -11,8 +11,8 @@ import sqlite3
 
 import pytest
 
-from zotero_cli.core.note_analysis import _drop_duplicate_parts
-from zotero_cli.core.reader import ZoteroReader
+from zotero_cli.core.notes.documents import _drop_duplicate_parts
+from zotero_cli.core.zotero.reader import ZoteroReader
 
 _LONG = "This is a sufficiently long line of body text that survives the length filter."
 

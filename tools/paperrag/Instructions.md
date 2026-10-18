@@ -5,7 +5,7 @@ The maintained workflow entrypoints are native zsh scripts:
 - `tools/paperrag/run-rag-workspace.zsh`: inventory, incremental indexing, and embedding backfill.
 - `tools/paperrag/run-rag-evidence-search.zsh`: query an existing RAG workspace.
 - `tools/paperrag/zotero-workflow-common.zsh`: shared repository discovery, safe log paths, and run logging.
-- `tools/paperrag/workspace-inventory.py`: deterministic inventory helper used by the workspace wrapper.
+- `tools/paperrag/workspace_inventory.py`: deterministic inventory helper used by the workspace wrapper.
 
 Run them from the repository root on the current MacBook:
 
@@ -28,7 +28,7 @@ Persistent data that must not be removed by routine log cleanup:
 
 - `.workspace/<name>/`: workspace and SQLite RAG index.
 - `.workspace/_qdrant/`: local Qdrant vectors.
-- `.zot/state/mineru/`: shared canonical MinerU packages (`document.md`, `content_list.json`, manifest, and raw assets).
+- `.zot/state/mineru/`: shared canonical MinerU packages (`manifest.json`, `document.md`, `content_list.json`, and `raw/` assets).
 
 Inspect the full interface:
 
@@ -97,6 +97,9 @@ If the online reranker is unavailable, use `--no-rerank`. Restrict results with 
 zsh -n tools/paperrag/zotero-workflow-common.zsh
 zsh -n tools/paperrag/run-rag-workspace.zsh
 zsh -n tools/paperrag/run-rag-evidence-search.zsh
-uv run python tools/paperrag/workspace-inventory.py --help
-uv run pytest -q tests/integration/test_tool_scripts.py
+uv run python tools/paperrag/workspace_inventory.py --help
+uv run pytest -q tests/integration/test_tool_scripts.py tests/integration/test_inventory_edges.py
+uv run pytest -q -rf
 ```
+
+The full repository suite is expected fully green (0 failed, 0 skipped).

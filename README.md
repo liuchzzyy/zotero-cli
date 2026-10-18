@@ -2,7 +2,7 @@
 
 面向科研工作流和 AI Agent 的 Zotero CLI，命令入口为 `zot`。
 
-- **本地读取**：只读 Zotero SQLite 数据库。
+- **本地读取**：只读打开 Zotero SQLite 数据库；回收站（`deletedItems`）中的条目及其子笔记、子附件不会出现在读取结果中。
 - **远程写入**：通过 Zotero Web API，不直接修改 `zotero.sqlite`。
 - **Agent 接口**：稳定 JSON envelope、类型化退出码、`--dry-run`、幂等键和运行时 schema。
 - **PDF 解析**：MinerU 云端解析、内容哈希缓存、结构化 `content_list.json`。
@@ -196,25 +196,34 @@ uv run zot --json workspace query \
 
 ## 辅助工具
 
-`tools/` 下的脚本不是 `zot` 子命令，用于批量工作流：
+`tools/` 下的脚本不是 `zot` 子命令：`zot schema` 不会列出它们，它们只负责批量工作流。总览见 `tools/README.md`。
 
-- `tools/paperrag/`：`run-rag-workspace.zsh`（inventory、增量索引、embedding 回填）、`run-rag-evidence-search.zsh`（检索）、`zotero-workflow-common.zsh`（共享函数）、`workspace-inventory.py`。生成物写入 `log/`。
-- `tools/paper2zotero/`：`zotero_inbox.py`（PaperCrossref 收件箱导入，写入中文标题与中文摘要）、`backfill_titles.py`（全库译名回填）、`translate_abstracts.py`（集合与条目中文摘要批量翻译与回填）、`zh_text.py`（中文标题/摘要的上下标与中英文间距规范化）。
-- `tools/ainote/templates/`：`ai_analyze` 的 prompt 模板。
-
-详细用法见 `tools/paperrag/Instructions.md`。
+- `tools/paperrag/`：`run-rag-workspace.zsh`（inventory、增量索引、embedding 回填）、`run-rag-evidence-search.zsh`（检索）、`zotero-workflow-common.zsh`（共享函数）、`workspace_inventory.py`（inventory 辅助脚本）。生成物写入 `log/`；详细用法见 `tools/paperrag/Instructions.md`。
+- `tools/paper2zotero/`：`zotero_inbox.py`（PaperCrossref 收件箱导入，写入中文标题与中文摘要）、`backfill_titles.py`（全库译名回填）、`translate_abstracts.py`（集合与条目中文摘要批量翻译与回填）、`batch_translate_metadata.py`（按集合同步中文标题与中文摘要）、`zh_text.py`（中文标题/摘要的上下标与中英文间距规范化）。所需配置、安全约束与测试方式见 `tools/paper2zotero/README.md`。
+- `tools/ainote/`：`batch_analyze.py`（按集合批量运行 `ai_analyze`）；`templates/` 是 `ai_analyze` 的 prompt 模板，构建 wheel 时随包发布。
 
 ## 开发与验证
 
 ```bash
 uv sync --dev
-uv run ruff check src tests
-uv run python -m mypy src/zotero_cli
-uv run pytest -q
+uv run ruff check .
+uv run ruff format --check .
+uv run python -m mypy src/zotero_cli tools --exclude '(^|/)test_[^/]*\.py$'
+uv run pytest -q -rf
 uv build
 ```
 
-代码位于 `src/zotero_cli/`，测试位于 `tests/`（`tools/*/test_*.py` 也纳入默认测试收集），Agent Skill 位于 `skill/zotero-cli/`。
+完整测试套件预期全绿：0 failed、0 skipped（没有 skip 标记）。
+
+源码布局：
+
+- `src/zotero_cli/cli/`：Click 根命令、全局选项、安全分级（`safety.py`）与命令注册。
+- `src/zotero_cli/commands/`：按功能域拆分的命令包（`items`、`notes`、`attachments`、`collections`、`workspace`、`system`）；每个包用 `commands.py` 存放命令实现，较大的功能域再拆分辅助模块。
+- `src/zotero_cli/core/`：领域逻辑（`zotero` 读取与写入、`notes` AI 笔记流水线、`mineru` 解析、`rag` 检索），以及 `workspace_store.py`、`platform_paths.py`、`version_check.py`。
+- `src/zotero_cli/output/`：JSON envelope、渲染、流式输出与退出码（`envelope.py`、`renderers.py`、`streaming.py`、`exit_codes.py`）。
+- `src/zotero_cli/config/`：配置路径、模型、加载与 Zotero 解析，公共 API 位于 `__init__.py`。
+
+测试位于 `tests/`（`tools/**/test_*.py` 也纳入默认收集），Agent Skill 位于 `skill/zotero-cli/`，批量工具位于 `tools/`。
 
 ## 退出码
 

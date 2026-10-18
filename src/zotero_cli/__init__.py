@@ -7,4 +7,3 @@ try:
     __version__ = _pkg_version("zotero-cli")
 except PackageNotFoundError:  # running from a source tree without install
     __version__ = "0.0.0+unknown"
-

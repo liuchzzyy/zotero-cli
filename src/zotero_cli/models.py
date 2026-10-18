@@ -1,3 +1,5 @@
+"""Shared data structures exposed by the read layer and rendered by the output layer."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

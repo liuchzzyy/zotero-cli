@@ -125,7 +125,7 @@ if [[ "$hide_diagnostics" != true ]]; then
   print -r -- "  tail -f ${(q)run_dir}/logs/index.log"
 fi
 
-inventory_cmd=(uv run python -u "$SCRIPT_DIR/workspace-inventory.py"
+inventory_cmd=(uv run python -u "$SCRIPT_DIR/workspace_inventory.py"
   --workspace "$workspace_name"
   --scan-limit "$scan_limit"
   --progress-every "$progress_every"

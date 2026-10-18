@@ -10,7 +10,7 @@ from unittest.mock import patch
 from tests.support import FIXTURES_DIR
 from tests.support import invoke_cli as _invoke
 
-from zotero_cli.core.reader import ZoteroReader
+from zotero_cli.core.zotero.reader import ZoteroReader
 
 
 class TestDuplicateReader:
@@ -94,7 +94,7 @@ class TestDuplicateReader:
     def test_find_duplicates_stops_after_doi_limit(self):
         reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite")
         try:
-            with patch("zotero_cli.core.reader.SequenceMatcher") as matcher:
+            with patch("zotero_cli.core.zotero.reader.SequenceMatcher") as matcher:
                 groups = reader.find_duplicates(strategy="both", limit=1)
             assert len(groups) == 1
             assert groups[0].match_type == "doi"

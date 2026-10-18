@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from zotero_cli.config import VectorStoreConfig
 from zotero_cli.core.rag import weighted_reciprocal_rank_fusion
-from zotero_cli.core.rag_index import RagIndex
-from zotero_cli.core.semantic_search import QdrantVectorStore, resolve_vector_store_path
+from zotero_cli.core.rag.index import RagIndex
+from zotero_cli.core.rag.vector_store import QdrantVectorStore, resolve_vector_store_path
 
 
 def test_qdrant_upsert_search_delete(tmp_path):
@@ -47,7 +47,7 @@ def test_qdrant_empty_collection_search(tmp_path):
 
 
 def test_resolve_vector_store_path_relative(tmp_path, monkeypatch):
-    monkeypatch.setattr("zotero_cli.core.semantic_search.vector_store.project_root", lambda: tmp_path)
+    monkeypatch.setattr("zotero_cli.core.rag.vector_store.project_root", lambda: tmp_path)
     cfg = VectorStoreConfig(path=".workspace/_qdrant")
     assert resolve_vector_store_path(cfg) == tmp_path / ".workspace" / "_qdrant"
 

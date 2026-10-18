@@ -54,6 +54,11 @@ markers = [
     "integration: multi-component and tool-script workflow tests",
 ]
 
+[tool.coverage.run]
+branch = true
+source = ["zotero_cli", "tools/ainote", "tools/paper2zotero", "tools/paperrag"]
+omit = ["tests/*", "tools/**/test_*.py"]
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",

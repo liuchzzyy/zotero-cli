@@ -5,13 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from zotero_cli.core import idempotency
+from zotero_cli.core.zotero import idempotency
 
 
 @pytest.mark.parametrize("operation", ["store", "get", "clear", "failed_store"])
-def test_cache_connections_are_closed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str
-) -> None:
+def test_cache_connections_are_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str) -> None:
     monkeypatch.setattr(idempotency, "_db_path", lambda: tmp_path / "idempotency.db")
     idempotency.store_cached("update:ABC", "retry", {"ok": True})
     connect = idempotency._connect

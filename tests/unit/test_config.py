@@ -5,7 +5,6 @@ from zotero_cli.config import (
     AppConfig,
     EmbeddingConfig,
     RerankConfig,
-    _split_models,
     config_file_path,
     detect_zotero_data_dir,
     get_default_profile,
@@ -21,6 +20,7 @@ from zotero_cli.config import (
     save_config,
     state_dir,
 )
+from zotero_cli.config.loaders import _split_models
 
 
 def test_default_config():
@@ -61,13 +61,6 @@ def test_detect_zotero_data_dir_default(monkeypatch):
         assert "Zotero" in str(result)
     else:
         assert result == Path.home() / "Zotero"
-
-
-def test_config_has_write_credentials():
-    cfg = AppConfig(library_id="123", api_key="abc")
-    assert cfg.has_write_credentials is True
-    cfg2 = AppConfig()
-    assert cfg2.has_write_credentials is False
 
 
 def test_get_data_dir_env_override(tmp_path, monkeypatch):

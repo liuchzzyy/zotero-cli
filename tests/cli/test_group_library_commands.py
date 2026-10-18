@@ -7,7 +7,7 @@ import json
 from tests.support import FIXTURES_DIR
 from tests.support import invoke_cli as _invoke
 
-from zotero_cli.core.reader import ZoteroReader
+from zotero_cli.core.zotero.reader import ZoteroReader
 
 
 class TestGroupReader:

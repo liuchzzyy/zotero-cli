@@ -8,14 +8,14 @@ from unittest.mock import patch
 from tests.support import invoke_agent_cli as _run
 
 from zotero_cli.config import AiNoteConfig
-from zotero_cli.exit_codes import (
+from zotero_cli.output.envelope import envelope_error, envelope_ok, envelope_partial
+from zotero_cli.output.exit_codes import (
     EXIT_AUTH,
     EXIT_NOT_FOUND,
     EXIT_OK,
     EXIT_VALIDATION,
     exit_code_for,
 )
-from zotero_cli.formatter import envelope_error, envelope_ok, envelope_partial
 
 
 def _ai_config() -> AiNoteConfig:
@@ -105,7 +105,7 @@ class TestExitCodes:
 
     def test_ai_analyze_auth_missing_returns_exit_2(self):
         with patch(
-            "zotero_cli.commands.ai_analyze.load_ai_note_config",
+            "zotero_cli.commands.notes.ai_analyze.load_ai_note_config",
             return_value=_ai_config(),
         ):
             result = _run(["ai_analyze", "ABC123"], env={"ZOT_LIBRARY_ID": "", "ZOT_API_KEY": ""})
@@ -117,13 +117,13 @@ class TestExitCodes:
         expected = {"status": "dry_run", "item_key": "ABC123"}
         with (
             patch(
-                "zotero_cli.commands.ai_analyze.load_ai_note_config",
+                "zotero_cli.commands.notes.ai_analyze.load_ai_note_config",
                 return_value=_ai_config(),
             ),
-            patch("zotero_cli.commands.ai_analyze.analyze_item", return_value=expected) as analyze,
-            patch("zotero_cli.commands.ai_analyze.ZoteroReader"),
-            patch("zotero_cli.commands.ai_analyze.ZoteroWriter") as writer,
-            patch("zotero_cli.commands.ai_analyze.AiClient"),
+            patch("zotero_cli.commands.notes.ai_analyze.analyze_item", return_value=expected) as analyze,
+            patch("zotero_cli.commands.notes.ai_analyze.ZoteroReader"),
+            patch("zotero_cli.commands.notes.ai_analyze.ZoteroWriter") as writer,
+            patch("zotero_cli.commands.notes.ai_analyze.AiClient"),
         ):
             result = _run(
                 ["ai_analyze", "ABC123", "--dry-run"],

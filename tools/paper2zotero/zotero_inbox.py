@@ -13,6 +13,10 @@ import re
 import uuid
 from datetime import date, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from zotero_cli.core.zotero.writer import ZoteroWriter
 
 import zh_text
 
@@ -57,7 +61,7 @@ def select_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
 
 def resolve_metadata(doi: str) -> dict:
     """Use zotero-cli's Crossref mapper; never create a bare record on resolution failure."""
-    from zotero_cli.core.metadata_resolver import resolve_doi
+    from zotero_cli.core.zotero.metadata import resolve_doi
 
     fields = resolve_doi(doi)
     if not isinstance(fields, dict) or not fields.get("title"):
@@ -68,7 +72,7 @@ def resolve_metadata(doi: str) -> dict:
     return fields
 
 
-def _verify(api, key: str, doi: str, title_zh: str, abstract_zh: str, *, must_have_inbox: bool = True) -> None:
+def _verify(api: Any, key: str, doi: str, title_zh: str, abstract_zh: str, *, must_have_inbox: bool = True) -> None:
     item = api.item(key)
     if not isinstance(item, dict) or not isinstance(item.get("data"), dict):
         raise ZoteroInboxError(f"Zotero 回读条目格式无效：{doi} / {key}")
@@ -88,7 +92,7 @@ def _verify(api, key: str, doi: str, title_zh: str, abstract_zh: str, *, must_ha
         raise ZoteroInboxError(f"Zotero 回读条目中文摘要不一致：{doi} / {key}")
 
 
-def verify_inbox(api) -> None:
+def verify_inbox(api: Any) -> None:
     """Fail closed if the configured collection is not the user's inbox."""
     collection = api.collection(INBOX_KEY)
     if collection.get("key") != INBOX_KEY or collection.get("data", {}).get("name") != INBOX_NAME:
@@ -112,10 +116,16 @@ def chinese_fields(title_zh: object, abstract_zh: object, source_abstract: str, 
         raise ZoteroInboxError(f"缺少中文摘要，未导入：{doi}")
     if not source_abstract.strip() and abstract_zh.strip():
         raise ZoteroInboxError(f"原始摘要为空却提供了中文摘要，未导入：{doi}")
-    return zh_text.normalize(title_zh), zh_text.normalize_abstract(abstract_zh)
+    try:
+        normalized_abstract = zh_text.require_chinese_abstract(abstract_zh) if source_abstract.strip() else ""
+    except ValueError as exc:
+        raise ZoteroInboxError(f"中文摘要无效，未导入：{doi}：{exc}") from exc
+    return zh_text.normalize(title_zh), normalized_abstract
 
 
-def import_doi(doi: str, title_zh: str, abstract_zh: str, api, writer, *, source_abstract: str = "") -> str:
+def import_doi(
+    doi: str, title_zh: str, abstract_zh: str, api: Any, writer: ZoteroWriter, *, source_abstract: str = ""
+) -> str:
     """Create a DOI item with a translated title in Extra and a translated abstract."""
     translated_title, translated_abstract = chinese_fields(title_zh, abstract_zh, source_abstract, doi)
     metadata = resolve_metadata(doi)
@@ -124,8 +134,9 @@ def import_doi(doi: str, title_zh: str, abstract_zh: str, api, writer, *, source
     existing_extra = metadata.get("extra") or ""
     if not isinstance(existing_extra, str):
         raise ZoteroInboxError(f"Crossref Extra 格式无效，未导入：{doi}")
-    other_lines = [line for line in existing_extra.splitlines()
-                   if not line.strip().lower().startswith(TRANSLATED_TITLE_LABEL)]
+    other_lines = [
+        line for line in existing_extra.splitlines() if not line.strip().lower().startswith(TRANSLATED_TITLE_LABEL)
+    ]
     extra = "\n".join([*other_lines, f"{TRANSLATED_TITLE_LABEL} {translated_title}"])
     # The Chinese abstract replaces Crossref's English one; the English text stays
     # available in the CSV and in Crossref itself.
@@ -178,7 +189,7 @@ def _replace_csv(path: Path, rows: list[dict[str, str]], fields: list[str]) -> N
         raise
 
 
-def sync_csv(path: Path, api, writer) -> int:
+def sync_csv(path: Path, api: Any, writer: ZoteroWriter) -> int:
     """Import each selected row once; preserve verified progress after each item."""
     rows = read_rows(path)
     selected = select_rows(rows)
@@ -190,6 +201,8 @@ def sync_csv(path: Path, api, writer) -> int:
         return 0
     with path.open(newline="", encoding="utf-8-sig") as handle:
         columns = csv.DictReader(handle).fieldnames
+    if columns is None:
+        raise ZoteroInboxError("CSV 表头在准备写入时丢失")
     fields = list(dict.fromkeys([*columns, *STATUS_COLUMNS]))
     pending = [row for row in selected if not (row.get("zotero_status") == "added" and row.get("zotero_key"))]
     if not pending:
@@ -204,18 +217,24 @@ def sync_csv(path: Path, api, writer) -> int:
             continue
         if row.get("zotero_status") == "added" and row.get("zotero_key"):
             continue  # Only protects a re-run of this CSV; never searches the Zotero library.
-        key = import_doi(row["doi"], row["title_zh"], row.get("abstract_zh") or "", api, writer,
-                         source_abstract=row.get("abstract") or "")
+        key = import_doi(
+            row["doi"],
+            row["title_zh"],
+            row.get("abstract_zh") or "",
+            api,
+            writer,
+            source_abstract=row.get("abstract") or "",
+        )
         row.update(zotero_status="added", zotero_key=key)
         count += 1
         _replace_csv(path, rows, fields)
     return count
 
 
-def open_zotero():
+def open_zotero() -> tuple[Any, ZoteroWriter]:
     """Open the configured Zotero user library through zotero-cli's Web API writer."""
     from zotero_cli.config import load_config, resolve_write_credentials
-    from zotero_cli.core.writer import ZoteroWriter
+    from zotero_cli.core.zotero.writer import ZoteroWriter
 
     config = load_config()
     library_id, api_key = resolve_write_credentials(config, library_type="user", group_id=None)

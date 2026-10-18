@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from zotero_cli.core.reader import ZoteroReader
+from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.models import Item
 
 
@@ -78,20 +78,23 @@ def test_missing_collection_and_related_item(test_db_path: Path) -> None:
         assert reader.get_related_items("MISSING") == []
 
 
-@pytest.mark.skipif(not hasattr(sqlite3.Connection, "setlimit"), reason="SQLite limit API requires Python 3.11+")
-def test_large_collection_stays_within_sqlite_parameter_limit(test_db_path: Path, tmp_path: Path) -> None:
+def test_large_collection_is_hydrated_in_batches(
+    test_db_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A collection larger than the batch size is hydrated through multiple queries."""
     db_path = tmp_path / "zotero.sqlite"
     shutil.copy2(test_db_path, db_path)
     with sqlite3.connect(db_path) as conn:
         conn.executemany(
             "INSERT INTO items (itemID, itemTypeID, libraryID, key) VALUES (?, 2, 2, ?)",
-            [(i, f"BATCH{i}") for i in range(100, 1100)],
+            [(i, f"BATCH{i}") for i in range(100, 120)],
         )
         conn.executemany(
             "INSERT INTO collectionItems (collectionID, itemID) VALUES (3, ?)",
-            [(i,) for i in range(100, 1100)],
+            [(i,) for i in range(100, 120)],
         )
+    # Force the multi-query path without depending on the Python 3.11+ sqlite3 API.
+    monkeypatch.setattr("zotero_cli.core.zotero.reader._ITEM_BATCH_SIZE", 7)
     with ZoteroReader(db_path, library_id=2) as reader:
-        reader._connect().setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 999)
         items = reader.get_collection_items("GRPCOL03")
-        assert [item.key for item in items] == ["GRPITM09", *[f"BATCH{i}" for i in range(100, 1100)]]
+        assert [item.key for item in items] == ["GRPITM09", *[f"BATCH{i}" for i in range(100, 120)]]

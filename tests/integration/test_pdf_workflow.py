@@ -11,7 +11,8 @@ from unittest.mock import MagicMock, patch
 from tests.support import invoke_cli
 
 from zotero_cli.config import PdfConfig
-from zotero_cli.core.mineru import MinerUClient, MinerUParseCache, MinerUParseResult, _RemoteParse
+from zotero_cli.core.mineru import MinerUClient, MinerUParseCache, MinerUParseResult
+from zotero_cli.core.mineru.client import _RemoteParse
 from zotero_cli.core.rag import chunk_mineru_content
 
 
@@ -124,8 +125,8 @@ def test_pdf_cli_reads_canonical_markdown_and_structured_json(tmp_path) -> None:
     cache.get.return_value = parsed
 
     with (
-        patch("zotero_cli.commands.pdf.MinerUParseCache", return_value=cache),
-        patch("zotero_cli.commands.pdf.load_pdf_config", return_value=PdfConfig(mineru_token="token")),
+        patch("zotero_cli.commands.attachments.pdf.MinerUParseCache", return_value=cache),
+        patch("zotero_cli.commands.attachments.pdf.load_pdf_config", return_value=PdfConfig(mineru_token="token")),
     ):
         markdown_result = invoke_cli(["pdf", "ATTN001"])
         structured_result = invoke_cli(["pdf", "ATTN001", "--structured"], json_output=True)
@@ -139,8 +140,8 @@ def test_pdf_cli_missing_mineru_token_is_configuration_error() -> None:
     cache = MagicMock()
     cache.get.return_value = None
     with (
-        patch("zotero_cli.commands.pdf.MinerUParseCache", return_value=cache),
-        patch("zotero_cli.commands.pdf.load_pdf_config", return_value=PdfConfig()),
+        patch("zotero_cli.commands.attachments.pdf.MinerUParseCache", return_value=cache),
+        patch("zotero_cli.commands.attachments.pdf.load_pdf_config", return_value=PdfConfig()),
     ):
         result = invoke_cli(["pdf", "ATTN001"])
     assert result.exit_code == 3

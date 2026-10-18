@@ -12,20 +12,14 @@ from tests.support import FIXTURES_DIR
 
 from zotero_cli.cli import main
 from zotero_cli.config import AiNoteConfig
-from zotero_cli.core.ai_client import AiClient
 from zotero_cli.core.mineru import MinerUParseResult
-from zotero_cli.core.note_analysis import (
-    ANALYZED_TAG,
-    KEYWORDS_TAG,
-    NO_KEYWORDS_TAG,
-    NOT_ANALYZED_TAG,
-    NoteAnalysisError,
-    analyze_item,
-    extract_json_object,
-    normalize_short_note,
-    validate_short_note,
-)
-from zotero_cli.core.writer import merge_short_note_into_extra
+from zotero_cli.core.notes.classification import extract_json_object
+from zotero_cli.core.notes.client import AiClient
+from zotero_cli.core.notes.constants import ANALYZED_TAG, KEYWORDS_TAG, NO_KEYWORDS_TAG, NOT_ANALYZED_TAG
+from zotero_cli.core.notes.errors import NoteAnalysisError
+from zotero_cli.core.notes.pipeline import analyze_item
+from zotero_cli.core.notes.short_note import normalize_short_note, validate_short_note
+from zotero_cli.core.zotero.short_note_merge import merge_short_note_into_extra
 from zotero_cli.models import Attachment, Creator, Item, Note
 
 
@@ -92,7 +86,7 @@ def _patch_mineru(att: Attachment, markdown: str, tmp_path):
         content_list_path=content_path,
         manifest_path=manifest_path,
     )
-    return patch("zotero_cli.core.note_analysis.MinerUParseCache.ensure_many", return_value={att.path: parsed})
+    return patch("zotero_cli.core.notes.pipeline.MinerUParseCache.ensure_many", return_value={att.path: parsed})
 
 
 class TestExtractJsonObject:
@@ -648,9 +642,7 @@ class TestAiClient:
         config.model = "deepseek-flash"
         config.fallback_models = ["gemini-3.8-flash-high"]
         client = AiClient(config)
-        client._client.chat.completions.create = MagicMock(
-            side_effect=[Exception("err1"), Exception("err2")]
-        )
+        client._client.chat.completions.create = MagicMock(side_effect=[Exception("err1"), Exception("err2")])
         with pytest.raises(Exception) as exc:
             client.chat("hello")
         assert "err2" in str(exc.value)
@@ -678,7 +670,7 @@ class TestAiAnalyzeCLI:
         # clean checkout has no key and `ai_analyze` exits 3 before these tests
         # reach the behavior under test. Stub the loader instead.
         with patch(
-            "zotero_cli.commands.ai_analyze.load_ai_note_config",
+            "zotero_cli.commands.notes.ai_analyze.load_ai_note_config",
             return_value=_make_ai_config(),
         ):
             return runner.invoke(main, args, env=base_env)
@@ -695,10 +687,10 @@ class TestAiAnalyzeCLI:
             "prompt_preview": "preview",
         }
         with (
-            patch("zotero_cli.commands.ai_analyze.analyze_item", return_value=result),
-            patch("zotero_cli.commands.ai_analyze.ZoteroReader"),
-            patch("zotero_cli.commands.ai_analyze.ZoteroWriter"),
-            patch("zotero_cli.commands.ai_analyze.AiClient"),
+            patch("zotero_cli.commands.notes.ai_analyze.analyze_item", return_value=result),
+            patch("zotero_cli.commands.notes.ai_analyze.ZoteroReader"),
+            patch("zotero_cli.commands.notes.ai_analyze.ZoteroWriter"),
+            patch("zotero_cli.commands.notes.ai_analyze.AiClient"),
         ):
             res = self._run(["ai_analyze", "ABC123", "--dry-run"])
 
@@ -710,12 +702,12 @@ class TestAiAnalyzeCLI:
     def test_not_found_error_exit_code(self):
         with (
             patch(
-                "zotero_cli.commands.ai_analyze.analyze_item",
+                "zotero_cli.commands.notes.ai_analyze.analyze_item",
                 side_effect=NoteAnalysisError("条目 'X' 不存在", code="not_found"),
             ),
-            patch("zotero_cli.commands.ai_analyze.ZoteroReader"),
-            patch("zotero_cli.commands.ai_analyze.ZoteroWriter"),
-            patch("zotero_cli.commands.ai_analyze.AiClient"),
+            patch("zotero_cli.commands.notes.ai_analyze.ZoteroReader"),
+            patch("zotero_cli.commands.notes.ai_analyze.ZoteroWriter"),
+            patch("zotero_cli.commands.notes.ai_analyze.AiClient"),
         ):
             res = self._run(["ai_analyze", "X"])
 

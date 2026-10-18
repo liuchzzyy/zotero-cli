@@ -13,18 +13,26 @@ ABSTRACT = "MnO2 cathodes were probed by operando XAS at 0.5 A g-1."
 ABSTRACT_ZH = "在 0.5 A g^-1 下用原位 XAS 研究了 MnO2 正极。"
 
 
-def api_for_new_item(doi="10.1000/a", key="NEWITEM1", *, abstract_note="",
-                     title_line="translated-title: 正极"):
+def api_for_new_item(doi="10.1000/a", key="NEWITEM1", *, abstract_note="", title_line="translated-title: 正极"):
     api = Mock()
     api.collection.return_value = {"key": inbox.INBOX_KEY, "data": {"name": inbox.INBOX_NAME}}
-    api.item.return_value = {"key": key, "data": {"DOI": doi, "collections": [inbox.INBOX_KEY],
-                                                "extra": title_line, "abstractNote": abstract_note}}
+    api.item.return_value = {
+        "key": key,
+        "data": {"DOI": doi, "collections": [inbox.INBOX_KEY], "extra": title_line, "abstractNote": abstract_note},
+    }
     return api
 
 
 def csv_row(**overrides):
-    base = {"doi": "10.1000/a", "title": "Cathode", "abstract": "", "title_zh": "正极",
-            "abstract_zh": "", "is_cathode_material": "1", "is_characterization_technique": "0"}
+    base = {
+        "doi": "10.1000/a",
+        "title": "Cathode",
+        "abstract": "",
+        "title_zh": "正极",
+        "abstract_zh": "",
+        "is_cathode_material": "1",
+        "is_characterization_technique": "0",
+    }
     base.update(overrides)
     return base
 
@@ -33,12 +41,21 @@ class ZoteroInboxTests(unittest.TestCase):
     def test_either_flag_1_or_uncertain_selects_independent_of_priority(self):
         rows = [
             {"doi": "10.1000/a", "is_priority": "0", "is_cathode_material": "1", "is_characterization_technique": "0"},
-            {"doi": "10.1000/b", "is_priority": "0", "is_cathode_material": "0", "is_characterization_technique": "uncertain"},
+            {
+                "doi": "10.1000/b",
+                "is_priority": "0",
+                "is_cathode_material": "0",
+                "is_characterization_technique": "uncertain",
+            },
             {"doi": "10.1000/c", "is_priority": "1", "is_cathode_material": "0", "is_characterization_technique": "0"},
-            {"doi": "10.1000/d", "is_priority": "0", "is_cathode_material": "uncertain", "is_characterization_technique": "1"},
+            {
+                "doi": "10.1000/d",
+                "is_priority": "0",
+                "is_cathode_material": "uncertain",
+                "is_characterization_technique": "1",
+            },
         ]
-        self.assertEqual([row["doi"] for row in inbox.select_rows(rows)],
-                         ["10.1000/a", "10.1000/b", "10.1000/d"])
+        self.assertEqual([row["doi"] for row in inbox.select_rows(rows)], ["10.1000/a", "10.1000/b", "10.1000/d"])
 
     def test_repeated_doi_in_csv_is_not_deduplicated(self):
         item = {"doi": "10.1000/a", "is_cathode_material": "1", "is_characterization_technique": "0"}
@@ -47,10 +64,13 @@ class ZoteroInboxTests(unittest.TestCase):
     def test_the_selected_column_written_by_screening_is_honoured(self):
         """The producer owns the policy; the importer must not re-derive it."""
         rows = [
-            {"doi": "10.1000/a", "is_cathode_material": "1", "is_characterization_technique": "0",
-             "selected": "1"},
-            {"doi": "10.1000/b", "is_cathode_material": "1", "is_characterization_technique": "1",
-             "selected": "0"},  # flags say yes, screening said no
+            {"doi": "10.1000/a", "is_cathode_material": "1", "is_characterization_technique": "0", "selected": "1"},
+            {
+                "doi": "10.1000/b",
+                "is_cathode_material": "1",
+                "is_characterization_technique": "1",
+                "selected": "0",
+            },  # flags say yes, screening said no
         ]
         self.assertEqual([row["doi"] for row in inbox.select_rows(rows)], ["10.1000/a"])
 
@@ -64,8 +84,7 @@ class ZoteroInboxTests(unittest.TestCase):
         self.assertEqual([row["doi"] for row in inbox.select_rows(rows)], ["10.1000/a", "10.1000/c"])
 
     def test_a_blank_selected_cell_falls_back_to_the_flags_for_that_row(self):
-        rows = [{"doi": "10.1000/a", "is_cathode_material": "1", "is_characterization_technique": "0",
-                 "selected": ""}]
+        rows = [{"doi": "10.1000/a", "is_cathode_material": "1", "is_characterization_technique": "0", "selected": ""}]
         self.assertEqual([row["doi"] for row in inbox.select_rows(rows)], ["10.1000/a"])
 
     def test_doi_import_creates_full_metadata_in_inbox_without_library_search(self):
@@ -77,8 +96,14 @@ class ZoteroInboxTests(unittest.TestCase):
         with patch.object(inbox, "resolve_metadata", return_value={"title": "Cathode", "DOI": "10.1000/a"}):
             key = inbox.import_doi("10.1000/a", "正极", "", api, writer)
         writer.add_item.assert_called_once_with(
-            doi="10.1000/a", extra_fields={"title": "Cathode", "DOI": "10.1000/a",
-                                             "extra": "translated-title: 正极", "collections": [inbox.INBOX_KEY]})
+            doi="10.1000/a",
+            extra_fields={
+                "title": "Cathode",
+                "DOI": "10.1000/a",
+                "extra": "translated-title: 正极",
+                "collections": [inbox.INBOX_KEY],
+            },
+        )
         api.item.assert_called_once_with("NEWITEM1")
         self.assertEqual(key, "NEWITEM1")
 
@@ -88,27 +113,40 @@ class ZoteroInboxTests(unittest.TestCase):
         api.item.return_value["data"]["extra"] = f"funder: ABC\ntranslated-title: {title_zh}"
         writer = Mock()
         writer.add_item.return_value = "NEWITEM1"
-        with patch.object(inbox, "resolve_metadata", return_value={"title": "Operando XAS of MnO2 cathodes",
-                                                                 "DOI": "10.1000/a", "extra": "funder: ABC"}):
+        with patch.object(
+            inbox,
+            "resolve_metadata",
+            return_value={"title": "Operando XAS of MnO2 cathodes", "DOI": "10.1000/a", "extra": "funder: ABC"},
+        ):
             key = inbox.import_doi("10.1000/a", title_zh, "", api, writer)
         self.assertEqual(key, "NEWITEM1")
-        writer.add_item.assert_called_once_with(doi="10.1000/a", extra_fields={
-            "title": "Operando XAS of MnO2 cathodes", "DOI": "10.1000/a",
-            "extra": f"funder: ABC\ntranslated-title: {title_zh}",
-            "collections": [inbox.INBOX_KEY],
-        })
+        writer.add_item.assert_called_once_with(
+            doi="10.1000/a",
+            extra_fields={
+                "title": "Operando XAS of MnO2 cathodes",
+                "DOI": "10.1000/a",
+                "extra": f"funder: ABC\ntranslated-title: {title_zh}",
+                "collections": [inbox.INBOX_KEY],
+            },
+        )
         writer.update_item.assert_not_called()
 
     def test_chinese_abstract_replaces_the_crossref_abstract(self):
-        api = api_for_new_item(title_line="translated-title: MnO2 正极的原位 XAS 研究",
-                              abstract_note=ABSTRACT_ZH)
+        api = api_for_new_item(title_line="translated-title: MnO2 正极的原位 XAS 研究", abstract_note=ABSTRACT_ZH)
         writer = Mock()
         writer.add_item.return_value = "NEWITEM1"
-        with patch.object(inbox, "resolve_metadata", return_value={
-            "title": "Operando XAS of MnO2 cathodes", "DOI": "10.1000/a", "abstractNote": ABSTRACT,
-        }):
-            key = inbox.import_doi("10.1000/a", "MnO2 正极的原位 XAS 研究", ABSTRACT_ZH, api, writer,
-                                   source_abstract=ABSTRACT)
+        with patch.object(
+            inbox,
+            "resolve_metadata",
+            return_value={
+                "title": "Operando XAS of MnO2 cathodes",
+                "DOI": "10.1000/a",
+                "abstractNote": ABSTRACT,
+            },
+        ):
+            key = inbox.import_doi(
+                "10.1000/a", "MnO2 正极的原位 XAS 研究", ABSTRACT_ZH, api, writer, source_abstract=ABSTRACT
+            )
         self.assertEqual(key, "NEWITEM1")
         fields = writer.add_item.call_args.kwargs["extra_fields"]
         self.assertEqual(fields["abstractNote"], ABSTRACT_ZH)
@@ -118,9 +156,15 @@ class ZoteroInboxTests(unittest.TestCase):
         api = api_for_new_item(abstract_note="")
         writer = Mock()
         writer.add_item.return_value = "NEWITEM1"
-        with patch.object(inbox, "resolve_metadata", return_value={
-            "title": "Cathode", "DOI": "10.1000/a", "abstractNote": "",
-        }):
+        with patch.object(
+            inbox,
+            "resolve_metadata",
+            return_value={
+                "title": "Cathode",
+                "DOI": "10.1000/a",
+                "abstractNote": "",
+            },
+        ):
             inbox.import_doi("10.1000/a", "正极", "", api, writer, source_abstract="")
         fields = writer.add_item.call_args.kwargs["extra_fields"]
         self.assertNotIn("abstractNote", fields)
@@ -133,12 +177,16 @@ class ZoteroInboxTests(unittest.TestCase):
         writer = Mock()
         writer.add_item.return_value = "NEWITEM1"
         with patch.object(inbox, "resolve_metadata", return_value={"title": "Layered MnO2", "DOI": "10.1000/a"}):
-            inbox.import_doi("10.1000/a", "层状δ-MnO₂正极在5 A g⁻¹下提供300 mAh g⁻¹",
-                             "层状δ-MnO₂正极在5 A g⁻¹下提供300 mAh g⁻¹。",
-                             api, writer, source_abstract=ABSTRACT)
+            inbox.import_doi(
+                "10.1000/a",
+                "层状δ-MnO₂正极在5 A g⁻¹下提供300 mAh g⁻¹",
+                "层状δ-MnO₂正极在5 A g⁻¹下提供300 mAh g⁻¹。",
+                api,
+                writer,
+                source_abstract=ABSTRACT,
+            )
         fields = writer.add_item.call_args.kwargs["extra_fields"]
-        self.assertEqual(fields["extra"],
-                         "translated-title: 层状 δ-MnO2 正极在 5 A g^-1 下提供 300 mAh g^-1")
+        self.assertEqual(fields["extra"], "translated-title: 层状 δ-MnO2 正极在 5 A g^-1 下提供 300 mAh g^-1")
         self.assertEqual(fields["abstractNote"], "层状 δ-MnO2 正极在 5 A g^-1 下提供 300 mAh g^-1。")
         self.assertFalse(zh_text.has_script(fields["extra"]))
         self.assertFalse(zh_text.has_script(fields["abstractNote"]))
@@ -262,8 +310,7 @@ class ZoteroInboxTests(unittest.TestCase):
     def test_csv_imports_each_selected_row_and_preserves_original_columns(self):
         rows = [
             csv_row(doi="10.1000/a", title="A", title_zh="正极", is_priority="0"),
-            csv_row(doi="10.1000/b", title="B", title_zh="负极", is_priority="1",
-                    is_cathode_material="0"),
+            csv_row(doi="10.1000/b", title="B", title_zh="负极", is_priority="1", is_cathode_material="0"),
         ]
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "updates_2026-10-15.csv"
@@ -359,8 +406,13 @@ class ZoteroInboxTests(unittest.TestCase):
     def test_per_item_checkpoint_survives_later_failure(self):
         rows = [
             csv_row(doi="10.1000/a", title="A", title_zh="正极"),
-            csv_row(doi="10.1000/b", title="B", title_zh="表征",
-                    is_cathode_material="0", is_characterization_technique="uncertain"),
+            csv_row(
+                doi="10.1000/b",
+                title="B",
+                title_zh="表征",
+                is_cathode_material="0",
+                is_characterization_technique="uncertain",
+            ),
         ]
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "updates_2026-10-15.csv"
@@ -381,8 +433,9 @@ class ZoteroInboxTests(unittest.TestCase):
     def test_invalid_or_incomplete_csv_is_not_imported(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "updates_2026-10-15.csv"
-            path.write_text("doi,title,is_cathode_material,is_characterization_technique\n"
-                            "10.1000/a,A,1,0\n", encoding="utf-8-sig")
+            path.write_text(
+                "doi,title,is_cathode_material,is_characterization_technique\n10.1000/a,A,1,0\n", encoding="utf-8-sig"
+            )
             with self.assertRaises(inbox.ZoteroInboxError):
                 inbox.sync_csv(path, Mock(), Mock())
 
@@ -404,7 +457,10 @@ class ZoteroInboxTests(unittest.TestCase):
 
     def test_default_date_uses_yesterday_csv_and_missing_file_fails(self):
         with tempfile.TemporaryDirectory() as folder:
-            with patch.object(inbox, "SCRIPT_DIR", Path(folder)), patch.object(inbox, "target_date", return_value="2026-10-15"):
+            with (
+                patch.object(inbox, "SCRIPT_DIR", Path(folder)),
+                patch.object(inbox, "target_date", return_value="2026-10-15"),
+            ):
                 with self.assertRaises(inbox.ZoteroInboxError):
                     inbox.main([])
 
@@ -418,9 +474,11 @@ class ZoteroInboxTests(unittest.TestCase):
                 writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
                 writer.writeheader()
                 writer.writerows(rows)
-            with patch.object(inbox, "SCRIPT_DIR", Path(folder)), patch.object(
-                inbox, "open_zotero", return_value=(Mock(), Mock())
-            ), patch.object(inbox, "sync_csv", return_value=1) as sync:
+            with (
+                patch.object(inbox, "SCRIPT_DIR", Path(folder)),
+                patch.object(inbox, "open_zotero", return_value=(Mock(), Mock())),
+                patch.object(inbox, "sync_csv", return_value=1) as sync,
+            ):
                 inbox.main(["--date", "2026-10-15"])
             sync.assert_called_once()
             self.assertFalse(path.exists())
@@ -431,25 +489,31 @@ class ZoteroInboxTests(unittest.TestCase):
             path = Path(folder) / "updates_2026-10-15.csv"
             path.write_text("original contents", encoding="utf-8")
             before = path.read_bytes()
-            with patch.object(inbox, "SCRIPT_DIR", Path(folder)), patch.object(
-                inbox, "open_zotero", return_value=(Mock(), Mock())
-            ), patch.object(inbox, "sync_csv", side_effect=inbox.ZoteroInboxError("write failed")):
+            with (
+                patch.object(inbox, "SCRIPT_DIR", Path(folder)),
+                patch.object(inbox, "open_zotero", return_value=(Mock(), Mock())),
+                patch.object(inbox, "sync_csv", side_effect=inbox.ZoteroInboxError("write failed")),
+            ):
                 with self.assertRaises(inbox.ZoteroInboxError):
                     inbox.main(["--date", "2026-10-15"])
             self.assertEqual(path.read_bytes(), before)
 
     def test_realistic_mid_batch_failure_retains_checkpoint_csv(self):
-        rows = [csv_row(doi="10.1000/a", title="A", title_zh="正极"),
-                csv_row(doi="10.1000/b", title="B", title_zh="正极")]
+        rows = [
+            csv_row(doi="10.1000/a", title="A", title_zh="正极"),
+            csv_row(doi="10.1000/b", title="B", title_zh="正极"),
+        ]
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "updates_2026-10-15.csv"
             with path.open("w", encoding="utf-8-sig", newline="") as handle:
                 writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
                 writer.writeheader()
                 writer.writerows(rows)
-            with patch.object(inbox, "SCRIPT_DIR", Path(folder)), patch.object(
-                inbox, "open_zotero", return_value=(api_for_new_item(), Mock())
-            ), patch.object(inbox, "import_doi", side_effect=["NEWITEM1", inbox.ZoteroInboxError("second failed")]):
+            with (
+                patch.object(inbox, "SCRIPT_DIR", Path(folder)),
+                patch.object(inbox, "open_zotero", return_value=(api_for_new_item(), Mock())),
+                patch.object(inbox, "import_doi", side_effect=["NEWITEM1", inbox.ZoteroInboxError("second failed")]),
+            ):
                 with self.assertRaises(inbox.ZoteroInboxError):
                     inbox.main(["--date", "2026-10-15"])
             self.assertTrue(path.exists())
@@ -466,7 +530,11 @@ class ZoteroInboxTests(unittest.TestCase):
                 writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
                 writer.writeheader()
                 writer.writerows(rows)
-            with patch.object(inbox, "SCRIPT_DIR", Path(folder)), patch.object(inbox, "open_zotero") as connect, patch("builtins.print") as report:
+            with (
+                patch.object(inbox, "SCRIPT_DIR", Path(folder)),
+                patch.object(inbox, "open_zotero") as connect,
+                patch("builtins.print") as report,
+            ):
                 inbox.main(["--date", "2026-10-15", "--dry-run"])
             connect.assert_not_called()
             report.assert_called_once()

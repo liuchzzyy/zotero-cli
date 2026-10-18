@@ -1,12 +1,13 @@
 """Incremental indexing tracks notes and metadata in addition to PDF files."""
+
 from dataclasses import replace
 from unittest.mock import patch
 
 from tests.integration.test_workspace_rag import _patch_workspace
 from tests.support import invoke_cli
 
-from zotero_cli.core.rag_index import RagIndex
-from zotero_cli.core.reader import ZoteroReader
+from zotero_cli.core.rag.index import RagIndex
+from zotero_cli.core.zotero.reader import ZoteroReader
 
 
 def test_metadata_change_reindexes_without_force(tmp_path):
@@ -36,7 +37,10 @@ def test_metadata_change_reindexes_without_force(tmp_path):
 
 def test_note_change_reindexes_without_force(tmp_path):
     notes = [("NOTE1", "old marker")]
-    with _patch_workspace(tmp_path), patch("zotero_cli.commands.workspace._collect_note_refs", side_effect=lambda *_: notes):
+    with (
+        _patch_workspace(tmp_path),
+        patch("zotero_cli.commands.workspace.indexing._collect_note_refs", side_effect=lambda *_: notes),
+    ):
         invoke_cli(["workspace", "new", "notes-regression"])
         invoke_cli(["workspace", "add", "notes-regression", "ATTN001"])
         first = invoke_cli(["workspace", "index", "notes-regression", "--no-embed"])

@@ -135,4 +135,3 @@ class TestUpgradeCommand:
         with patch("zotero_cli.core.version_check.sys") as mock_sys:
             mock_sys.executable = "/opt/uv/tools/zotero-cli/bin/python"
             assert upgrade_command() == "uv tool upgrade zotero-cli"
-

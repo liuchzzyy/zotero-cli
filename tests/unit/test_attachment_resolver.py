@@ -1,10 +1,7 @@
-import os
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
-from zotero_cli.core.attachment_resolver import AttachmentResolver
+from zotero_cli.core.zotero.attachments import AttachmentResolver
 
 
 class TestAttachmentResolver:
@@ -50,7 +47,6 @@ class TestAttachmentResolver:
         result = resolver.resolve("ABC123", "file:///home/user/my%20file.pdf")
         assert result == Path("/home/user/my file.pdf")
 
-    @pytest.mark.skipif(os.name != "nt", reason="Windows path semantics; cannot instantiate WindowsPath on POSIX")
     def test_resolve_file_url_windows_drive(self, tmp_path):
         """'file:///C:/Users/test/file.pdf' resolves to C:/Users/test/file.pdf."""
         db_path = tmp_path / "zotero.sqlite"
@@ -59,12 +55,25 @@ class TestAttachmentResolver:
         resolver = AttachmentResolver(db_path)
         with (
             patch("os.name", "nt"),
-            patch("zotero_cli.core.attachment_resolver.is_wsl_environment", return_value=False),
+            patch("zotero_cli.core.zotero.attachments.is_wsl_environment", return_value=False),
         ):
             result = resolver.resolve("ABC123", "file:///C:/Users/test/file.pdf")
-        # On Windows, Path normalizes / to \; on Linux (where os.name is patched but Path
-        # still uses PosixPath), forward slashes are preserved.
-        assert str(result).replace("\\", "/") == "C:/Users/test/file.pdf"
+        assert result is not None
+        # Windows Path normalizes / to \; POSIX hosts that only patch os.name still
+        # build a Windows-flavoured path, so normalize the separator before comparing.
+        resolved = str(result).replace("\\", "/")
+        assert resolved == "C:/Users/test/file.pdf"
+        # The leading slash of the file URL must be stripped before the drive letter.
+        assert not resolved.startswith("/C:")
+
+        with (
+            patch("os.name", "nt"),
+            patch("zotero_cli.core.zotero.attachments.is_wsl_environment", return_value=True),
+        ):
+            wsl_result = resolver.resolve("ABC123", "file:///C:/Users/test/file.pdf")
+        assert wsl_result is not None
+        # Under WSL the drive-letter path is translated to its /mnt/<drive> mount.
+        assert str(wsl_result).replace("\\", "/") == "/mnt/c/Users/test/file.pdf"
 
     def test_resolve_absolute_path_unix(self, tmp_path):
         """'/absolute/path/to/file.pdf' used as-is."""
@@ -87,7 +96,7 @@ class TestAttachmentResolver:
         prefs.write_text(f'user_pref("extensions.zotero.baseAttachmentPath", "{attach_base}");')
 
         resolver = AttachmentResolver(db_path)
-        with patch("zotero_cli.core.attachment_resolver.is_wsl_environment", return_value=False):
+        with patch("zotero_cli.core.zotero.attachments.is_wsl_environment", return_value=False):
             result = resolver.resolve("ABC123", "attachments:papers/file.pdf")
         assert result == attach_base / "papers" / "file.pdf"
 
@@ -116,7 +125,7 @@ class TestAttachmentResolver:
         )
 
         resolver = AttachmentResolver(db_path)
-        with patch("zotero_cli.core.attachment_resolver.Path.home", return_value=home):
+        with patch("zotero_cli.core.zotero.attachments.Path.home", return_value=home):
             result = resolver.resolve("ABC123", "attachments:papers/file.pdf")
 
         assert result == tmp_path / "papers" / "file.pdf"

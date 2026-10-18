@@ -10,8 +10,8 @@ from types import SimpleNamespace
 import pytest
 
 from zotero_cli.config import AiNoteConfig
-from zotero_cli.core.ai_client import AiClient
-from zotero_cli.core.note_figures import load_figures, mark_figures
+from zotero_cli.core.notes.client import AiClient
+from zotero_cli.core.notes.figures import load_figures, mark_figures
 
 _PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 8000  # > _MIN_BYTES, real magic number
 _FIGURE = [(1, "data:image/png;base64,AAA")]

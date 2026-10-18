@@ -1,4 +1,5 @@
 """Selecting a specific child PDF must not silently use the first attachment."""
+
 import json
 from pathlib import Path
 from unittest.mock import patch
@@ -12,9 +13,10 @@ from zotero_cli.models import Attachment
 def test_parent_lists_pdf_attachments_without_parsing():
     first = Attachment("MAIN001", "PARENT", "paper.pdf", "application/pdf", Path("/main/paper.pdf"))
     second = Attachment("SUPP001", "PARENT", "paper.pdf", "application/pdf", Path("/supp/paper.pdf"))
-    with patch("zotero_cli.commands.pdf.ZoteroReader") as reader_cls, patch(
-        "zotero_cli.commands.pdf.MinerUParseCache"
-    ) as cache_cls:
+    with (
+        patch("zotero_cli.commands.attachments.pdf.ZoteroReader") as reader_cls,
+        patch("zotero_cli.commands.attachments.pdf.MinerUParseCache") as cache_cls,
+    ):
         reader_cls.return_value.get_pdf_attachments.return_value = [first, second]
         result = CliRunner().invoke(main, ["--json", "pdf", "PARENT", "--list-attachments"])
     assert result.exit_code == 0, result.output
@@ -31,9 +33,10 @@ def test_specific_child_pdf_is_selected_even_with_same_filename(tmp_path):
     second_path.write_bytes(b"SI")
     first = Attachment("MAIN001", "PARENT", "paper.pdf", "application/pdf", first_path)
     second = Attachment("SUPP001", "PARENT", "paper.pdf", "application/pdf", second_path)
-    with patch("zotero_cli.commands.pdf.ZoteroReader") as reader_cls, patch(
-        "zotero_cli.commands.pdf.MinerUParseCache"
-    ) as cache_cls:
+    with (
+        patch("zotero_cli.commands.attachments.pdf.ZoteroReader") as reader_cls,
+        patch("zotero_cli.commands.attachments.pdf.MinerUParseCache") as cache_cls,
+    ):
         reader_cls.return_value.get_pdf_attachments.return_value = [first, second]
         cache_cls.return_value.get.return_value.markdown = "SI text"
         cache_cls.return_value.get.return_value.fingerprint = "fingerprint"
@@ -49,7 +52,7 @@ def test_specific_child_pdf_is_selected_even_with_same_filename(tmp_path):
 def test_ambiguous_parent_pdf_does_not_pick_first():
     first = Attachment("MAIN001", "PARENT", "paper.pdf", "application/pdf", Path("/main/paper.pdf"))
     second = Attachment("SUPP001", "PARENT", "paper.pdf", "application/pdf", Path("/supp/paper.pdf"))
-    with patch("zotero_cli.commands.pdf.ZoteroReader") as reader_cls:
+    with patch("zotero_cli.commands.attachments.pdf.ZoteroReader") as reader_cls:
         reader_cls.return_value.get_pdf_attachments.return_value = [first, second]
         result = CliRunner().invoke(main, ["--json", "pdf", "PARENT"])
     assert result.exit_code == 3
