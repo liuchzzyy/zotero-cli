@@ -165,7 +165,9 @@ def test_repeated_deterministic_failure_is_parked_and_stops_failing_runs(tmp_pat
     # max_extracted_chars, or more main figures than the token budget allows).
     # Retrying that nightly would fail every run forever.
     reader, api, analyze, path = fixture_item(tmp_path)
-    analyze.side_effect = NoteAnalysisError("required main images exceed model budget", code="validation_error")
+    analyze.side_effect = NoteAnalysisError(
+        "required main images exceed model budget", code="validation_error", parkable=True
+    )
     runs = [sa.run_collection(reader, api, analyze, "COL", path, apply=True) for _ in range(sa.MAX_ATTEMPTS)]
     assert all(run["failed"] for run in runs[:-1])
     assert runs[-1]["failed"] == [] and runs[-1]["blocked"][0]["attempts"] == sa.MAX_ATTEMPTS
@@ -179,7 +181,7 @@ def test_repeated_deterministic_failure_is_parked_and_stops_failing_runs(tmp_pat
 
 def test_parked_item_is_reattempted_only_when_asked(tmp_path: Path) -> None:
     reader, api, analyze, path = fixture_item(tmp_path)
-    analyze.side_effect = NoteAnalysisError("structured text too long", code="validation_error")
+    analyze.side_effect = NoteAnalysisError("structured text too long", code="validation_error", parkable=True)
     for _ in range(sa.MAX_ATTEMPTS):
         sa.run_collection(reader, api, analyze, "COL", path, apply=True)
     assert sa.load_state(path)["ITEM"]["status"] == sa.PARKED_STATUS
@@ -201,3 +203,35 @@ def test_committed_failure_is_never_parked(tmp_path: Path) -> None:
     entry = sa.load_state(path)["ITEM"]
     assert entry["status"] == "failed" and entry["committed"] is True
     assert analyze.call_count == 1
+
+
+def test_transient_noncommitted_failure_is_not_parked(tmp_path: Path) -> None:
+    reader, api, analyze, path = fixture_item(tmp_path)
+    analyze.side_effect = NoteAnalysisError("provider timeout", code="network_error", retryable=True)
+    for _ in range(sa.MAX_ATTEMPTS + 1):
+        result = sa.run_collection(reader, api, analyze, "COL", path, apply=True)
+        assert result["failed"] and not result["blocked"]
+    assert sa.load_state(path)["ITEM"]["status"] == "failed"
+    assert analyze.call_count == sa.MAX_ATTEMPTS + 1
+
+
+def test_non_input_validation_failure_is_not_parked(tmp_path: Path) -> None:
+    reader, api, analyze, path = fixture_item(tmp_path)
+    analyze.side_effect = NoteAnalysisError("model request rejected", code="validation_error")
+    for _ in range(sa.MAX_ATTEMPTS):
+        result = sa.run_collection(reader, api, analyze, "COL", path, apply=True)
+    assert result["failed"] and not result["blocked"]
+
+
+def test_transient_failures_do_not_count_toward_input_parking(tmp_path: Path) -> None:
+    reader, api, analyze, path = fixture_item(tmp_path)
+    analyze.side_effect = [
+        NoteAnalysisError("timeout", code="network_error", retryable=True),
+        NoteAnalysisError("too many images", code="validation_error", parkable=True),
+        NoteAnalysisError("too many images", code="validation_error", parkable=True),
+        NoteAnalysisError("too many images", code="validation_error", parkable=True),
+    ]
+    runs = [sa.run_collection(reader, api, analyze, "COL", path, apply=True) for _ in range(4)]
+    assert all(run["failed"] for run in runs[:3])
+    assert runs[-1]["blocked"]
+    assert sa.load_state(path)["ITEM"]["budget_attempts"] == sa.MAX_ATTEMPTS

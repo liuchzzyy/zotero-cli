@@ -59,7 +59,7 @@ timeout_seconds = 300.0
 max_retries = 2
 ```
 
-`fallback_models` 可以是 TOML 数组，也可以是逗号分隔字符串；主模型调用失败或拒绝图片输入时按顺序回退。`timeout_seconds` 是单次请求超时，`max_retries` 是同一模型的可重试失败重试次数。
+`fallback_models` 可以是 TOML 数组，也可以是逗号分隔字符串；主模型调用失败或拒绝图片输入时按顺序回退。完整 note 请求只会切换到经预检、能容纳同一份文字和图片的模型。`timeout_seconds` 是单次请求超时，`max_retries` 是同一模型的可重试失败重试次数。
 
 所有 `[ai_notes]` 配置项都可以用环境变量覆盖（优先级：env > 配置文件 > 默认值），便于在不改动已跟踪的 `.zot/config.toml` 时切换 endpoint 或模型：
 
@@ -181,7 +181,7 @@ uv run zot --json pdf ITEMKEY --attachment ATTACHMENTKEY --outline
 uv run zot --json pdf ITEMKEY --attachment ATTACHMENTKEY --section 2
 ```
 
-当一个父条目包含多个 PDF 时，直接运行 `zot pdf ITEMKEY` 会返回校验错误，要求明确指定 `--attachment`；`--list-attachments` 遇到不存在的条目返回 `not_found`（exit 4）。MinerU 结果按 PDF 内容哈希和模型版本缓存到 `.zot/state/mineru/`：正文 Markdown 供 `ai_analyze` 使用，`content_list.json` 供 workspace RAG 使用，图片位于缓存包的 `raw/images/`。
+当一个父条目包含多个 PDF 时，直接运行 `zot pdf ITEMKEY` 会返回校验错误，要求明确指定 `--attachment`；`--list-attachments` 遇到不存在的条目返回 `not_found`（exit 4）。MinerU 结果按 PDF 内容哈希和模型版本缓存到 `.zot/state/mineru/`：`ai_analyze` 从 `content_list.json` 构建带来源和页码的证据，workspace RAG 也读取该结构化内容；图片位于缓存包的 `raw/images/`。
 
 安全上限：单文件上传/解析 200MB；下载归档 512MB；归档内单成员 200MB；解压总量 1GB；归档条目数 10,000（超限消息按 MB 精度报告）。PDF 命令统一走 CLI 错误边界：配置类错误返回 `configuration_error`（exit 3），运行时错误返回 `runtime_error`/`internal_error`（exit 1），只有 `--verbose`/`ZOT_DEBUG` 才输出 traceback。缓存写入使用跨进程文件锁、隐藏 `.locks/` 与 staging 目录，PDF 只计算一次哈希：锁记录 owner PID，owner 进程死亡立即回收，其它等待者在 stale 窗口（≤ 最大等待）后回收并输出等待提示；启动时清理过期的隐藏 orphan staging；下载在 request 级重试成功后若流式 body 中断，还会再重试一次；仅瞬时错误重试，MinerU batch POST 不自动重试。
 
@@ -212,8 +212,8 @@ uv run zot ai_analyze ITEMKEY --idempotency-key analyze-ITEMKEY-001
 
 - `--dry-run` 不调用分类模型：`paper_type` 是条目类型默认值（book 类型映射 book，其余 research_article）；它仍会按缓存/云端解析 PDF，只是跳过生成 note 的模型调用和所有写入。它也会预览已打 `ai/noted` 的条目（不因已分析而提前返回）。
 - note 按条目类型/分类选择模板（研究论文 / 综述 / 书籍），模板位于 `tools/ainote/templates/`。
-- 标题、作者、期刊、日期、DOI 和正文作为不可信数据用定界符包裹后进入 prompt，模板声明指令层级，降低论文内容注入风险；prompt 总长上限 220k 字符，截断预算会计入模板与渲染后的标题/作者等元数据开销（标题在渲染前先转纯文本再转义）。
-- MinerU Markdown 中的图片引用会被替换为 `【图 N】` 标记并作为多模态输入发送，默认最多 12 张；主文档与 supplementary 文档分别去重（保留最长副本）后再编号，避免编号与图引用错位；超过上限时 prompt 标注仅发送了哪些图号；随请求发送的原始图片总量上限 20MB。
+- 标题、作者、期刊、日期、DOI 和正文作为不可信数据用定界符包裹后进入 prompt，模板声明指令层级，降低论文内容注入风险；正文长度超过 `max_extracted_chars` 或整份请求超过已验证的模型预算时会报错，不截断证据（标题在渲染前先转纯文本再转义）。
+- `content_list.json` 的文字、表格、图像和图注按附件、正文/SI、PDF 页码标记。重复 PDF 跨整条目去重后编号；所有正文图像必须纳入请求，SI 最多选 30 张并优先选择正文引用的图。未发送的图号在 prompt 中列明；请求体上限 20 MiB。
 - 模型返回“不支持图片输入”类错误时只对图片/vision 能力相关提示回退到纯文本模型，不会把 payload 过大等普通错误误判为能力问题。
 - 渲染前统一处理上下标与中英文间距（`MnO₂` → `MnO2`，`Zn²⁺` → `Zn2+`，`g⁻¹` → `g^-1`）。
 - 关键词简记写入条目 Extra 的 `short-note` 字段；校验在 CJK 间距补齐之后执行，长度上限 500 字符。
@@ -273,7 +273,7 @@ uv run zot --json workspace query \
 
 - `tools/paperrag/`：`run-rag-workspace.zsh`（inventory、增量索引、embedding 回填）、`run-rag-evidence-search.zsh`（检索）、`zotero-workflow-common.zsh`（共享函数）、`workspace_inventory.py`（inventory 辅助脚本）。生成物写入唯一命名的 `log/` 运行目录；详细用法见 `tools/paperrag/Instructions.md`。
 - `tools/paper2zotero/`：`zotero_inbox.py`（PaperCrossref 收件箱导入）、`backfill_titles.py`（全库译名回填）、`translate_abstracts.py`（集合与条目中文摘要批量翻译与回填）、`batch_translate_metadata.py`（按集合同步中文标题与中文摘要）、`zh_text.py`（中文格式化规则）。断点状态位于 `.zot/state/paper2zotero/`（旧 `tools/paper2zotero/*_state.json` 不会自动迁移，需要手动移动一次以继续断点续跑）。`backfill_titles.py` / `translate_abstracts.py` 的默认模式是只读预览：仍需 Zotero API 凭据读取远端库，但不会写入；`batch_translate_metadata.py` 没有免费预览——不加 `--apply` 仍会调用 AI 暂存翻译并写断点文件。机器相关的 Hermes 目录、PaperCrossref 目录与收件箱 key/name 可用 `ZOT_PAPER2ZOTERO_HERMES_HOME`、`ZOT_PAPER2ZOTERO_INBOX_DIR`、`ZOT_PAPER2ZOTERO_INBOX_KEY`、`ZOT_PAPER2ZOTERO_INBOX_NAME` 覆盖。详见 `tools/paper2zotero/README.md`。
-- `tools/ainote/`：`batch_analyze.py`（按集合批量运行 `ai_analyze`，`--collection` 必填，dry-run 零副作用）和 `templates/`（`ai_analyze` prompt 模板，构建 wheel 时随包发布）。
+- `tools/ainote/`：`batch_analyze.py`（按集合批量运行 `ai_analyze`，`--collection` 必填，dry-run 零副作用）、`scheduled_analyze.py`（按集合增量运行，远端核验后记断点；只将重复的确定性输入预算错误停放为 `unanalyzable`）和 `templates/`（`ai_analyze` prompt 模板，构建 wheel 时随包发布）。
 - 工具测试使用 `tools` marker，纳入默认 `testpaths`。
 
 ## 开发与验证

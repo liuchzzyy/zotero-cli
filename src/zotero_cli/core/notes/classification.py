@@ -122,9 +122,12 @@ def _chat(
     temperature: float | None = None,
     progress: Callable[[str, str], None] | None = None,
     figures: list[tuple[int, str]] | None = None,
+    allowed_models: set[str] | None = None,
 ) -> str:
     try:
-        return ai_client.chat(prompt, temperature=temperature, progress=progress, figures=figures)
+        return ai_client.chat(
+            prompt, temperature=temperature, progress=progress, figures=figures, allowed_models=allowed_models
+        )
     except NoteAnalysisError:
         raise
     except Exception as e:

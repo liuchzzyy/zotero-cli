@@ -43,12 +43,13 @@ directory, and the collection checkpoint remains under `.zot/state/`.
 
 Because `ai_analyze` now fails closed on input it cannot fit (structured text
 over `max_extracted_chars`, or more main figures than the token budget allows),
-a repeated *non-committed* failure is treated as permanent: after
+only an explicitly marked input-budget failure is treated as permanent: after
 `MAX_ATTEMPTS` (3) the item is parked as `unanalyzable`, listed in the run's
 `blocked` array instead of `failed`, and skipped by later runs — otherwise one
 oversized paper would fail the nightly job and re-attempt the same input
-forever. A *committed* failure is never parked, since the note may already
-exist. `--retry-parked` clears parked checkpoints so they are attempted again
+forever. Network/provider failures remain retryable across scheduled runs;
+an uncertain write is never parked, since the note may already exist.
+`--retry-parked` clears parked checkpoints so they are attempted again
 after you fix the cause (raise the cap, split the PDF).
 
 `templates/` holds the prompts `ai_analyze` loads at runtime

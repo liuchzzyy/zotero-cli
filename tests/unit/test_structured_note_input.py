@@ -12,7 +12,12 @@ import pytest
 from zotero_cli.config import AiNoteConfig
 from zotero_cli.core.mineru import MinerUParseResult
 from zotero_cli.core.notes.pipeline import analyze_item
-from zotero_cli.core.notes.structured_input import build_evidence, plan_request
+from zotero_cli.core.notes.structured_input import (
+    build_evidence,
+    model_supports_request,
+    plan_request,
+    plan_with_coverage,
+)
 from zotero_cli.models import Attachment, Creator, Item
 
 
@@ -97,6 +102,31 @@ def test_unknown_route_cannot_claim_verified_500k_budget(tmp_path):
     )
     with pytest.raises(ValueError, match="unverified"):
         plan_request(evidence, evidence.text, "unknown-proxy-model")
+
+
+def test_fallback_budget_accepts_exact_image_boundary_but_not_overflow():
+    prompt = "x" * (500_000 - 32_768 - 50_000 - 4_096)
+    assert model_supports_request("deepseek-flash", prompt, 1)
+    assert not model_supports_request("deepseek-flash", prompt, 2)
+    assert not model_supports_request("unverified-model", prompt, 1)
+
+
+def test_coverage_notice_replans_when_its_own_text_removes_an_si_image(tmp_path):
+    si = _parse(
+        tmp_path,
+        "si",
+        [
+            {"type": "image", "img_path": "images/0.jpg", "page_idx": 0},
+            {"type": "image", "img_path": "images/1.jpg", "page_idx": 0},
+        ],
+        image_count=2,
+    )
+    evidence = build_evidence([("SI", "supplementary", si)])
+    prompt = "x" * (500_000 - 32_768 - 50_000 - 4_096)
+    plan, final_prompt, omitted = plan_with_coverage(evidence, prompt, "deepseek-flash")
+    assert not plan.images
+    assert omitted == [1, 2]
+    assert "【图 1】" in final_prompt and "【图 2】" in final_prompt
 
 
 def test_si_budget_drops_all_images_only_when_required_text_fits(tmp_path):
@@ -191,6 +221,35 @@ def test_real_client_records_usage_without_exposing_the_payload(monkeypatch):
     monkeypatch.setattr(client._client.chat.completions, "create", lambda **kwargs: response)
     assert client.chat("prompt") == "OK"
     assert client.last_usage == {"prompt_tokens": 123, "completion_tokens": 9}
+
+
+def test_long_note_fallback_uses_only_preflighted_routes(monkeypatch):
+    from zotero_cli.core.notes.client import AiClient
+    from zotero_cli.core.notes.structured_input import model_supports_request
+
+    cfg = AiNoteConfig(
+        api_key="test",
+        base_url="http://127.0.0.1:1/v1",
+        model="deepseek-flash",
+        fallback_models=["unverified-model", "gemini-3.8-flash-high"],
+    )
+    client = AiClient(cfg)
+    attempted: list[str] = []
+
+    def fake_create(**kwargs):
+        attempted.append(kwargs["model"])
+        if kwargs["model"] == "deepseek-flash":
+            raise RuntimeError("provider temporarily unavailable")
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="OK"), finish_reason="stop")],
+            usage=None,
+        )
+
+    monkeypatch.setattr(client._client.chat.completions, "create", fake_create)
+    prompt = "x" * 200_000
+    allowed = {model for model in client.get_model_chain() if model_supports_request(model, prompt, 10)}
+    assert client.chat(prompt, allowed_models=allowed) == "OK"
+    assert attempted == ["deepseek-flash", "gemini-3.8-flash-high"]
 
 
 def test_image_rejection_drops_all_images_but_keeps_the_whole_text(monkeypatch):

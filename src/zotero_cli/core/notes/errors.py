@@ -18,8 +18,11 @@ class NoteAnalysisError(Exception):
         code: str = "runtime_error",
         retryable: bool = False,
         committed: bool = False,
+        parkable: bool = False,
     ) -> None:
         super().__init__(message)
         self.code = code
         self.retryable = retryable
         self.committed = committed
+        # Only a proven input/budget failure may be parked by the scheduler.
+        self.parkable = parkable

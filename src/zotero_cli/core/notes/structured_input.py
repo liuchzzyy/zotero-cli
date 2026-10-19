@@ -25,6 +25,10 @@ _IMAGE_TYPES = {"image", "chart"}
 _SKIP_TYPES = {"header", "footer", "page_number", "page_footnote", "aside_text"}
 
 
+class EvidenceBudgetError(ValueError):
+    """The unchanged evidence cannot fit this request's verified limits."""
+
+
 @dataclass(frozen=True)
 class Evidence:
     text: str
@@ -164,10 +168,10 @@ def plan_request(evidence: Evidence, prompt: str, model: str, *, output_reserve:
     # Characters are a conservative text ceiling, not an exact token count.
     text_bound = len(prompt)
     if text_bound + output_reserve + SAFETY_RESERVE >= limit:
-        raise ValueError("required text exceeds the model budget; do not truncate evidence")
+        raise EvidenceBudgetError("required text exceeds the model budget; do not truncate evidence")
     image_allowance = limit - text_bound - output_reserve - SAFETY_RESERVE
     if len(evidence.main_images) * per_image > image_allowance:
-        raise ValueError("required main images exceed model budget")
+        raise EvidenceBudgetError("required main images exceed model budget")
     max_si_by_budget = max(0, image_allowance // per_image - len(evidence.main_images))
     selected_si = _select_si(
         evidence.si_candidates,
@@ -200,7 +204,7 @@ def plan_request(evidence: Evidence, prompt: str, model: str, *, output_reserve:
         if (number, path) in si_chosen:
             si_payload.append(record)
     if byte_count > MAX_REQUEST_BYTES:
-        raise ValueError("request body exceeds safe byte limit")
+        raise EvidenceBudgetError("request body exceeds safe byte limit")
     image_bound = len(payload) * per_image
     return RequestPlan(
         model,
@@ -213,3 +217,33 @@ def plan_request(evidence: Evidence, prompt: str, model: str, *, output_reserve:
         len(evidence.si_candidates) - len(si_payload),
         skipped,
     )
+
+
+def plan_with_coverage(evidence: Evidence, prompt: str, model: str) -> tuple[RequestPlan, str, list[int]]:
+    """Replan until every unsent figure is named in the final prompt."""
+    base_prompt = prompt
+    requested_numbers = [number for number, _ in evidence.main_images + evidence.si_candidates]
+    omitted_numbers: list[int] = []
+    plan = plan_request(evidence, prompt, model)
+    while True:
+        sent_numbers = {number for number, _ in plan.images}
+        current_omitted = [number for number in requested_numbers if number not in sent_numbers]
+        if current_omitted == omitted_numbers:
+            return plan, prompt, omitted_numbers
+        omitted_numbers = current_omitted
+        prompt = base_prompt + (
+            "\n\n【图像覆盖说明】以下图像只有文字/图注而未附图像，请勿声称直接看过图内曲线、坐标或形貌："
+            + "、".join(f"【图 {number}】" for number in omitted_numbers)
+        )
+        plan = plan_request(evidence, prompt, model)
+
+
+def model_supports_request(model: str, prompt: str, image_count: int) -> bool:
+    """Whether a fallback can receive the exact preflighted text and image set."""
+    route = _ROUTE_LIMITS.get(model)
+    if route is None:
+        return False
+    context, per_image = route
+    limit = min(context, REQUEST_CEILING)
+    text_and_reserve = len(prompt) + OUTPUT_RESERVE + SAFETY_RESERVE
+    return text_and_reserve < limit and text_and_reserve + image_count * per_image <= limit

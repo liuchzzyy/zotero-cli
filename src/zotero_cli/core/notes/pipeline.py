@@ -47,7 +47,12 @@ from zotero_cli.core.notes.documents import (
 from zotero_cli.core.notes.errors import NoteAnalysisError
 from zotero_cli.core.notes.renderer import render_note
 from zotero_cli.core.notes.short_note import _generate_short_note
-from zotero_cli.core.notes.structured_input import build_evidence, plan_request
+from zotero_cli.core.notes.structured_input import (
+    EvidenceBudgetError,
+    build_evidence,
+    model_supports_request,
+    plan_with_coverage,
+)
 from zotero_cli.core.notes.templates import (
     fit_text_to_prompt,
     format_template,
@@ -295,6 +300,7 @@ def analyze_item(
         raise NoteAnalysisError(
             "required structured text exceeds configured max_extracted_chars; no evidence truncated",
             code="validation_error",
+            parkable=True,
         )
 
     total_refs = evidence.main_count + evidence.si_count
@@ -311,25 +317,12 @@ def analyze_item(
     )
     model = ai_client.config.model if ai_client is not None else "deepseek-flash"
     try:
-        plan = plan_request(evidence, prompt, model)
+        plan, prompt, omitted_numbers = plan_with_coverage(evidence, prompt, model)
     except ValueError as exc:
-        raise NoteAnalysisError(str(exc), code="validation_error") from exc
+        raise NoteAnalysisError(
+            str(exc), code="validation_error", parkable=isinstance(exc, EvidenceBudgetError)
+        ) from exc
     figures = plan.images
-    sent_numbers = {number for number, _ in figures}
-    requested_numbers = [number for number, _ in evidence.main_images] + [
-        number for number, _ in evidence.si_candidates
-    ]
-    omitted_numbers = [number for number in requested_numbers if number not in sent_numbers]
-    if omitted_numbers:
-        prompt += (
-            "\n\n【图像覆盖说明】以下图像只有文字/图注而未附图像，请勿声称直接看过图内曲线、坐标或形貌："
-            + "、".join(f"【图 {number}】" for number in omitted_numbers)
-        )
-        try:
-            plan = plan_request(evidence, prompt, model)
-        except ValueError as exc:
-            raise NoteAnalysisError(str(exc), code="validation_error") from exc
-        figures = plan.images
     chars_used = len(cleaned)
     if progress:
         progress(
@@ -360,12 +353,17 @@ def analyze_item(
         }
 
     client = _require_ai_client(ai_client)
+    # The initial plan covers only the primary route. A fallback must be able
+    # to receive this same final prompt and image set under verified limits.
+    allowed_models = {
+        candidate for candidate in client.get_model_chain() if model_supports_request(candidate, prompt, len(figures))
+    }
     if progress:
         progress("analyze", f"paper_type={paper_type}")
     if writer is None:
         raise NoteAnalysisError("写入凭证未配置", code="auth_missing")
 
-    answer = _chat(client, prompt, progress=progress, figures=figures)
+    answer = _chat(client, prompt, progress=progress, figures=figures, allowed_models=allowed_models)
     try:
         sections = extract_json_object(answer).get("sections", [])
     except NoteAnalysisError:
@@ -373,7 +371,9 @@ def analyze_item(
             progress("retry", "AI 输出无法解析为 JSON，追加格式要求重试一次")
         # A format retry must use the same image set. Only an explicit
         # image-capability rejection in AiClient may retry with zero images.
-        retry_answer = _chat(client, prompt + PARSE_RETRY_SUFFIX, progress=progress, figures=figures)
+        retry_answer = _chat(
+            client, prompt + PARSE_RETRY_SUFFIX, progress=progress, figures=figures, allowed_models=allowed_models
+        )
         try:
             sections = extract_json_object(retry_answer).get("sections", [])
         except NoteAnalysisError as retry_error:
@@ -388,7 +388,9 @@ def analyze_item(
         if progress:
             progress("retry", f"输出过简略（{len(sections)} 个 block），追加内容充实度要求重试一次")
         try:
-            retry_answer = _chat(client, prompt + SPARSE_RETRY_SUFFIX, progress=progress, figures=figures)
+            retry_answer = _chat(
+                client, prompt + SPARSE_RETRY_SUFFIX, progress=progress, figures=figures, allowed_models=allowed_models
+            )
             retried = extract_json_object(retry_answer).get("sections", [])
             if isinstance(retried, list) and len(retried) > len(sections):
                 sections = retried

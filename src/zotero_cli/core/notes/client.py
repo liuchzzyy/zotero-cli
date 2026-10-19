@@ -111,8 +111,9 @@ class AiClient:
         temperature: float | None = None,
         progress: Callable[[str, str], None] | None = None,
         figures: list[tuple[int, str]] | None = None,
+        allowed_models: set[str] | None = None,
     ) -> str:
-        models = self.get_model_chain()
+        models = [model for model in self.get_model_chain() if allowed_models is None or model in allowed_models]
         last_error: Exception | None = None
 
         for idx, model in enumerate(models):

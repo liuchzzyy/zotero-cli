@@ -153,21 +153,29 @@ def run_collection(
             except Exception as exc:
                 committed = bool(getattr(exc, "committed", True))
                 attempts = int(previous.get("attempts", 0)) + 1
-                # Only a non-committed failure may be retried at all; once the
-                # same input has failed MAX_ATTEMPTS times it will not succeed,
-                # so park it instead of failing every future run.
-                parked = not committed and attempts >= MAX_ATTEMPTS
+                # A network/provider failure may recover next run. Only the
+                # pipeline's explicit, deterministic input-budget errors park.
+                parkable = not committed and bool(getattr(exc, "parkable", False))
+                budget_attempts = int(previous.get("budget_attempts", 0)) + 1 if parkable else 0
+                parked = budget_attempts >= MAX_ATTEMPTS
                 state[key] = _checkpoint(
                     before,
                     status=PARKED_STATUS if parked else "failed",
                     error=str(exc),
                     committed=committed,
                     attempts=attempts,
+                    budget_attempts=budget_attempts,
                 )
                 save_state(state_path, state)
                 if parked:
                     summary["blocked"].append(
-                        {"key": key, "attempts": attempts, "error": str(exc), "title": before.get("title", "")}
+                        {
+                            "key": key,
+                            "attempts": attempts,
+                            "budget_attempts": budget_attempts,
+                            "error": str(exc),
+                            "title": before.get("title", ""),
+                        }
                     )
                     continue
                 raise

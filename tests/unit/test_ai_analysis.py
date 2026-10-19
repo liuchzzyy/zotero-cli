@@ -1257,9 +1257,10 @@ class TestDryRunSemantics:
         reader.get_pdf_attachments.return_value = [att]
         with (
             _patch_mineru(att, "word " * 200, tmp_path),
-            pytest.raises(NoteAnalysisError, match="no evidence truncated"),
+            pytest.raises(NoteAnalysisError, match="no evidence truncated") as caught,
         ):
             analyze_item(reader, MagicMock(), None, "ABC123", dry_run=True, max_extracted_chars=100)
+        assert caught.value.parkable is True
 
     def test_non_dry_run_requires_ai_client(self, tmp_path):
         att = _make_attachment(tmp_path)
@@ -1279,8 +1280,12 @@ class TestPromptBounds:
         reader.get_pdf_attachments.return_value = [att]
         ai_client = MagicMock()
         ai_client.config = AiNoteConfig(api_key="k", base_url="http://x", model="deepseek-flash", max_extracted_chars=0)
-        with _patch_mineru(att, "word " * 100000, tmp_path), pytest.raises(NoteAnalysisError, match="required text"):
+        with (
+            _patch_mineru(att, "word " * 100000, tmp_path),
+            pytest.raises(NoteAnalysisError, match="required text") as caught,
+        ):
             analyze_item(reader, MagicMock(), ai_client, "ABC123", dry_run=True)
+        assert caught.value.parkable is True
 
     def test_metadata_is_counted_against_the_budget(self, tmp_path):
         att = _make_attachment(tmp_path)
@@ -1310,6 +1315,7 @@ class TestFigureCapAnnotation:
         writer.add_note.return_value = "NOTE1"
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
+        ai_client.get_model_chain.return_value = ["deepseek-flash", "unverified-model", "gemini-3.8-flash-high"]
         ai_client.chat.side_effect = [
             '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
             _sections_json(12),
@@ -1318,6 +1324,7 @@ class TestFigureCapAnnotation:
             result = analyze_item(reader, writer, ai_client, "ABC123", no_short_note=True)
         assert result["status"] == "ok"
         assert len(ai_client.chat.call_args.kwargs["figures"]) == 20
+        assert ai_client.chat.call_args.kwargs["allowed_models"] == {"deepseek-flash", "gemini-3.8-flash-high"}
 
 
 class TestPlainTextNoteTitle:

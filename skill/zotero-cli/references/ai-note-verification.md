@@ -198,10 +198,10 @@ JSON note cannot land in the library — read the error rather than re-running.
 For a scheduled collection run (`tools/ainote/scheduled_analyze.py`), the new
 fail-closed errors are permanent, not transient: an item whose structured text
 exceeds `max_extracted_chars` or whose main figures exceed the token budget can
-never succeed on retry. The scheduler counts non-committed attempts and parks the
+never succeed on retry. The scheduler counts explicitly marked input-budget failures and parks the
 item as `unanalyzable` after three, reports it under `blocked` rather than
 `failed`, and skips it afterwards; clear it with `--retry-parked` after fixing
-the cause. A *committed* failure is never parked.
+the cause. Network/provider failures and uncertain writes are never parked.
 
 ## 6. Shape of the report to the user
 
