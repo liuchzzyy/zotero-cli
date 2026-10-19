@@ -74,6 +74,66 @@ def test_unmarked_item_is_analyzed_once_and_verified_before_checkpoint(tmp_path:
     assert sa.load_state(state_path)["ITEM"]["verified"] is True
 
 
+def test_generated_note_with_failed_keywords_is_verified_as_degraded(tmp_path: Path) -> None:
+    reader, api, analyze, path = fixture_item(tmp_path)
+    before = api.item.return_value["data"]
+    after = {**before, "tags": [{"tag": "ai/noted"}, {"tag": "ai/no_keywords"}]}
+    api.item.side_effect = [{"data": before}, {"data": after}]
+    note = {
+        "key": "NOTE",
+        "data": {
+            "key": "NOTE",
+            "parentItem": "ITEM",
+            "itemType": "note",
+            "note": "<h1>AI条目分析 - Paper</h1><h2>证据</h2><p>有效内容</p>",
+        },
+    }
+    api.everything.side_effect = [[], [], [note]]
+    analyze.return_value = {
+        "status": "ok",
+        "note_key": "NOTE",
+        "short_note": "failed",
+        "short_note_error": "model timeout",
+    }
+
+    result = sa.run_collection(reader, api, analyze, "COL", path, apply=True)
+
+    assert result["failed"] == []
+    assert result["processed"] == 1
+    assert result["degraded"] == [{"key": "ITEM", "note_key": "NOTE", "short_note_error": "model timeout"}]
+    assert sa.load_state(path)["ITEM"]["verified"] is True
+    assert sa.load_state(path)["ITEM"]["short_note"] == "failed"
+
+
+def test_written_short_note_without_keyword_tag_is_reported_as_degraded(tmp_path: Path) -> None:
+    reader, api, analyze, path = fixture_item(tmp_path)
+    before = api.item.return_value["data"]
+    after = {**before, "tags": [{"tag": "ai/noted"}], "extra": "short-note: 测试 | 疑问：对照不足"}
+    api.item.side_effect = [{"data": before}, {"data": after}]
+    note = {
+        "key": "NOTE",
+        "data": {
+            "key": "NOTE",
+            "parentItem": "ITEM",
+            "itemType": "note",
+            "note": "<h1>AI条目分析 - Paper</h1><h2>证据</h2><p>有效内容</p>",
+        },
+    }
+    api.everything.side_effect = [[], [], [note]]
+    analyze.return_value = {
+        "status": "ok",
+        "note_key": "NOTE",
+        "short_note": "failed",
+        "short_note_error": "ai/keywords tag write failed",
+    }
+
+    result = sa.run_collection(reader, api, analyze, "COL", path, apply=True)
+
+    assert result["failed"] == []
+    assert result["degraded"][0]["key"] == "ITEM"
+    assert sa.load_state(path)["ITEM"]["verified"] is True
+
+
 def fixture_item(tmp_path: Path) -> tuple[MagicMock, MagicMock, MagicMock, Path]:
     reader, api, analyze = MagicMock(), MagicMock(), MagicMock()
     reader.get_collection_items.return_value = [SimpleNamespace(key="ITEM", item_type="journalArticle", title="Paper")]
@@ -120,7 +180,8 @@ def test_unknown_write_outcome_is_not_retried(tmp_path: Path) -> None:
     analyze.side_effect = RuntimeError("write result unknown")
     first = sa.run_collection(reader, api, analyze, "COL", path, apply=True)
     second = sa.run_collection(reader, api, analyze, "COL", path, apply=True)
-    assert first["failed"] and second["failed"]
+    assert first["failed"] and not second["failed"]
+    assert second["blocked"] == [{"key": "ITEM", "error": "prior_write_outcome_uncertain; reconcile before retry"}]
     assert sa.load_state(path)["ITEM"]["committed"] is True
     analyze.assert_called_once_with("ITEM")
 
@@ -131,6 +192,53 @@ def test_remote_error_is_failure_not_empty_collection(tmp_path: Path) -> None:
     result = sa.run_collection(reader, api, analyze, "COL", path, apply=True)
     assert result["total"] == 1 and result["failed"]
     analyze.assert_not_called()
+
+
+def test_per_item_failure_does_not_fail_completed_batch() -> None:
+    assert sa.batch_exit_code({"failed": [{"key": "BAD", "error": "bad PDF"}], "processed": 1}) == 0
+
+
+def test_one_bad_item_does_not_stop_later_items(tmp_path: Path) -> None:
+    reader, api, analyze = MagicMock(), MagicMock(), MagicMock()
+    reader.get_collection_items.return_value = [
+        SimpleNamespace(key=key, item_type="journalArticle", title=key) for key in ("BAD", "GOOD")
+    ]
+    api.everything.return_value = []
+    api.item.side_effect = [
+        {"data": {"collections": ["COL"], "tags": []}},
+        {"data": {"collections": ["COL"], "tags": []}},
+        {"data": {"collections": ["COL"], "tags": [{"tag": "ai/uncertain"}]}},
+    ]
+    pdf = tmp_path / "paper.pdf"
+    pdf.write_bytes(b"offline fixture")
+    reader.get_pdf_attachments.return_value = [SimpleNamespace(path=pdf)]
+    analyze.side_effect = [RuntimeError("bad item"), {"status": "uncertain"}]
+
+    result = sa.run_collection(reader, api, analyze, "COL", tmp_path / "state.json", apply=True)
+
+    assert [row["key"] for row in result["failed"]] == ["BAD"]
+    assert result["uncertain"] == 1
+    assert analyze.call_count == 2
+
+
+def test_previous_failed_item_is_deferred_behind_fresh_items(tmp_path: Path) -> None:
+    reader, api, analyze = MagicMock(), MagicMock(), MagicMock()
+    reader.get_collection_items.return_value = [
+        SimpleNamespace(key=key, item_type="journalArticle", title=key) for key in ("AAA", "BBB")
+    ]
+    api.everything.return_value = []
+    api.item.return_value = {"data": {"collections": ["COL"], "tags": []}}
+    pdf = tmp_path / "paper.pdf"
+    pdf.write_bytes(b"offline fixture")
+    reader.get_pdf_attachments.return_value = [SimpleNamespace(path=pdf)]
+    path = tmp_path / "state.json"
+    sa.save_state(path, {"AAA": {"status": "failed", "attempts": 1}})
+    analyze.side_effect = NoteAnalysisError("bad data", code="validation_error")
+
+    result = sa.run_collection(reader, api, analyze, "COL", path, apply=True)
+
+    assert result["candidates"] == ["BBB", "AAA"]
+    assert analyze.call_count == 2
 
 
 def test_removed_member_does_not_get_a_note(tmp_path: Path) -> None:
@@ -155,7 +263,8 @@ def test_bad_readback_keeps_in_progress_to_prevent_duplicate_note(tmp_path: Path
     analyze.return_value = {"status": "ok", "note_key": "NOT_FOUND"}
     first = sa.run_collection(reader, api, analyze, "COL", path, apply=True)
     second = sa.run_collection(reader, api, analyze, "COL", path, apply=True)
-    assert first["failed"] and second["failed"]
+    assert first["failed"] and not second["failed"]
+    assert second["blocked"] == [{"key": "ITEM", "error": "prior_write_outcome_uncertain; reconcile before retry"}]
     assert sa.load_state(path)["ITEM"]["status"] == "in_progress"
     analyze.assert_called_once_with("ITEM")
 

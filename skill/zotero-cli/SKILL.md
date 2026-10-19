@@ -77,6 +77,20 @@ Every write/destructive command (and mutating subcommand) supports zero-side-eff
 
 `zot ai_analyze ITEMKEY --dry-run` does not write to Zotero, needs no AI configuration (it parses via MinerU and previews the prompt), and does not require Web API write credentials. A non-dry-run analysis requires a library ID and an API key with write access.
 
+For unattended collection notes, `tools/ainote/scheduled_analyze.py` keeps each
+item's outcome in `.zot/state/batch_ainote_<collection>.json`. A bad item does
+not stop later items: failures remain in the run report, while a completed
+inventory exits 0 (initialization/inventory errors still fail). Prior failed
+items run after fresh candidates on later schedules; uncertain writes stay
+`blocked` until remote reconciliation. A verified Note whose short-note failed
+is reported as `degraded`, not appended again. The time budget can defer work to
+a later run; scheduler success is not evidence that all items have Notes. Check
+`latest.json` for `failed`, `blocked`, `degraded` and `deferred_time_budget`.
+Validate the configured primary model against the authenticated proxy
+`/v1/models` and `structured_input.py::_ROUTE_LIMITS` to diagnose temporary
+availability; do not remove or override a model solely because it is unavailable
+at inspection time — the fallback chain handles transient outages.
+
 ## AI note analysis (ai_analyze)
 
 The `zot ai_analyze` pipeline reads an item's local PDF, parses it via MinerU, classifies the document into a template (`research_article`, `review_article`, `book`), generates a structured JSON sections payload via LLM, renders it to an inline-styled HTML note in Zotero, tags the item `ai/noted`, and generates a `short-note: ...` summary in Extra with tag `ai/keywords`.

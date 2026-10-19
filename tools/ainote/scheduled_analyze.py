@@ -59,12 +59,23 @@ def verify_result(api: Any, key: str, before: dict[str, Any], result: dict[str, 
         raise RuntimeError("AI note title or section headings missing")
     if any(not clean_html(body).strip() for body in sections[1:]):
         raise RuntimeError("AI note has an empty section")
-    if not {"ai/noted", "ai/keywords"}.issubset(tags):
-        raise RuntimeError("Analysis or keyword tags missing")
+    if "ai/noted" not in tags:
+        raise RuntimeError("Analysis tag missing")
+    if result.get("short_note") == "ok":
+        if "ai/keywords" not in tags:
+            raise RuntimeError("Keyword tag missing")
+        extra = item.get("extra", "")
+        short = [s for s in extra.splitlines() if s.lower().startswith("short-note:")]
+        if len(short) != 1 or "疑问：" not in short[0]:
+            raise RuntimeError("short-note missing, duplicated or incomplete")
+    elif result.get("short_note") == "failed":
+        if "ai/no_keywords" not in tags:
+            short = [s for s in item.get("extra", "").splitlines() if s.lower().startswith("short-note:")]
+            if len(short) != 1 or "疑问：" not in short[0]:
+                raise RuntimeError("Keyword failure not marked on readback")
+    else:
+        raise RuntimeError("Unexpected short-note status")
     extra = item.get("extra", "")
-    short = [s for s in extra.splitlines() if s.lower().startswith("short-note:")]
-    if len(short) != 1 or "疑问：" not in short[0]:
-        raise RuntimeError("short-note missing, duplicated or incomplete")
     previous = [s for s in before.get("extra", "").splitlines() if not s.lower().startswith("short-note:")]
     if any(s not in extra.splitlines() for s in previous):
         raise RuntimeError("Pre-existing Extra content changed")
@@ -84,7 +95,12 @@ def run_collection(
     budget_seconds: float = 3000,
     retry_parked: bool = False,
 ) -> dict[str, Any]:
-    """Process only fresh candidates; all network/model boundaries are injectable."""
+    """Process only fresh candidates; all network/model boundaries are injectable.
+
+    Failed items are reported individually; callers distinguish a completed scan
+    from pre-scan failures. The time budget defers remaining candidates to future
+    scheduled runs rather than claiming every item was analyzed in one tick.
+    """
     started = time.monotonic()
     local = {i.key: i for i in reader.get_collection_items(collection) if i.item_type not in {"note", "attachment"}}
     remote_list = api.everything(api.collection_items(collection, limit=100))
@@ -97,6 +113,9 @@ def run_collection(
         # Gated on apply so an inventory dry run still never writes anything.
         state = {key: value for key, value in state.items() if value.get("status") != PARKED_STATUS}
         save_state(state_path, state)
+    # Do not let yesterday's failed first key consume today's attempt budget
+    # before every new candidate has had a chance. Still retry it afterwards.
+    keys.sort(key=lambda key: state.get(key, {}).get("status") == "failed")
     summary: dict[str, Any] = {
         "total": len(keys),
         "processed": 0,
@@ -105,6 +124,7 @@ def run_collection(
         "skipped": [],
         "failed": [],
         "blocked": [],
+        "degraded": [],
         "dry_run": not apply,
     }
     for key in keys:
@@ -131,7 +151,9 @@ def run_collection(
                 summary["skipped"].append({"key": key, "reason": "existing_ai_note", "note_keys": existing})
                 continue
             if previous.get("status") == "in_progress" or previous.get("committed"):
-                summary["failed"].append({"key": key, "error": "prior_write_outcome_uncertain; reconcile before retry"})
+                summary["blocked"].append(
+                    {"key": key, "error": "prior_write_outcome_uncertain; reconcile before retry"}
+                )
                 continue
             if key not in local:
                 summary["skipped"].append({"key": key, "reason": "not_synced_locally"})
@@ -186,9 +208,18 @@ def run_collection(
             state[key] = _checkpoint(before, **{**result, **verification, "dry_run": False})
             save_state(state_path, state)
             summary["uncertain" if result["status"] == "uncertain" else "processed"] += 1
+            if result.get("short_note") == "failed":
+                summary["degraded"].append(
+                    {"key": key, "note_key": result["note_key"], "short_note_error": result.get("short_note_error", "")}
+                )
         except Exception as exc:
             summary["failed"].append({"key": key, "error": f"{type(exc).__name__}: {exc}"})
     return summary
+
+
+def batch_exit_code(result: dict[str, Any]) -> int:
+    """Item failures are reported per key, not as a failed scheduler run."""
+    return 0
 
 
 def main() -> int:
@@ -276,7 +307,7 @@ def main() -> int:
         save_state(args.output_dir / "latest.json", result)
         if args.dry_run or result["processed"] or result["uncertain"] or result["failed"] or result["blocked"]:
             print(json.dumps(result, ensure_ascii=False, indent=2))
-        return 1 if result["failed"] else 0
+        return batch_exit_code(result)
 
 
 if __name__ == "__main__":

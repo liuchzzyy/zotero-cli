@@ -37,17 +37,25 @@ checkpoints and existing AI Notes suppress repeat analysis. Unsynced/missing
 local PDFs are deferred. The inventory-only dry run makes no MinerU/LLM/library
 writes, but saves a local run report. Apply records `in_progress` before each
 analysis, verifies exact-key Web API readback, and refuses blind retries after
-an uncertain write. An advisory lock prevents overlapping scheduler runs;
-empty/all-skipped runs emit no stdout. Reports live in the specified output
-directory, and the collection checkpoint remains under `.zot/state/`.
+an uncertain write. A verified AI Note with failed short-note generation is
+recorded as `degraded`, not re-analyzed; a prior `in_progress` entry needing
+reconciliation is reported under `blocked`. Item-level errors stay in the
+`failed` array while later items continue; a completed inventory exits 0 even
+when `failed` is nonempty, but initialization errors still exit nonzero. Failed
+checkpoint items run after fresh candidates, so they do not repeatedly consume
+the budget ahead of unseen papers. A per-run time budget defers remaining
+candidates to later runs: exit 0 does not mean every item was analyzed. An
+advisory lock prevents overlapping scheduler runs; empty/all-skipped runs
+emit no stdout. Reports live in the specified output directory, and the
+collection checkpoint remains under `.zot/state/`.
 
 Because `ai_analyze` now fails closed on input it cannot fit (structured text
 over `max_extracted_chars`, or more main figures than the token budget allows),
 only an explicitly marked input-budget failure is treated as permanent: after
 `MAX_ATTEMPTS` (3) the item is parked as `unanalyzable`, listed in the run's
 `blocked` array instead of `failed`, and skipped by later runs — otherwise one
-oversized paper would fail the nightly job and re-attempt the same input
-forever. Network/provider failures remain retryable across scheduled runs;
+oversized paper would be retried on every nightly run. Network/provider
+failures remain retryable across scheduled runs and visible in `failed`;
 an uncertain write is never parked, since the note may already exist.
 `--retry-parked` clears parked checkpoints so they are attempted again
 after you fix the cause (raise the cap, split the PDF).
