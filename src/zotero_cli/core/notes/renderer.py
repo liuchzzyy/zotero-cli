@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html as _html
+from typing import Any
 
 from zotero_cli.core.notes.text import prepare
 
@@ -21,7 +22,7 @@ def _text(text: object) -> str:
     return _escape(prepare(str(text)))
 
 
-def render_note(sections: list[dict], *, title: str) -> str:
+def render_note(sections: list[Any], *, title: str) -> str:
     """Render a sections-JSON payload to an inline-styled HTML note."""
     # The title is a fixed label plus the item title, so it is escaped but not
     # re-spaced: the label must stay byte-identical for prefix matching.
@@ -80,9 +81,13 @@ def _bullet_list(items: list) -> str:
         return ""
     lis: list[str] = []
     for item in items:
+        nested_html = ""
         if isinstance(item, dict):
             text = _text(item.get("text", ""))
             citations = item.get("citations") or []
+            sub_items = item.get("items")
+            if isinstance(sub_items, list) and sub_items:
+                nested_html = _bullet_list(sub_items)
         else:
             text = _text(str(item or ""))
             citations = []
@@ -104,9 +109,9 @@ def _bullet_list(items: list) -> str:
                         f"「📍 {_text(c)}」</div>"
                     )
             cite_html = "".join(cite_divs)
-            lis.append(f"<li style='margin:0.2em 0;'>{text}{cite_html}</li>")
+            lis.append(f"<li style='margin:0.2em 0;'>{text}{cite_html}{nested_html}</li>")
         else:
-            lis.append(f"<li style='margin:0.2em 0;'>{text}</li>")
+            lis.append(f"<li style='margin:0.2em 0;'>{text}{nested_html}</li>")
     return f"<ul style='margin:0.4em 0;padding-left:1.5em;'>{''.join(lis)}</ul>"
 
 

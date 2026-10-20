@@ -120,6 +120,11 @@ class TestExtractJsonObject:
         text = '分析结果如下：\n{"sections": []}\n完毕'
         assert extract_json_object(text) == {"sections": []}
 
+    def test_fenced_json_preferred_over_surrounding_brackets(self):
+        fence = chr(96) * 3
+        text = '前言 {"outer": 1}\n' + fence + "json\n" + '{"target": "clean"}\n' + fence + '\n结尾 {"trailing": 2}'
+        assert extract_json_object(text) == {"target": "clean"}
+
     def test_fenced_json_with_trailing_curly_braces(self):
         fence = chr(96) * 3
         text = (

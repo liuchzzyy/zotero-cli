@@ -4,12 +4,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from zotero_cli.core.notes.constants import MAX_PROMPT_CHARS
 from zotero_cli.core.notes.renderer import render_note
 from zotero_cli.core.notes.templates import fit_text_to_prompt, format_template, load_template, template_path
 
 
 class TestNoteTemplates:
+    def test_load_template_missing_raises_informative_error(self):
+        with pytest.raises(FileNotFoundError, match="AI note template 'nonexistent'"):
+            load_template("nonexistent")
+
     def test_load_template_by_alias(self):
         template = load_template("research")
         assert "论文基本信息" in template
@@ -130,6 +136,29 @@ class TestNoteRenderer:
         assert "带引用" in html
         assert "「📍 第 3 页：原文内容」" in html
         assert "#2b6cb0" in html
+
+    def test_render_nested_bullet_list(self):
+        sections = [
+            {
+                "type": "bullet_list",
+                "items": [
+                    {
+                        "text": "一级项目 A",
+                        "items": [
+                            {"text": "二级项目 A1"},
+                            {"text": "二级项目 A2"},
+                        ],
+                    },
+                    "一级项目 B",
+                ],
+            }
+        ]
+        html = render_note(sections, title="T")
+        assert "一级项目 A" in html
+        assert "二级项目 A1" in html
+        assert "二级项目 A2" in html
+        assert "一级项目 B" in html
+        assert html.count("<ul") == 2
 
     def test_render_table(self):
         sections = [{"type": "table", "headers": ["A", "B"], "rows": [["1", "2"]]}]

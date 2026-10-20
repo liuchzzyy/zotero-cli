@@ -114,6 +114,51 @@ def _plain_title(title: str) -> str:
     return " ".join(clean_html(title or "").split())
 
 
+def _chat_with_retry(
+    client: AiClient,
+    prompt: str,
+    *,
+    figures: list[tuple[int, str]],
+    allowed_models: set[str],
+    progress: Callable[[str, str], None] | None,
+) -> list[object]:
+    """Execute model chat and parse sections JSON with two-round retry for format and sparsity."""
+    answer = _chat(client, prompt, progress=progress, figures=figures, allowed_models=allowed_models)
+    try:
+        sections = extract_json_object(answer).get("sections", [])
+    except NoteAnalysisError:
+        if progress:
+            progress("retry", "AI 输出无法解析为 JSON，追加格式要求重试一次")
+        # A format retry must use the same image set. Only an explicit
+        # image-capability rejection in AiClient may retry with zero images.
+        retry_answer = _chat(
+            client, prompt + PARSE_RETRY_SUFFIX, progress=progress, figures=figures, allowed_models=allowed_models
+        )
+        try:
+            sections = extract_json_object(retry_answer).get("sections", [])
+        except NoteAnalysisError as retry_error:
+            snippet = retry_answer[:300].replace("\n", " ")
+            raise NoteAnalysisError(
+                f"AI 输出两次都无法解析为 JSON（响应开头：{snippet}...）",
+                code="runtime_error",
+            ) from retry_error
+    if not isinstance(sections, list):
+        sections = []
+    if len(sections) < MIN_SECTIONS:
+        if progress:
+            progress("retry", f"输出过简略（{len(sections)} 个 block），追加内容充实度要求重试一次")
+        try:
+            retry_answer = _chat(
+                client, prompt + SPARSE_RETRY_SUFFIX, progress=progress, figures=figures, allowed_models=allowed_models
+            )
+            retried = extract_json_object(retry_answer).get("sections", [])
+            if isinstance(retried, list) and len(retried) > len(sections):
+                sections = retried
+        except NoteAnalysisError:
+            pass
+    return sections
+
+
 def _analyze_short_note_only(
     reader: ZoteroReader,
     writer: ZoteroWriter | None,
@@ -269,16 +314,15 @@ def analyze_item(
         evidence = build_evidence(structured_docs)
     except ValueError as exc:
         raise NoteAnalysisError(str(exc), code="validation_error") from exc
-    main_text = evidence.text
-    if not main_text.strip():
+    if not evidence.text.strip():
         raise NoteAnalysisError(f"条目 '{key}' 的 MinerU structured content 为空", code="runtime_error")
-    full_text = main_text
 
     # Preview a metadata/default template without sending text to the model.
     if dry_run:
         paper_type = "book" if item.item_type in BOOK_ITEM_TYPES else "research_article"
     else:
-        paper_type = _classify(item, main_text[:CLASSIFY_CHARS], _require_ai_client(ai_client), progress)
+        classify_sample = (evidence.main_text or evidence.text)[:CLASSIFY_CHARS]
+        paper_type = _classify(item, classify_sample, _require_ai_client(ai_client), progress)
     if paper_type == "uncertain":
         if not dry_run and not no_tag:
             if writer is None:
@@ -295,7 +339,7 @@ def analyze_item(
     else:
         max_chars = max_extracted_chars
 
-    cleaned = join_spaced_digits(full_text)
+    cleaned = join_spaced_digits(evidence.text)
     if max_chars > 0 and len(cleaned) > max_chars:
         raise NoteAnalysisError(
             "required structured text exceeds configured max_extracted_chars; no evidence truncated",
@@ -315,7 +359,7 @@ def analyze_item(
         doi=_wrap_field(item.doi or "", "doi", MAX_DOI_CHARS),
         fulltext=wrapped_fulltext,
     )
-    model = ai_client.config.model if ai_client is not None else "deepseek-flash"
+    model = (ai_client.config.model if ai_client is not None else "") or "deepseek-flash"
     try:
         plan, prompt, omitted_numbers = plan_with_coverage(evidence, prompt, model)
     except ValueError as exc:
@@ -363,39 +407,7 @@ def analyze_item(
     if writer is None:
         raise NoteAnalysisError("写入凭证未配置", code="auth_missing")
 
-    answer = _chat(client, prompt, progress=progress, figures=figures, allowed_models=allowed_models)
-    try:
-        sections = extract_json_object(answer).get("sections", [])
-    except NoteAnalysisError:
-        if progress:
-            progress("retry", "AI 输出无法解析为 JSON，追加格式要求重试一次")
-        # A format retry must use the same image set. Only an explicit
-        # image-capability rejection in AiClient may retry with zero images.
-        retry_answer = _chat(
-            client, prompt + PARSE_RETRY_SUFFIX, progress=progress, figures=figures, allowed_models=allowed_models
-        )
-        try:
-            sections = extract_json_object(retry_answer).get("sections", [])
-        except NoteAnalysisError as retry_error:
-            snippet = retry_answer[:300].replace("\n", " ")
-            raise NoteAnalysisError(
-                f"AI 输出两次都无法解析为 JSON（响应开头：{snippet}...）",
-                code="runtime_error",
-            ) from retry_error
-    if not isinstance(sections, list):
-        sections = []
-    if len(sections) < MIN_SECTIONS:
-        if progress:
-            progress("retry", f"输出过简略（{len(sections)} 个 block），追加内容充实度要求重试一次")
-        try:
-            retry_answer = _chat(
-                client, prompt + SPARSE_RETRY_SUFFIX, progress=progress, figures=figures, allowed_models=allowed_models
-            )
-            retried = extract_json_object(retry_answer).get("sections", [])
-            if isinstance(retried, list) and len(retried) > len(sections):
-                sections = retried
-        except NoteAnalysisError:
-            pass
+    sections = _chat_with_retry(client, prompt, figures=figures, allowed_models=allowed_models, progress=progress)
 
     # An invalid/nonempty JSON list can still render only the generated title.
     if not sections or not clean_html(render_note(sections, title="")).strip():

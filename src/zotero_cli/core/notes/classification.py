@@ -39,16 +39,18 @@ def extract_json_object(text: str) -> dict:
         lines = lines[:-1]
     s = "\n".join(lines).strip()
 
-    candidates = [s]
+    candidates: list[str] = []
     # 优先提取标准 ```json ... ``` 代码块中的 JSON 字符串
     fenced_match = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", text, re.IGNORECASE)
     if fenced_match:
-        candidates.insert(0, fenced_match.group(1).strip())
+        candidates.append(fenced_match.group(1).strip())
 
     start = s.find("{")
     end = s.rfind("}")
     if start != -1 and end > start:
-        candidates.insert(0, s[start : end + 1])
+        candidates.append(s[start : end + 1])
+
+    candidates.append(s)
 
     for candidate in candidates:
         for strict in (True, False):

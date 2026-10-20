@@ -61,21 +61,20 @@ def verify_result(api: Any, key: str, before: dict[str, Any], result: dict[str, 
         raise RuntimeError("AI note has an empty section")
     if "ai/noted" not in tags:
         raise RuntimeError("Analysis tag missing")
+    extra = item.get("extra", "")
     if result.get("short_note") == "ok":
         if "ai/keywords" not in tags:
             raise RuntimeError("Keyword tag missing")
-        extra = item.get("extra", "")
         short = [s for s in extra.splitlines() if s.lower().startswith("short-note:")]
         if len(short) != 1 or "疑问：" not in short[0]:
             raise RuntimeError("short-note missing, duplicated or incomplete")
     elif result.get("short_note") == "failed":
         if "ai/no_keywords" not in tags:
-            short = [s for s in item.get("extra", "").splitlines() if s.lower().startswith("short-note:")]
+            short = [s for s in extra.splitlines() if s.lower().startswith("short-note:")]
             if len(short) != 1 or "疑问：" not in short[0]:
                 raise RuntimeError("Keyword failure not marked on readback")
     else:
         raise RuntimeError("Unexpected short-note status")
-    extra = item.get("extra", "")
     previous = [s for s in before.get("extra", "").splitlines() if not s.lower().startswith("short-note:")]
     if any(s not in extra.splitlines() for s in previous):
         raise RuntimeError("Pre-existing Extra content changed")

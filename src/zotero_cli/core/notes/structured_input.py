@@ -11,7 +11,11 @@ from typing import Any
 
 # This is a conservative preflight, not a provider tokenizer. Route limits and
 # image ceilings must be checked against the actual proxy before enabling others.
-_ROUTE_LIMITS = {"deepseek-flash": (1_000_000, 4_096), "gemini-3.8-flash-high": (1_048_576, 4_096)}
+_ROUTE_LIMITS = {
+    "deepseek-flash": (1_000_000, 4_096),
+    "gemini-3.8-flash-high": (1_048_576, 4_096),
+    "gpt-5.6-sol": (1_000_000, 4_096),
+}
 REQUEST_CEILING = 500_000
 OUTPUT_RESERVE = 32_768
 SAFETY_RESERVE = 50_000
@@ -188,8 +192,11 @@ def plan_request(evidence: Evidence, prompt: str, model: str, *, output_reserve:
     byte_count = len(prompt.encode("utf-8"))
     for number, path in selected:
         if not path.is_file() or path.suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp"}:
-            role = "main" if (number, path) in required else "SI"
-            raise ValueError(f"required {role} image {number} is unavailable")
+            if (number, path) in required:
+                raise ValueError(f"required main image {number} is unavailable")
+            # SI image is optional/supplementary; skip rather than failing the whole request
+            skipped.append(number)
+            continue
         data = path.read_bytes()
         if not MIN_IMAGE_BYTES <= len(data) <= MAX_IMAGE_BYTES:
             # MinerU emits degenerate spacers (a 151 px panel is already ~4 kB);

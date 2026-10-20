@@ -104,6 +104,34 @@ def test_unknown_route_cannot_claim_verified_500k_budget(tmp_path):
         plan_request(evidence, evidence.text, "unknown-proxy-model")
 
 
+def test_supported_routes_include_gpt_5_6_sol(tmp_path):
+    evidence = build_evidence(
+        [("MAIN", "main", _parse(tmp_path, "m", [{"type": "text", "text": "body", "page_idx": 0}]))]
+    )
+    plan = plan_request(evidence, evidence.text, "gpt-5.6-sol")
+    assert plan.model == "gpt-5.6-sol"
+
+
+def test_missing_si_image_is_skipped_not_fatal(tmp_path):
+    # Missing SI image should be marked skipped, not abort the plan
+    si = _parse(tmp_path, "si", [{"type": "image", "img_path": "images/0.jpg", "page_idx": 0}], image_count=1)
+    # Remove the created image file to simulate missing SI image on disk
+    (si.root / "raw" / "images" / "0.jpg").unlink()
+    main = _parse(tmp_path, "main", [{"type": "text", "text": "body", "page_idx": 0}])
+    evidence = build_evidence([("MAIN", "main", main), ("SI", "supplementary", si)])
+    plan = plan_request(evidence, "prompt", "deepseek-flash")
+    assert 1 in plan.skipped
+    assert len(plan.images) == 0
+
+
+def test_missing_main_image_raises_error(tmp_path):
+    main = _parse(tmp_path, "main", [{"type": "image", "img_path": "images/0.jpg", "page_idx": 0}], image_count=1)
+    (main.root / "raw" / "images" / "0.jpg").unlink()
+    evidence = build_evidence([("MAIN", "main", main)])
+    with pytest.raises(ValueError, match="required main image 1 is unavailable"):
+        plan_request(evidence, "prompt", "deepseek-flash")
+
+
 def test_fallback_budget_accepts_exact_image_boundary_but_not_overflow():
     prompt = "x" * (500_000 - 32_768 - 50_000 - 4_096)
     assert model_supports_request("deepseek-flash", prompt, 1)

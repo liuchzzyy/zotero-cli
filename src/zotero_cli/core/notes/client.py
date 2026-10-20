@@ -150,8 +150,12 @@ class AiClient:
                     try:
                         return self._send(**create_kwargs)
                     except Exception as text_only_error:
-                        e = text_only_error
-                        err_str = str(e).lower()
+                        msg = f"模型 {model} 纯文本重试亦失败: {type(text_only_error).__name__}: {str(text_only_error)[:80]}"
+                        logger.warning(msg)
+                        if progress:
+                            progress("fallback", msg)
+                        last_error = text_only_error
+                        continue
                 if "reasoning_effort" in create_kwargs and ("reasoning_effort" in err_str or "extra inputs" in err_str):
                     try:
                         return self._send(**{k: v for k, v in create_kwargs.items() if k != "reasoning_effort"})

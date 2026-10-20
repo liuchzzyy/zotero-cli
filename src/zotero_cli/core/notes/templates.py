@@ -51,7 +51,8 @@ def template_path(name: str) -> Path:
         candidate = d / filename
         if candidate.exists():
             return candidate
-    return _TEMPLATES_DIR / filename
+    dirs_checked = ", ".join(str(d) for d in _candidate_template_dirs())
+    raise FileNotFoundError(f"AI note template '{name}' ({filename}) not found in: {dirs_checked}")
 
 
 def load_template(name: str) -> str:

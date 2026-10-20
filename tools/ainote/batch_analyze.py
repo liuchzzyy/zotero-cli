@@ -182,20 +182,6 @@ def run_batch(
             if not dry_run:
                 save_state(state_path, state)
 
-        # Pre-populate known items from other state files if available
-        item_keys = {item.key for item in items}
-        for existing_file in state_path.parent.glob("batch_ainote_*.json"):
-            if existing_file == state_path:
-                continue
-            try:
-                existing_data = load_state(existing_file)
-            except ValueError as exc:
-                logger.warning("Ignoring sibling checkpoint: %s", exc)
-                continue
-            for k, v in existing_data.items():
-                if k in item_keys and k not in state and v.get("status") in _DONE_STATUSES and not v.get("dry_run"):
-                    state[k] = v
-
         processed_count = 0
         attempted_count = 0
         failed_count = 0
