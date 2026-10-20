@@ -30,6 +30,12 @@ idea/TODO/
 .zot/config.toml.*
 .zot/state/
 .workspace/
+# 本地运行配置、缓存与产物；仅保留说明和模板
+config/*
+!config/README.md
+!config/*.example.toml
+!config/*.example.json
+!config/.gitkeep
 # 编辑器、操作系统与本地备份
 .idea/
 *.swp
