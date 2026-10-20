@@ -27,6 +27,14 @@ idea/TODO/
 .env.local
 .env.*
 .zot/config.toml
-.zot/config.toml.bak
+.zot/config.toml.*
 .zot/state/
 .workspace/
+# 编辑器、操作系统与本地备份
+.idea/
+*.swp
+*.bak
+*~
+# 批处理断点与幂等缓存（防止误提交到仓库根目录）
+batch_ainote_*.json
+.ainote_state*.json
