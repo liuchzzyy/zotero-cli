@@ -6,8 +6,8 @@ import json
 
 import typer
 
+from zotero_cli.cli.config.commands import _json_out
 from zotero_cli.cli.renderers import sanitize_text
-from zotero_cli.cli.system.config_commands import _json_out
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
 

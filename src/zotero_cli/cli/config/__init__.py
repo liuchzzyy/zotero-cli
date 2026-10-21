@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import typer
 
-from zotero_cli.cli.system.config_cache import app as cache_app
-from zotero_cli.cli.system.config_commands import init_command, show_command
-from zotero_cli.cli.system.config_profiles import app as profile_app
+from zotero_cli.cli.config.cache import app as cache_app
+from zotero_cli.cli.config.commands import init_command, show_command
+from zotero_cli.cli.config.profiles import app as profile_app
 
 app = typer.Typer(help="管理 zot 配置。", invoke_without_command=True, rich_markup_mode=None)
 app.command("init")(init_command)

@@ -12,10 +12,10 @@ from typer.main import get_command
 from zotero_cli import __version__
 from zotero_cli.cli.ai_notes import ai_note
 from zotero_cli.cli.ai_pdf import ai_pdf
+from zotero_cli.cli.completions import completions_cmd
+from zotero_cli.cli.config import app as config_app
 from zotero_cli.cli.metadata import metadata_app
-from zotero_cli.cli.system.completions import completions_cmd
-from zotero_cli.cli.system.config import app as config_app
-from zotero_cli.cli.system.schema import schema_cmd
+from zotero_cli.cli.schema import schema_cmd
 from zotero_cli.cli.tiered_group import TieredGroup
 from zotero_cli.cli.workspace.typer_commands import workspace_app
 from zotero_cli.cli.zotero.reading import app as zotero_reading_app

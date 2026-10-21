@@ -190,8 +190,8 @@ def test_apply_and_dry_run_are_mutually_exclusive() -> None:
 
 def test_semantic_scholar_failure_is_surfaced_as_network_error() -> None:
     with (
-        patch("zotero_cli.cli.metadata_update_status.extract_preprint_info", side_effect=_preprint_info),
-        patch("zotero_cli.cli.metadata_update_status.SemanticScholarClient", _FailingClient),
+        patch("zotero_cli.cli.metadata.update_status.extract_preprint_info", side_effect=_preprint_info),
+        patch("zotero_cli.cli.metadata.update_status.SemanticScholarClient", _FailingClient),
     ):
         result = _run(["--json", "metadata", "update-status", "--limit", "1"])
     assert result.exit_code == 5
@@ -203,8 +203,8 @@ def test_semantic_scholar_failure_is_surfaced_as_network_error() -> None:
 
 def test_semantic_scholar_rate_limit_is_surfaced_distinctly() -> None:
     with (
-        patch("zotero_cli.cli.metadata_update_status.extract_preprint_info", side_effect=_preprint_info),
-        patch("zotero_cli.cli.metadata_update_status.SemanticScholarClient", _RateLimitedClient),
+        patch("zotero_cli.cli.metadata.update_status.extract_preprint_info", side_effect=_preprint_info),
+        patch("zotero_cli.cli.metadata.update_status.SemanticScholarClient", _RateLimitedClient),
     ):
         result = _run(["--json", "metadata", "update-status", "--limit", "1"])
     assert result.exit_code == 5

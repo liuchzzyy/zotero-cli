@@ -7,7 +7,7 @@ from pathlib import Path
 
 import typer
 
-from zotero_cli.cli.system.config_commands import _emit_config_error, _json_out
+from zotero_cli.cli.config.commands import _emit_config_error, _json_out
 from zotero_cli.config import (
     ConfigError,
     get_default_profile,
