@@ -15,6 +15,19 @@ from typing import NoReturn
 import pytest
 from click.testing import CliRunner
 
+# 确保在自动化测试中，Rich 终端帮助输出不会插入 ANSI 颜色转义序列，
+# 避免不同平台或 CI 环境下对命令行选项与帮助文本的断言受到转义码干扰。
+os.environ.pop("FORCE_COLOR", None)
+os.environ["NO_COLOR"] = "1"
+os.environ["TERM"] = "dumb"
+
+try:
+    from typer import rich_utils
+
+    rich_utils.COLOR_SYSTEM = None
+except ImportError:
+    pass
+
 from tests.support import REPO_ROOT, SAMPLE_DATA_DIR
 from zotero_cli.config import AppConfig
 
