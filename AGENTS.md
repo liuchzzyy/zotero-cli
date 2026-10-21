@@ -1,6 +1,6 @@
 # AGENTS.md
 
-本文件是本仓库唯一的指导文件，面向在 `zotero-cli` 中工作的编码代理。先读本文再动手；命令面以运行中的 CLI（`zot --help`、`zot COMMAND --help`、`zot schema`）为准，不依赖散文描述。
+本文件是本仓库唯一的指导文件，面向在 `zotero-cli` 中工作的编码代理。先读本文再动手；命令面以运行中的 CLI（`zot --help`、`zot <子命令> --help`、`zot schema`）为准，不依赖散文描述。
 
 ## 适用范围
 
@@ -21,44 +21,47 @@
 
 ## 项目目录结构
 
-- 采用 `src/<package_name>/` 布局；按职责或业务领域组织 Python 文件，不把所有模块堆在包根目录或一个笼统的子目录中。目录名使用 `snake_case`，名称须能说明该目录管理什么。
-- 新建 CLI 项目可从以下结构起步，并按实际职责增减目录：
+- 采用 `src/zotero_cli/` 布局；按职责或业务领域组织 Python 文件，不把所有模块堆在包根目录或一个笼统的子目录中。目录名使用 `snake_case`，名称须能说明该目录管理什么。
+- 本项目按以下结构组织代码与测试：
 
   ```text
-  pyproject.toml
-  src/<package_name>/
+  src/zotero_cli/
   ├── __init__.py
-  ├── cli/                 # 命令入口、参数解析
-  │   └── commands.py
-  ├── core/                # 核心计算与业务规则
-  │   └── preprocessing.py
-  └── io/                  # 文件读取、写入与格式转换
-      └── spectra_csv.py
+  ├── cli/                 # 命令入口、参数解析与终端输出
+  │   ├── app/             # CLI 根入口、全局选项提升与统一错误边界
+  │   ├── commands/        # 子命令实现（按命令组划分）
+  │   └── renderers.py     # 面向终端的表格与富文本渲染
+  ├── zotero/              # Zotero 领域模型与应用服务（条目、笔记、集合、标签等）
+  │   └── access/          # 底层访问封装（SQLite 读取器、Web API 写入器、幂等缓存）
+  ├── pdf_rag/             # PDF RAG 索引、向量库与检索服务（含 providers/）
+  ├── ai_pdf/              # MinerU 解析与文档提取服务（含 access/）
+  ├── ai_notes/            # AI 笔记生成流水线与提示词（含 access/、templates/）
+  ├── config/              # 配置加载、路径与上下文解析
+  └── output/              # 跨层契约（envelope、退出码、数据脱敏、进度流）
   tests/
-  ├── cli/
-  ├── core/
-  └── io/
-  tool/
-  └── run-checks.zsh
+  ├── cli/                 # 命令与输出契约测试（使用 CliRunner）
+  ├── unit/                # 领域层与底层访问单元测试（绝不调用 CLI）
+  ├── workflows/           # 跨模块端到端业务流程测试
+  └── sample_data/         # 测试用 SQLite、PDF 等样例数据
   ```
 
-- CLI 层调用核心逻辑，不把计算流程写进命令回调；`core/` 不依赖 `cli/`。同一职责的文件放在一起，测试目录尽量对应源码结构，使读者能从目录和文件名直接定位功能。
+- CLI 层调用核心逻辑，不把业务流程写进命令回调；领域层不依赖 `cli/`。同一职责的文件放在一起，测试目录严格区分层级，使读者能从目录和文件名直接定位功能。
 - 只有出现真实职责时才建立相应目录，不创建空目录或多余嵌套；小功能可以先放在一个明确命名的模块中，职责扩展后再拆分。不要用 `utils/`、`misc/` 等泛称容纳不同领域的代码，也不要为每个函数单独建文件。
 - 维护已有项目时，在任务涉及的范围内调整不合理的目录结构；移动文件时，同步更新导入、入口、测试和文档，并运行相关验证。
 
 ## 辅助脚本
 
-- 新增的独立执行脚本统一放在项目根目录的 `tool/`（单数）；不散放在仓库根目录、`src/`、`tests/` 或其他位置。
+- 新增的独立执行脚本统一放在项目根目录的 `tool/`；不散放在仓库根目录、`src/`、`tests/` 或其他位置。
 - 脚本统一使用 Zsh：文件名使用小写 `kebab-case` 和 `.zsh` 后缀，例如 `tool/run-checks.zsh`；首行使用 `#!/usr/bin/env zsh`。不新增 Bash 脚本或以 `.sh` 命名的脚本。脚本内的说明性注释也只使用中文；shebang 属于解释器指令，按原样保留。
 - `tool/` 中的脚本只负责调用与编排，不在其中实现 Python 业务逻辑。可复用的 Python 逻辑仍放在 `src/<package_name>/`，由脚本通过 `uv run` 调用；Typer CLI 入口属于 Python 包，不视为 `tool/` 中的脚本。
 - 修改脚本后至少运行 `zsh -n tool/<脚本名>.zsh` 检查语法，并验证其实际功能。修改涉及旧脚本时，在任务范围内将其更新为 `tool/` 下的 Zsh 脚本，不保留旧脚本作为兼容入口。
 
 ## 命名规范
 
-- Python 文件、模块、函数、变量和参数使用 `snake_case`；类和异常使用 `PascalCase`；常量使用 `UPPER_SNAKE_CASE`。CLI 命令和选项使用小写 `kebab-case`，例如 Python 函数 `fit_exafs` 对应命令 `fit-exafs`。标识符使用英文；注释和 docstring 的说明文字仍只用中文。
-- 名字要准确表达操作和对象。函数优先采用“动词＋对象”，例如 `load_spectra`、`normalize_spectra`、`fit_exafs`；避免含糊的 `process_data`、`handle_result`。变量使用具体名词，例如 `raw_spectra`、`fit_parameters`；仅在含义明确时才用 `data`、`result` 等泛称。
-- 名字力求简洁，但不牺牲可理解性。局部作用域内可以简短；公开接口和跨模块名称必须能区分对象。保留 `xas`、`exafs`、`pdf` 等通行缩写，不自造 `cfg`、`proc` 等难读缩写，也不添加无用的重复前缀。
-- 同一概念始终使用同一个名称，不在不同层交替称为 `spectra`、`signals`、`data`。布尔量优先使用 `is_`、`has_`、`can_` 等正向名称；路径用 `_path`，目录用 `_dir`，集合名称用复数。
+- Python 文件、模块、函数、变量和参数使用 `snake_case`；类和异常使用 `PascalCase`；常量使用 `UPPER_SNAKE_CASE`。CLI 命令和选项使用小写 `kebab-case`，例如 Python 函数 `publication_status` 对应命令 `publication-status`。标识符使用英文；注释和 docstring 的说明文字仍只用中文。
+- 名字要准确表达操作和对象。函数优先采用“动词＋对象”，例如 `extract_doi`、`export_pdf`、`load_workspace`；避免含糊的 `process_data`、`handle_result`。变量使用具体名词，例如 `raw_content`、`item_metadata`；仅在含义明确时才用 `data`、`result` 等泛称。
+- 名字力求简洁，但不牺牲可理解性。局部作用域内可以简短；公开接口和跨模块名称必须能区分对象。保留 `doi`、`pdf`、`rag` 等通行缩写，不自造 `cfg`、`proc` 等难读缩写，也不添加无用的重复前缀。
+- 同一概念始终使用同一个名称，不在不同层交替称为 `document`、`paper`、`item`（Zotero 数据记录一律称 `item`）。布尔量优先使用 `is_`、`has_`、`can_` 等正向名称；路径用 `_path`，目录用 `_dir`，集合名称用复数。
 - 新代码遵守以上规则；维护旧项目时不为统一风格批量重命名。确需修改公开命令、参数或 API 名称时，同步处理调用方、测试和文档。
 
 ## 更新与兼容性
@@ -84,7 +87,7 @@
 uv init --package --python 3.12
 uv python pin 3.12
 uv add typer
-uv add --dev ruff
+uv add --dev ruff ty
 uv sync
 ```
 
@@ -93,6 +96,8 @@ uv sync
 ```bash
 uv run ruff check .
 uv run ruff format --check .
+uv run ty check
+uv run pytest -q
 uv build
 ```
 

@@ -159,7 +159,7 @@ uv run zot schema --diff prev.json   # 与缓存 schema 做结构 diff
 - `--stream` 对 `zot zotero list` / `zot zotero recent` / `zot zotero search` 输出 NDJSON（每行一个 item envelope + 汇总行），优先于 `--no-json`；`recent` 的汇总带 `has_more`。
 - `search` / `list` 在 v130 有界全文扫描（4000 个 cache 文件 / 单文件 8 MiB / 总量 256 MiB）达到文件/字节预算、或退化为仅元数据匹配时，JSON `meta` 带 `fulltext_limited: true`，人类模式在 stderr 提示：这是“结果可能不完整”的提示，不是错误。
 - `stats`、`zotero summary`、`config profile list/set/cache stats/clear`、所有 `pdf-rag`/`collection` 命令在 JSON 模式下都恰好输出一个 envelope。`completions --json` 返回 `{shell, script, fallback, warning}`（warning 仍走 stderr）；`zot schema` 根节点名为 `zot`。
-- 人类可读输出统一经过 sanitizer：去除 CR（`\r`）等 C0/C1 控制字符（保留 tab/换行），cite/open/update-status/cache-list 等文本不会把终端控制序列带到 stdout/stderr。
+- 人类可读输出统一经过 sanitizer：去除 CR（`\r`）等 C0/C1 控制字符（保留 tab/换行），cite/open/publication-status/cache-list 等文本不会把终端控制序列带到 stdout/stderr。
 - `export --format json` 在文本模式输出原始 JSON 元数据；加 `--json` 时仍使用 envelope。
 - 退出码：0 成功；1 运行时/内部错误；2 认证缺失或无效；3 参数/配置/确认错误；4 未找到；5 网络或限流；6 冲突。**`duplicates` 的 exit 6 是“发现潜在重复组”的正向信号，不是错误**：JSON 仍是 `ok: true` + `data`（组列表）+ `meta.count`，没有重复时 exit 0。脚本可安全地用 `if zot zotero duplicates; then 无重复; else 处理重复; fi` 分支；不要把它当成通用冲突错误。`duplicates` 选项：`--by doi|title|both`（默认 both）、`--threshold`（默认 0.85）、`--limit`。
 
@@ -238,9 +238,9 @@ uv run zot ai-note ITEMKEY --idempotency-key analyze-ITEMKEY-001
 
 ## 写入与安全操作
 
-`--dry-run` 覆盖所有写入/破坏性命令及子命令并保证零副作用（envelope 带 `dry_run` 标记），包括 `pdf_rag new/add/remove/import/index/reindex/embed/delete`、`zot zotero collection create/move/rename`（以及 `delete`）、`config init/profile set/cache clear`、`metadata update-status`。
+`--dry-run` 覆盖所有写入/破坏性命令及子命令并保证零副作用（envelope 带 `dry_run` 标记），包括 `pdf-rag new/add/remove/import/index/reindex/embed/delete`、`zot zotero collection create/move/rename`（以及 `delete`）、`config init/profile set/cache clear`、`zotero publication-status`。
 
-破坏性操作需要确认：`delete`（永久删除）、`pdf_rag delete`、`zot zotero collection delete`、`config cache clear` 要求 `--yes`（或先 `--dry-run`）；`--no-interaction` 绝不隐含 `--yes`；非交互终端下缺少 `--yes`/`--dry-run` 返回 `confirmation_required`（exit 3）。`zot zotero trash restore` 恢复的是回收站中已有的条目，支持 `--dry-run` 预览；它不是 `delete` 的反操作（`delete` 永不进入回收站）。
+破坏性操作需要确认：`delete`（永久删除）、`pdf-rag delete`、`zot zotero collection delete`、`config cache clear` 要求 `--yes`（或先 `--dry-run`）；`--no-interaction` 绝不隐含 `--yes`；非交互终端下缺少 `--yes`/`--dry-run` 返回 `confirmation_required`（exit 3）。`zot zotero trash restore` 恢复的是回收站中已有的条目，支持 `--dry-run` 预览；它不是 `delete` 的反操作（`delete` 永不进入回收站）。
 
 ```bash
 # 预览
@@ -257,11 +257,11 @@ uv run zot zotero update ITEMKEY \
 
 主要写入命令：`zot zotero add`、`zot zotero update`、`zot zotero attach`、`zot zotero note`、`zot zotero tag`、`ai-note`。`note --add` 空内容返回 `validation_error`；条目不存在与"条目存在但没有 note"分别返回带上下文的 `not_found`。
 
-部分成功是正式契约：`zot zotero add --from-file`、多条目 `update`/`tag`/`delete`、`add --pdf`（条目已创建但附件上传失败）以及 `metadata metadata update-status --apply`（部分写入失败）都返回 `ok: "partial"` + `data` + `next`，并以非零退出码退出（`metadata update-status` 全部失败为 network/rate 时 exit 5，否则 exit 1）。`add --pdf` 支持 `--idempotency-key`，在 partial 时保持预留，避免盲目重试重复创建条目；`add --from-file` 不接受 `--idempotency-key`，会显式返回 `validation_error`。`delete` 的 JSON `data` 带 `permanent: true`；确定性拒绝（validation/not_found/auth 等）会释放幂等预留，只有可能已提交的失败才保留预留。类型化写入错误的 error envelope 在可能已提交时带 `error.committed: true`。
+部分成功是正式契约：`zot zotero add --from-file`、多条目 `update`/`tag`/`delete`、`add --pdf`（条目已创建但附件上传失败）以及 `zot zotero publication-status --apply`（部分写入失败）都返回 `ok: "partial"` + `data` + `next`，并以非零退出码退出（`zotero publication-status` 全部失败为 network/rate 时 exit 5，否则 exit 1）。`add --pdf` 支持 `--idempotency-key`，在 partial 时保持预留，避免盲目重试重复创建条目；`add --from-file` 不接受 `--idempotency-key`，会显式返回 `validation_error`。`delete` 的 JSON `data` 带 `permanent: true`；确定性拒绝（validation/not_found/auth 等）会释放幂等预留，只有可能已提交的失败才保留预留。类型化写入错误的 error envelope 在可能已提交时带 `error.committed: true`。
 
-集合管理（`zot zotero collection`）父命令属于读取分组，但其 create/move/rename/delete/reorganize 子命令按安全等级归入 write/destructive，且都支持 `--dry-run`。`zot zotero collection delete` 会级联删除子集合，dry-run/确认提示/envelope 都会列出 `descendant_collections`/`descendant_count`；`zot zotero collection reorganize` 是真正的移动（替换旧集合成员关系，data 中 `items_moved[].replaced_existing_memberships=true`）；未知 key 等失败返回类型化 `not_found`/`conflict`（4/5/3/6）。`zot zotero add --url` 在元数据解析失败时会以 URL 作为标题回退，不会创建空标题条目。`metadata update-status` 默认是 dry-run 预览，`--apply` 才写；部分写入失败返回 `ok: "partial"` 且非零退出。
+集合管理（`zot zotero collection`）父命令属于读取分组，但其 create/move/rename/delete/reorganize 子命令按安全等级归入 write/destructive，且都支持 `--dry-run`。`zot zotero collection delete` 会级联删除子集合，dry-run/确认提示/envelope 都会列出 `descendant_collections`/`descendant_count`；`zot zotero collection reorganize` 是真正的移动（替换旧集合成员关系，data 中 `items_moved[].replaced_existing_memberships=true`）；未知 key 等失败返回类型化 `not_found`/`conflict`（4/5/3/6）。`zot zotero add --url` 在元数据解析失败时会以 URL 作为标题回退，不会创建空标题条目。`zotero publication-status` 默认是 dry-run 预览，`--apply` 才写；部分写入失败返回 `ok: "partial"` 且非零退出。
 
-## PdfRag RAG
+## PDF RAG
 
 ```bash
 uv run zot pdf-rag new papers --description "Selected papers"          # write

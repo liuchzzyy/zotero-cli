@@ -34,17 +34,17 @@ evidence of the wrong repository — do not "restore" a docs tree.
    then per-file `git diff` shows the behavior the docs must now describe;
    `git log` only describes what already shipped.
 4. **Check a command's safety bucket at the source.**  
-   `src/zotero_cli/cli/safety.py` owns `SAFETY_TIERS`;
+   `src/zotero_cli/cli/app/safety.py` owns `SAFETY_TIERS`;
    `READ_COMMANDS`/`WRITE_COMMANDS`/`DESTRUCTIVE_COMMANDS` are derived from it,
    and nested mutating subcommands have tuple entries. Current nesting:
    `config init`/`config profile set` = write, `config cache clear` =
-   destructive; `pdf_rag new/add/remove/import/index/reindex/embed` = write,
-   `pdf_rag delete` = destructive; `collection create/move/rename/reorganize`
+   destructive; `pdf-rag new/add/remove/import/index/reindex/embed` = write,
+   `pdf-rag delete` = destructive; `collection create/move/rename/reorganize`
    = write and `collection delete`/`delete` = destructive; `trash restore` =
-   write. `collection` is read-tier at the top level — listing it among write
+   write; `zotero publication-status` = write. `collection` is read-tier at the top level — listing it among write
    commands is the recurring documentation error, and the tiers drive both
-   `zot --help` grouping (`cli/tiered_group.py`) and `zot schema`
-   (`safety_tier_for_path`). Register commands in `cli/registry.py` in
+   `zot --help` grouping (`cli/app/group.py`) and `zot schema`
+   (`safety_tier_for_path`). Register commands in `cli/app/root.py` in
    observable order: help/schema order is part of the agent contract.
 5. **Diff only the doc files when done, and state what you did not run.**  
    A Markdown-only change does not itself change code, but the repository gate
