@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from zotero_cli.cli.output.renderers import (
+from zotero_cli.cli.renderers import (
     ErrorInfo,
     format_collections,
     format_error,

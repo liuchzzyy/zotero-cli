@@ -12,7 +12,7 @@ import sys
 from dataclasses import asdict
 from typing import Any
 
-from zotero_cli.cli.output.envelope import base_meta, current_request_id, elapsed_ms
+from zotero_cli.output.envelope import base_meta, current_request_id, elapsed_ms
 from zotero_cli.zotero.models import Item
 
 

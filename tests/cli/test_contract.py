@@ -11,15 +11,15 @@ import pytest
 from tests.support import invoke_agent_cli as _run
 
 from zotero_cli.cli import _hoist_global_flags, main
-from zotero_cli.cli.output.envelope import envelope_error, envelope_ok, envelope_partial, envelope_partial_data
-from zotero_cli.cli.output.exit_codes import (
+from zotero_cli.config import AiNoteConfig
+from zotero_cli.output.envelope import envelope_error, envelope_ok, envelope_partial, envelope_partial_data
+from zotero_cli.output.exit_codes import (
     EXIT_AUTH,
     EXIT_NOT_FOUND,
     EXIT_OK,
     EXIT_VALIDATION,
     exit_code_for,
 )
-from zotero_cli.config import AiNoteConfig
 from zotero_cli.zotero.models import Item
 from zotero_cli.zotero.reader import ZoteroSchemaError
 from zotero_cli.zotero.writer_errors import ZoteroWriteError
@@ -126,7 +126,7 @@ class TestExitCodes:
         assert exit_code_for("configuration_error") == EXIT_VALIDATION
 
     def test_error_code_map_covers_emitted_codes(self):
-        from zotero_cli.cli.output.exit_codes import CODE_TO_EXIT
+        from zotero_cli.output.exit_codes import CODE_TO_EXIT
 
         for code in (
             "auth_missing",

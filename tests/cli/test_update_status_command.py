@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from tests.support import invoke_cli as _run
 
-from zotero_cli.cli.commands.metadata.publication_status import (
+from zotero_cli.zotero.publication_status import (
     PreprintInfo,
     PublicationStatus,
     SemanticScholarError,

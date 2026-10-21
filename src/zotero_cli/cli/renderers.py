@@ -2,7 +2,7 @@
 
 每个 format_* 辅助函数都会把同一份载荷渲染为 Rich 表格/树（TTY）或 JSON
 envelope（管道或 --json）。print_error 按约定把诊断信息输出到所需通道。
-envelope 的构造位于 zotero_cli.cli.output.envelope。
+envelope 的构造位于 zotero_cli.output.envelope。
 
 人类可读输出把库数据视为不可信内容：剥离 ANSI 转义序列与控制字符，动态值
 通过 Rich Text 对象渲染（禁用标记解析），因此精心构造的标题、笔记或 PDF 正文
@@ -21,8 +21,8 @@ from rich.table import Table
 from rich.text import Text
 from rich.tree import Tree
 
-from zotero_cli.cli.output.envelope import envelope_error, envelope_ok
-from zotero_cli.cli.output.sanitize import sanitize_text
+from zotero_cli.output.envelope import envelope_error, envelope_ok
+from zotero_cli.output.sanitize import sanitize_text
 from zotero_cli.zotero.models import Collection, DuplicateGroup, Item, Note
 
 
@@ -312,7 +312,7 @@ def print_error(error: str | ErrorInfo, output_json: bool = False) -> None:
     JSON 模式：envelope 写入 stdout（供代理程序解析的结果）。
     文本模式：人类可读行写入 stderr（面向人的诊断信息）。
 
-    不会退出。若需要退出，请使用 zotero_cli.cli.output.exit_codes.emit_error。
+    不会退出。若需要退出，请使用 zotero_cli.output.exit_codes.emit_error。
     """
     import sys as _sys
 

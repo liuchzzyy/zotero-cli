@@ -11,8 +11,8 @@ from typing import Any
 import httpx
 import pytest
 
-from zotero_cli.cli.commands.metadata import publication_status as semantic_scholar
-from zotero_cli.cli.commands.metadata.publication_status import (
+from zotero_cli.zotero import publication_status as semantic_scholar
+from zotero_cli.zotero.publication_status import (
     API_BASE,
     FIELDS,
     REQUEST_TIMEOUT,

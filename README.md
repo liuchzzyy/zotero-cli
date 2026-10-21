@@ -299,10 +299,12 @@ uv build
 
 - `src/zotero_cli/cli/app/`：Typer 根入口、全局选项提升、错误边界、安全分级与版本更新提示。
 - `src/zotero_cli/cli/commands/`：全部子命令；命令组各占一个子包。
-- `src/zotero_cli/cli/output/`：JSON envelope、退出码、流式事件、终端清洗（`sanitize.py`）与 Rich 渲染。
+- `src/zotero_cli/cli/renderers.py`：面向人类的 Rich 渲染与 `ErrorInfo` 展示模型。
+- `src/zotero_cli/output/`：跨层输出契约（`envelope.py`、`exit_codes.py`、`streaming.py`、`sanitize.py`），领域包也依赖它。
 - `src/zotero_cli/zotero/`：Zotero 基础能力，包括只读 SQLite/WAL 读取、Web API 写入、附件、集合与引文。
 - `src/zotero_cli/ai_pdf/`、`ai_notes/`、`workspace/`：区块二各派生功能实现。
-- `src/zotero_cli/cli/commands/metadata/`：`zot metadata` 命令组与其 `summarize`/`summarize-all`/`update-status` 实现，以及 Semantic Scholar 查询逻辑。
+- `src/zotero_cli/cli/commands/metadata/`：`zot metadata` 命令组与其 `summarize`/`summarize-all`/`update-status` 实现。
+- `src/zotero_cli/zotero/publication_status.py`：Semantic Scholar 预印本状态查询（领域逻辑）。
 - `src/zotero_cli/workspace/`：工作区清单存储、索引与检索实现（`workspace/rag/`）；旧 `core/rag` 与 `core/workspace_store.py` 已退役。
 - `src/zotero_cli/zotero/platform_paths.py`：WSL/Windows 路径转换；`core/` 包已删除。
 - `src/zotero_cli/config/`：配置路径、模型、加载与 Zotero 解析，公共 API 位于 `__init__.py`。

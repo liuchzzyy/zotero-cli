@@ -18,7 +18,7 @@ from typing import NoReturn
 
 import click
 
-from zotero_cli.cli.output.envelope import envelope_error
+from zotero_cli.output.envelope import envelope_error
 
 EXIT_OK = 0
 EXIT_RUNTIME = 1

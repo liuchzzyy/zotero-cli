@@ -8,7 +8,7 @@ import subprocess
 
 import typer
 
-from zotero_cli.cli.output.envelope import envelope_ok
+from zotero_cli.output.envelope import envelope_ok
 
 # 有界等待：补全生成会调用已安装的 zot，绝不能静默地卡住用户的 shell 启动文件。
 _COMPLETION_TIMEOUT_SECONDS = 10

@@ -8,10 +8,10 @@ import re
 import typer
 
 from zotero_cli.ai_pdf import MinerUError, MinerUParseCache
-from zotero_cli.cli.output.envelope import envelope_ok
-from zotero_cli.cli.output.exit_codes import emit_error, emit_exception
-from zotero_cli.cli.output.renderers import format_pdf_text
+from zotero_cli.cli.renderers import format_pdf_text
 from zotero_cli.config import get_data_dir, get_prefs_js_path, load_config, load_pdf_config, resolve_library_id
+from zotero_cli.output.envelope import envelope_ok
+from zotero_cli.output.exit_codes import emit_error, emit_exception
 from zotero_cli.zotero.pdf import select_pdf_attachment
 from zotero_cli.zotero.reader import ZoteroReader
 

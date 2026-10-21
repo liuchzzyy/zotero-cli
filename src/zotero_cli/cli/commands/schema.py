@@ -13,7 +13,7 @@ import typer
 from typer.core import TyperArgument
 
 from zotero_cli import __version__
-from zotero_cli.cli.output.envelope import SCHEMA_VERSION, envelope_error, envelope_ok
+from zotero_cli.output.envelope import SCHEMA_VERSION, envelope_error, envelope_ok
 
 
 def _param_type_name(param: click.Parameter) -> str:

@@ -7,21 +7,21 @@ from typing import Any
 
 import click
 
-from zotero_cli.cli.commands.metadata.publication_status import (
-    PreprintInfo,
-    SemanticScholarClient,
-    SemanticScholarError,
-    extract_preprint_info,
-)
-from zotero_cli.cli.output.envelope import envelope_ok, envelope_partial_data
-from zotero_cli.cli.output.exit_codes import EXIT_NETWORK, EXIT_RUNTIME, emit_error
-from zotero_cli.cli.output.sanitize import sanitize_text
 from zotero_cli.config import (
     get_data_dir,
     load_config,
     resolve_library_id,
     resolve_semantic_scholar_api_key,
     resolve_write_credentials,
+)
+from zotero_cli.output.envelope import envelope_ok, envelope_partial_data
+from zotero_cli.output.exit_codes import EXIT_NETWORK, EXIT_RUNTIME, emit_error
+from zotero_cli.output.sanitize import sanitize_text
+from zotero_cli.zotero.publication_status import (
+    PreprintInfo,
+    SemanticScholarClient,
+    SemanticScholarError,
+    extract_preprint_info,
 )
 from zotero_cli.zotero.reader import ZoteroReader
 from zotero_cli.zotero.writer import SYNC_REMINDER, ZoteroWriter

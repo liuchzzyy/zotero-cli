@@ -7,8 +7,6 @@ from pathlib import Path
 
 import typer
 
-from zotero_cli.cli.output.envelope import envelope_ok
-from zotero_cli.cli.output.exit_codes import emit_error
 from zotero_cli.config import (
     AppConfig,
     ConfigError,
@@ -21,6 +19,8 @@ from zotero_cli.config import (
     resolve_config_path,
     write_config_data,
 )
+from zotero_cli.output.envelope import envelope_ok
+from zotero_cli.output.exit_codes import emit_error
 
 
 def _json_out(ctx: typer.Context) -> bool:

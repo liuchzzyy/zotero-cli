@@ -11,7 +11,7 @@ import pytest
 from click.testing import CliRunner
 
 from zotero_cli.cli import main
-from zotero_cli.cli.output.renderers import format_duplicates, format_item_detail, format_items, format_workspace_list
+from zotero_cli.cli.renderers import format_duplicates, format_item_detail, format_items, format_workspace_list
 from zotero_cli.workspace.store import Workspace
 from zotero_cli.zotero.models import Creator, DuplicateGroup, Item, Note
 from zotero_cli.zotero.reader import ZoteroReader

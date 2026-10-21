@@ -21,7 +21,7 @@ from typer.core import TyperGroup
 
 from zotero_cli.cli.app.flags import _hoist_global_flags, detect_json_output
 from zotero_cli.cli.app.safety import DESTRUCTIVE, READ, WRITE, safety_tier_for_path
-from zotero_cli.cli.output.exit_codes import (
+from zotero_cli.output.exit_codes import (
     EXIT_RUNTIME,
     EXIT_VALIDATION,
     emit_error,

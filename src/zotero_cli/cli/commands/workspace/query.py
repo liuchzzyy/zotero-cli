@@ -11,9 +11,9 @@ from zotero_cli.cli.commands.workspace._output import (
     workspace_directory_or_exit,
 )
 from zotero_cli.cli.commands.workspace.indexing import open_vector_store_for_read
-from zotero_cli.cli.output.exit_codes import emit_error
-from zotero_cli.cli.output.renderers import format_workspace_query
+from zotero_cli.cli.renderers import format_workspace_query
 from zotero_cli.config import load_embedding_config, load_rerank_config, load_semantic_search_config
+from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.workspace.rag import embed_texts, filter_ranked_results_by_pdf_kind, weighted_reciprocal_rank_fusion
 from zotero_cli.workspace.rag.index import RagIndex
 from zotero_cli.workspace.rag.rerank import UnsupportedRerankerProviderError, rerank_chunks

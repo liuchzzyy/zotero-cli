@@ -8,8 +8,8 @@ from typing import Any
 
 import typer
 
-from zotero_cli.cli.output.envelope import envelope_ok
-from zotero_cli.cli.output.exit_codes import emit_error
+from zotero_cli.output.envelope import envelope_ok
+from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.workspace.store import Workspace, load_workspace, workspace_dir, workspace_exists
 
 _LIST_HINT = "Use 'zot workspace list' to see available workspaces"
