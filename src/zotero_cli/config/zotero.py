@@ -117,7 +117,7 @@ def resolve_library_id(db_path: Path, ctx_obj: dict) -> int:
     """从 ctx.obj 解析 library_id，默认值为 1（用户文库）。"""
     if ctx_obj.get("library_type") != "group" or not ctx_obj.get("group_id"):
         return 1
-    from zotero_cli.zotero.reader import ZoteroReader
+    from zotero_cli.zotero.access.reader import ZoteroReader
 
     reader = ZoteroReader(db_path)
     try:

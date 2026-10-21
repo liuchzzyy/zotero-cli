@@ -20,7 +20,7 @@ from pyzotero import zotero
 from tests.support import invoke_agent_cli
 
 from zotero_cli import config
-from zotero_cli.zotero import idempotency
+from zotero_cli.zotero.access import idempotency
 
 WRITE_ENV = {"ZOT_LIBRARY_ID": "123", "ZOT_API_KEY": "fake-test-key"}
 NOTE_ARGS = ["zotero", "note", "ATTN001", "--add", "A finding", "--idempotency-key", "same-request"]
@@ -82,7 +82,7 @@ def note_service(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[No
             client.headers.update(api.default_headers())
             return api
 
-        monkeypatch.setattr("zotero_cli.zotero.writer.zotero.Zotero", make_zotero)
+        monkeypatch.setattr("zotero_cli.zotero.access.writer.zotero.Zotero", make_zotero)
         yield service
 
 
@@ -194,7 +194,7 @@ import socket
 import sys
 from pathlib import Path
 from zotero_cli import config
-from zotero_cli.zotero import idempotency
+from zotero_cli.zotero.access import idempotency
 
 def no_network(*args, **kwargs):
     raise RuntimeError("Pending retries must not reach a network")

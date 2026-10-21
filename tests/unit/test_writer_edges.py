@@ -24,14 +24,13 @@ from pyzotero.zotero_errors import (
     UserNotAuthorisedError,
 )
 
-from zotero_cli.zotero import writer as writer_module
-from zotero_cli.zotero.short_note_merge import merge_short_note_into_extra
-from zotero_cli.zotero.writer import ZoteroWriter
-from zotero_cli.zotero.writer_errors import (
+from zotero_cli.zotero.access import writer as writer_module
+from zotero_cli.zotero.access.errors import (
     ZoteroWriteError,
     _friendly_api_error,
     error_for_http_status,
 )
+from zotero_cli.zotero.access.writer import ZoteroWriter, merge_short_note_into_extra
 
 ITEM_KEY = "ITEM0001"
 COLLECTION_KEY = "COLL0001"

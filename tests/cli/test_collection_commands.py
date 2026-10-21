@@ -7,14 +7,14 @@ from click.testing import CliRunner
 from tests.support import SAMPLE_DATA_DIR
 
 from zotero_cli.cli import main
-from zotero_cli.zotero.reader import ZoteroReader
-from zotero_cli.zotero.writer_errors import ZoteroWriteError
+from zotero_cli.zotero.access.errors import ZoteroWriteError
+from zotero_cli.zotero.access.reader import ZoteroReader
 
 
 def test_reorganize_partial_failure_is_not_success(tmp_path):
     plan = tmp_path / "plan.json"
     plan.write_text(json.dumps({"collections": [{"name": "A", "items": ["GOOD", "BAD"]}]}))
-    with patch("zotero_cli.cli.commands.zotero.collection_reorganize.ZoteroWriter") as cls:
+    with patch("zotero_cli.cli.commands.zotero.collections.ZoteroWriter") as cls:
         cls.return_value.create_collection.return_value = "COL1"
         # 单次写入替换集合归属；部分条目失败必须保留类型化错误。
 
@@ -71,7 +71,7 @@ def test_reorganize_valid_plan_dry_run_makes_no_api_call(tmp_path, monkeypatch):
     def fail(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("dry-run must not construct a writer")
 
-    monkeypatch.setattr("zotero_cli.cli.commands.zotero.collection_reorganize.ZoteroWriter", fail)
+    monkeypatch.setattr("zotero_cli.cli.commands.zotero.collections.ZoteroWriter", fail)
     result = _run_json(["zotero", "collection", "reorganize", str(plan), "--dry-run"], tmp_path)
     payload = json.loads(result.output)
     assert result.exit_code == 0, result.output
@@ -110,7 +110,7 @@ def test_collection_create_move_rename_dry_run_makes_no_api_call(monkeypatch):
     def fail(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("dry-run must not construct a writer")
 
-    for module in ("zotero_cli.cli.commands.zotero.collection.ZoteroWriter",):
+    for module in ("zotero_cli.cli.commands.zotero.collections.ZoteroWriter",):
         monkeypatch.setattr(module, fail)
     cases = [
         (["zotero", "collection", "create", "New Col", "--parent", "PARENT"], "would_create"),
@@ -177,10 +177,10 @@ def test_collection_delete_confirmation_mentions_nested_cascade() -> None:
 def test_collection_create_typed_error_is_not_runtime_error() -> None:
     with (
         patch(
-            "zotero_cli.cli.commands.zotero.collection.resolve_write_credentials",
+            "zotero_cli.cli.commands.zotero.collections.resolve_write_credentials",
             return_value=("123", "fake"),
         ),
-        patch("zotero_cli.cli.commands.zotero.collection.ZoteroWriter") as writer_cls,
+        patch("zotero_cli.cli.commands.zotero.collections.ZoteroWriter") as writer_cls,
     ):
         writer_cls.return_value.create_collection.side_effect = ZoteroWriteError("collection missing", code="not_found")
         result = _run_json(["zotero", "collection", "create", "New Col"])

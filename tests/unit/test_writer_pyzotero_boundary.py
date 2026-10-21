@@ -12,13 +12,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from zotero_cli.zotero.writer import API_TIMEOUT, ZoteroWriter
-from zotero_cli.zotero.writer_errors import ZoteroWriteError
+from zotero_cli.zotero.access.errors import ZoteroWriteError
+from zotero_cli.zotero.access.writer import API_TIMEOUT, ZoteroWriter
 
 
 @pytest.fixture
 def mock_zotero() -> MagicMock:
-    with patch("zotero_cli.zotero.writer.zotero.Zotero") as zotero_class:
+    with patch("zotero_cli.zotero.access.writer.zotero.Zotero") as zotero_class:
         instance = MagicMock()
         instance.client = MagicMock()
         instance.endpoint = "https://api.zotero.org"

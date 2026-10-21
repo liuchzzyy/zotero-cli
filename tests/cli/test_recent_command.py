@@ -7,7 +7,7 @@ import json
 from tests.support import SAMPLE_DATA_DIR
 from tests.support import invoke_cli as _invoke
 
-from zotero_cli.zotero.reader import ZoteroReader
+from zotero_cli.zotero.access.reader import ZoteroReader
 
 
 class TestRecent:

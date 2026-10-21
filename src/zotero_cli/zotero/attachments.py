@@ -1,10 +1,4 @@
-"""把 Zotero 的 itemAttachments.path 值解析为文件系统路径。
-
-Zotero 以三种形式保存链接文件：file:// URL、绝对路径，或相对于 'attachments:'
-的路径；受管文件则保存为相对于 'storage:' 的路径。
-平台语义：Windows 盘符 URL 会去掉前导斜杠，WSL 环境下在返回前把
-Windows 路径转换为 /mnt/<drive>。
-"""
+"""本地附件定位与跨平台路径转换。"""
 
 from __future__ import annotations
 
@@ -13,10 +7,57 @@ import re
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from zotero_cli.zotero.platform_paths import is_wsl_environment, windows_to_wsl_path
+
+def is_wsl_environment() -> bool:
+    """若运行在 WSL2 中则返回 True。"""
+    try:
+        with open("/proc/version") as f:
+            content = f.read().lower()
+            return "microsoft" in content or "wsl" in content
+    except OSError:
+        return False
+
+
+def windows_to_wsl_path(windows_path: str) -> str:
+    """把 Windows 路径转换为 WSL 路径。
+
+    示例：
+        C:\\Users\\name\\file.pdf -> /mnt/c/Users/name/file.pdf
+        \\\\server\\share\\file.pdf -> /mnt/server/share/file.pdf
+        /mnt/c/already/wsl.pdf -> /mnt/c/already/wsl.pdf（原样返回）
+    """
+    if not windows_path:
+        return ""
+
+    # 已经是 WSL 路径
+    if windows_path.startswith("/mnt/"):
+        return windows_path
+
+    # UNC 路径：\\server\share\...
+    if windows_path.startswith("\\\\"):
+        path = windows_path[2:]
+        parts = path.split("\\")
+        if len(parts) >= 2:
+            return "/mnt/" + "/".join(parts)
+        return windows_path
+
+    # 盘符路径：C:\Users\...
+    match = re.match(r"^([A-Za-z]):\\(.+)$", windows_path)
+    if match:
+        drive = match.group(1).lower()
+        rest = match.group(2)
+        parts = rest.replace("\\", "/").split("/")
+        return "/mnt/" + drive + "/" + "/".join(parts)
+
+    return windows_path
+
 
 _WINDOWS_DRIVE_PATH_RE = re.compile(r"^[A-Za-z]:[\\/]")
+
+
 _WINDOWS_UNC_PATH_RE = re.compile(r"^\\\\[^\\/]+[\\/]")
+
+
 _WSL_DRIVE_URL_RE = re.compile(r"^/[A-Za-z]:/")
 
 

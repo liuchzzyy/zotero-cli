@@ -20,9 +20,8 @@ from zotero_cli.output.exit_codes import (
     EXIT_VALIDATION,
     exit_code_for,
 )
+from zotero_cli.zotero.access.errors import ZoteroSchemaError, ZoteroWriteError
 from zotero_cli.zotero.models import Item
-from zotero_cli.zotero.reader import ZoteroSchemaError
-from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
 
 def _ai_config() -> AiNoteConfig:
@@ -616,7 +615,7 @@ class TestTopLevelErrorBoundary:
 
     def test_malformed_toml_returns_configuration_error_envelope(self):
         exc = _malformed_toml_error()
-        with patch("zotero_cli.cli.commands.zotero.reading.load_config", side_effect=exc):
+        with patch("zotero_cli.cli.commands.zotero.items.load_config", side_effect=exc):
             result = _run(["--json", "zotero", "stats"])
         assert result.exit_code == EXIT_VALIDATION
         env = json.loads(result.output)
@@ -624,7 +623,7 @@ class TestTopLevelErrorBoundary:
         assert "Traceback" not in result.stderr
 
     def test_unexpected_exception_returns_internal_error_envelope(self):
-        with patch("zotero_cli.cli.commands.zotero.reading.load_config", side_effect=RuntimeError("boom")):
+        with patch("zotero_cli.cli.commands.zotero.items.load_config", side_effect=RuntimeError("boom")):
             result = _run(["--json", "zotero", "stats"])
         assert result.exit_code == 1
         assert "Traceback" not in result.stderr
@@ -633,7 +632,7 @@ class TestTopLevelErrorBoundary:
         assert "boom" in env["error"]["message"]
 
     def test_verbose_prints_traceback_to_stderr(self):
-        with patch("zotero_cli.cli.commands.zotero.reading.load_config", side_effect=RuntimeError("boom")):
+        with patch("zotero_cli.cli.commands.zotero.items.load_config", side_effect=RuntimeError("boom")):
             result = _run(["--verbose", "--json", "zotero", "stats"])
         assert result.exit_code == 1
         # stdout 始终只有一个可解析的 envelope，诊断信息走 stderr。
@@ -646,7 +645,7 @@ class TestTopLevelErrorBoundary:
         from zotero_cli.config import LibraryResolutionError
 
         with patch(
-            "zotero_cli.cli.commands.zotero.reading.resolve_library_id",
+            "zotero_cli.cli.commands.zotero.items.resolve_library_id",
             side_effect=LibraryResolutionError("Group '123' not found in local database"),
         ):
             result = _run(["--json", "zotero", "list"])
@@ -656,7 +655,7 @@ class TestTopLevelErrorBoundary:
 
     def test_unsupported_zotero_schema_is_configuration_error(self):
         exc = ZoteroSchemaError(130)
-        with patch("zotero_cli.cli.commands.zotero.reading.load_config", side_effect=exc):
+        with patch("zotero_cli.cli.commands.zotero.items.load_config", side_effect=exc):
             result = _run(["--json", "zotero", "stats"])
         assert result.exit_code == EXIT_VALIDATION
         env = json.loads(result.stdout)
@@ -665,7 +664,7 @@ class TestTopLevelErrorBoundary:
         assert "Update zotero-cli" in env["error"]["hint"]
 
     def test_zot_debug_env_prints_traceback(self):
-        with patch("zotero_cli.cli.commands.zotero.reading.load_config", side_effect=RuntimeError("boom")):
+        with patch("zotero_cli.cli.commands.zotero.items.load_config", side_effect=RuntimeError("boom")):
             result = _run(["--json", "zotero", "stats"], env={"ZOT_DEBUG": "1"})
         assert result.exit_code == 1
         assert json.loads(result.stdout)["error"]["code"] == "internal_error"
@@ -674,14 +673,14 @@ class TestTopLevelErrorBoundary:
 
     def test_option_value_looking_like_verbose_does_not_enable_tracebacks(self):
         # 诊断开关取自解析后的标志或 ZOT_DEBUG，绝不使用原始 argv 文本。
-        with patch("zotero_cli.cli.commands.zotero.reading.load_config", side_effect=RuntimeError("boom")):
+        with patch("zotero_cli.cli.commands.zotero.items.load_config", side_effect=RuntimeError("boom")):
             result = _run(["--json", "zotero", "stats"])
         assert result.exit_code == 1
         assert "Traceback" not in result.stderr
 
     def test_committed_write_error_carries_committed_flag(self):
         exc = ZoteroWriteError("maybe committed", code="api_error", committed=True)
-        with patch("zotero_cli.cli.commands.zotero.reading.load_config", side_effect=exc):
+        with patch("zotero_cli.cli.commands.zotero.items.load_config", side_effect=exc):
             result = _run(["--json", "zotero", "stats"])
         assert result.exit_code == 1
         error = json.loads(result.stdout)["error"]
@@ -689,7 +688,7 @@ class TestTopLevelErrorBoundary:
 
     def test_uncommitted_write_error_omits_committed_flag(self):
         exc = ZoteroWriteError("rejected", code="validation_error", committed=False)
-        with patch("zotero_cli.cli.commands.zotero.reading.load_config", side_effect=exc):
+        with patch("zotero_cli.cli.commands.zotero.items.load_config", side_effect=exc):
             result = _run(["--json", "zotero", "stats"])
         assert result.exit_code == 3
         assert "committed" not in json.loads(result.stdout)["error"]
@@ -697,7 +696,7 @@ class TestTopLevelErrorBoundary:
 
 class TestCiteJsonMode:
     def test_json_cite_emits_envelope_and_skips_clipboard(self):
-        with patch("zotero_cli.cli.commands.zotero.cite._copy_to_clipboard") as copy:
+        with patch("zotero_cli.cli.commands.zotero.items._copy_to_clipboard") as copy:
             result = _run(["--json", "zotero", "cite", "ATTN001", "--no-copy"])
         assert result.exit_code == EXIT_OK, result.output
         env = json.loads(result.stdout)
@@ -708,7 +707,7 @@ class TestCiteJsonMode:
         copy.assert_not_called()
 
     def test_json_cite_never_writes_clipboard_even_without_no_copy(self):
-        with patch("zotero_cli.cli.commands.zotero.cite._copy_to_clipboard") as copy:
+        with patch("zotero_cli.cli.commands.zotero.items._copy_to_clipboard") as copy:
             result = _run(["--json", "zotero", "cite", "ATTN001"])
         assert result.exit_code == EXIT_OK
         assert json.loads(result.stdout)["data"]["copied"] is False
@@ -717,7 +716,7 @@ class TestCiteJsonMode:
 
 class TestOpenJsonMode:
     def test_json_open_item_url_envelope(self):
-        with patch("zotero_cli.cli.commands.zotero.open_item._open_path") as open_path:
+        with patch("zotero_cli.cli.commands.zotero.items._open_path") as open_path:
             result = _run(["--json", "zotero", "open", "ATTN001", "--url"])
         assert result.exit_code == EXIT_OK, result.output
         env = json.loads(result.stdout)
@@ -727,7 +726,7 @@ class TestOpenJsonMode:
         open_path.assert_called_once()
 
     def test_open_url_argument_is_opened_directly(self):
-        with patch("zotero_cli.cli.commands.zotero.open_item._open_path") as open_path:
+        with patch("zotero_cli.cli.commands.zotero.items._open_path") as open_path:
             result = _run(["--json", "zotero", "open", "--url", "https://example.com/paper"])
         assert result.exit_code == EXIT_OK, result.output
         env = json.loads(result.stdout)

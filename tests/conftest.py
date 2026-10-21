@@ -95,7 +95,7 @@ def isolate_runtime_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     from zotero_cli import config
     from zotero_cli.cli.app import version_check
     from zotero_cli.workspace import store as workspace
-    from zotero_cli.zotero import idempotency
+    from zotero_cli.zotero.access import idempotency
 
     # ZOT_* 已在 isolate_test_environment 中清空，这里只隔离落盘位置。
     isolated_config = tmp_path / ".zot" / "config.toml"

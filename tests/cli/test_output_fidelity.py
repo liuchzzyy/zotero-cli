@@ -11,8 +11,8 @@ import pytest
 from click.testing import CliRunner
 
 from zotero_cli.cli import main
+from zotero_cli.zotero.access.reader import ZoteroReader
 from zotero_cli.zotero.models import Creator, Item
-from zotero_cli.zotero.reader import ZoteroReader
 
 
 def _item() -> Item:
@@ -113,7 +113,7 @@ def test_cite_apa_keeps_all_twenty_authors_before_abbreviation(author_count: int
     else:
         expected = ", ".join(names[:19]) + ", ... " + names[-1]
 
-    with patch("zotero_cli.cli.commands.zotero.cite.ZoteroReader", autospec=True) as reader:
+    with patch("zotero_cli.cli.commands.zotero.items.ZoteroReader", autospec=True) as reader:
         reader.return_value.get_item.return_value = item
         result = CliRunner().invoke(main, ["zotero", "cite", item.key, "--style", "apa", "--no-copy"])
 

@@ -301,12 +301,13 @@ uv build
 - `src/zotero_cli/cli/commands/`：全部子命令；命令组各占一个子包。
 - `src/zotero_cli/cli/renderers.py`：面向人类的 Rich 渲染与 `ErrorInfo` 展示模型。
 - `src/zotero_cli/output/`：跨层输出契约（`envelope.py`、`exit_codes.py`、`streaming.py`、`sanitize.py`），领域包也依赖它。
-- `src/zotero_cli/zotero/`：Zotero 基础能力，包括只读 SQLite/WAL 读取、Web API 写入、附件、集合与引文。
+- `src/zotero_cli/zotero/access/`：Zotero 访问封装，包括只读 SQLite/WAL 读取、基于 pyzotero 的 Web API 写入、访问错误与幂等预留缓存。
+- `src/zotero_cli/zotero/`：按对象组织的应用服务，包括 PDF 导入、条目批量导入和更新、标签批量变更、集合重组、删除与回收站恢复。所有对象的命令入口统一保留在 `cli/commands/zotero/`；基础操作调用访问层，批量和组合操作调用应用服务。服务不调用 CLI，也不启动 CLI 子进程。
 - `src/zotero_cli/ai_pdf/`、`ai_notes/`、`workspace/`：区块二各派生功能实现。
 - `src/zotero_cli/cli/commands/metadata/`：`zot metadata` 命令组与其 `summarize`/`summarize-all`/`update-status` 实现。
-- `src/zotero_cli/zotero/publication_status.py`：Semantic Scholar 预印本状态查询（领域逻辑）。
+- `src/zotero_cli/zotero/items.py`：Semantic Scholar 预印本状态查询（领域逻辑）。
 - `src/zotero_cli/workspace/`：工作区清单存储、索引与检索实现（`workspace/rag/`）；旧 `core/rag` 与 `core/workspace_store.py` 已退役。
-- `src/zotero_cli/zotero/platform_paths.py`：WSL/Windows 路径转换；`core/` 包已删除。
+- `src/zotero_cli/zotero/attachments.py`：本地附件定位与 WSL/Windows 路径转换。
 - `src/zotero_cli/config/`：配置路径、模型、加载与 Zotero 解析，公共 API 位于 `__init__.py`。
 
 测试位于 `tests/`，Agent Skill 位于 `skill/zotero-cli/`。

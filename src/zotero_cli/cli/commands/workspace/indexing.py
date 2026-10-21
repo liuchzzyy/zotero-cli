@@ -50,8 +50,8 @@ from zotero_cli.workspace.store import (
     WorkspaceItem,
     workspace_index_path,
 )
+from zotero_cli.zotero.access.reader import ZoteroReader
 from zotero_cli.zotero.models import Item
-from zotero_cli.zotero.reader import ZoteroReader
 
 # 为每个条目存进索引 metadata；当 chunk 切分方式或 MinerU 流水线变化时递增它，
 # 使增量重建索引能识别该变化。

@@ -533,7 +533,7 @@ def test_write_command_blocked_before_writer_when_profile_config_invalid(tmp_pat
     config_path.write_text(INVALID_DEFAULT_PROFILE_CONFIG, encoding="utf-8")
     monkeypatch.setattr("zotero_cli.config.paths.config_file_path", lambda start=None: config_path)
 
-    with patch("zotero_cli.cli.commands.zotero.update.ZoteroWriter") as writer_cls:
+    with patch("zotero_cli.cli.commands.zotero.items.ZoteroWriter") as writer_cls:
         result = _invoke(
             ["--json", "zotero", "update", "ATTN001", "--title", "X"],
             env={"ZOT_LIBRARY_ID": "123", "ZOT_API_KEY": "fake-key"},

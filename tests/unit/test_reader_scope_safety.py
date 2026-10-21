@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from zotero_cli.zotero.reader import ZoteroReader, ZoteroSchemaError
+from zotero_cli.zotero.access.errors import ZoteroSchemaError
+from zotero_cli.zotero.access.reader import ZoteroReader
 
 
 @pytest.fixture

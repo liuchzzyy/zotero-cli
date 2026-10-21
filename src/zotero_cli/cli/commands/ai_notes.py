@@ -21,15 +21,15 @@ from zotero_cli.config import (
 )
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
-from zotero_cli.zotero.idempotency import (
+from zotero_cli.zotero.access.idempotency import (
     PendingMutationError,
     begin_mutation,
     release_rejected_mutation,
     request_scope,
     store_cached,
 )
-from zotero_cli.zotero.reader import ZoteroReader
-from zotero_cli.zotero.writer import ZoteroWriter
+from zotero_cli.zotero.access.reader import ZoteroReader
+from zotero_cli.zotero.access.writer import ZoteroWriter
 
 
 def ai_note(

@@ -214,3 +214,23 @@ def response_retry_after(response: Any) -> int | None:
         return _retry_after_seconds(headers.get("Retry-After"))
     except (AttributeError, TypeError, ValueError):
         return None
+
+
+class ZoteroSchemaError(RuntimeError):
+    """本地 Zotero userdata schema 超出已验证范围时抛出。"""
+
+    def __init__(
+        self,
+        version: int,
+        *,
+        minimum: int = 100,
+        maximum: int = 200,
+    ) -> None:
+        self.schema_version = version
+        self.minimum = minimum
+        self.maximum = maximum
+        super().__init__(
+            f"Unsupported Zotero database schema version {version} "
+            f"(tested range {minimum}-{maximum}). The database may come from a "
+            "newer Zotero release; update zotero-cli or use a supported Zotero version."
+        )

@@ -22,7 +22,7 @@ def test_flag_like_option_values_do_not_disable_dry_run(
     monkeypatch: pytest.MonkeyPatch, command: str, option: str, value: str
 ) -> None:
     module_path = {
-        "update": "zotero_cli.cli.commands.zotero.update",
+        "update": "zotero_cli.cli.commands.zotero.items",
         "note": "zotero_cli.cli.commands.zotero.notes",
     }[command]
     module = importlib.import_module(module_path)

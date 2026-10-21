@@ -7,7 +7,7 @@ from unittest.mock import Mock
 import httpx
 import pytest
 
-from zotero_cli.zotero import metadata as resolver
+from zotero_cli.zotero import items as resolver
 
 
 @pytest.mark.parametrize("payload", [[], None, 42, "invalid object"])

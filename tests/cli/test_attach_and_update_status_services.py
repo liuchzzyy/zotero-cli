@@ -19,9 +19,9 @@ from click.testing import Result
 from tests.support import SAMPLE_DATA_DIR, invoke_cli, parse_json_output
 
 from zotero_cli import config
-from zotero_cli.zotero import idempotency
-from zotero_cli.zotero import publication_status as semantic_scholar
-from zotero_cli.zotero.writer import SYNC_REMINDER
+from zotero_cli.zotero import items as semantic_scholar
+from zotero_cli.zotero.access import idempotency
+from zotero_cli.zotero.access.writer import SYNC_REMINDER
 
 WRITE_ENV = {"ZOT_LIBRARY_ID": "12345", "ZOT_API_KEY": "offline-write-key"}
 
@@ -89,7 +89,7 @@ def sandbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Service
         "data": {"key": key, "title": f"Original {key}", "DOI": "old", "extra": "Keep me"},
     }
     constructor = MagicMock(return_value=zotero)
-    monkeypatch.setattr("zotero_cli.zotero.writer.zotero.Zotero", constructor)
+    monkeypatch.setattr("zotero_cli.zotero.access.writer.zotero.Zotero", constructor)
     result = ServiceSandbox(tmp_path, db_path, pdf, zotero, constructor, {})
     real_client = httpx.Client
 

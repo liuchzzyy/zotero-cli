@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from zotero_cli.zotero.reader import ZoteroReader
+from zotero_cli.zotero.access.reader import ZoteroReader
 
 
 class TestWalVisibility:

@@ -10,7 +10,7 @@ from zotero_cli.config import get_data_dir, load_config, resolve_library_id
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.output.sanitize import sanitize_text
-from zotero_cli.zotero.reader import ZoteroReader
+from zotero_cli.zotero.access.reader import ZoteroReader
 
 
 def summarize(ctx: typer.Context, key: str) -> None:

@@ -1,25 +1,19 @@
-"""本地 Zotero 数据库的 SQLite 读取层。
-
-所有读取都直接访问 zotero.sqlite，绝不写入。连接建立过程会考虑 WAL：
-当存在非空 WAL 时，从临时副本重放数据库，而不使用可能过期的 immutable
-快照。引用格式化能力来自 CitationExportMixin。
-
-读取器把所有查询相关逻辑都放在这里（条目、搜索、最近条目、回收站、
-重复项、注记、集合、附件、统计、关联，以及它们共用的批量加载辅助函数）；
-只有不涉及 SQL 的导出格式化放在 citations.py 中。
-"""
+"""本地 Zotero SQLite 读取与引文导出封装。"""
 
 from __future__ import annotations
 
+import html
+import json
 import re
 import shutil
 import sqlite3
 import tempfile
+from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from difflib import SequenceMatcher
 from pathlib import Path
 
-from zotero_cli.zotero.citations import CitationExportMixin
+from zotero_cli.zotero.access.errors import ZoteroSchemaError
 from zotero_cli.zotero.models import (
     Attachment,
     Collection,
@@ -30,48 +24,243 @@ from zotero_cli.zotero.models import (
     SearchResult,
 )
 
-# 需排除的类型名（按数据库动态查询）
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+
+_BIBTEX_ESCAPE_RE = re.compile(r"([\\&%#_{}$])")
+
+
+_BIBTEX_ESCAPES = {
+    "\\": r"\textbackslash{}",
+    "&": r"\&",
+    "%": r"\%",
+    "#": r"\#",
+    "_": r"\_",
+    "{": r"\{",
+    "}": r"\}",
+    "$": r"\$",
+}
+
+
+_YEAR_RE = re.compile(r"\b(\d{4})\b")
+
+
+_DATE_PARTS_RE = re.compile(r"^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?")
+
+
+_BIBTEX_TYPES = {
+    "journalArticle": "article",
+    "book": "book",
+    "bookSection": "incollection",
+    "conferencePaper": "inproceedings",
+    "thesis": "phdthesis",
+    "report": "techreport",
+    "manuscript": "unpublished",
+    "preprint": "unpublished",
+    "webpage": "misc",
+    "computerProgram": "misc",
+    "blogPost": "misc",
+}
+
+
+_RIS_TYPES = {
+    "journalArticle": "JOUR",
+    "book": "BOOK",
+    "bookSection": "CHAP",
+    "conferencePaper": "CONF",
+    "thesis": "THES",
+    "report": "RPRT",
+    "webpage": "ELEC",
+    "preprint": "JOUR",
+    "patent": "PAT",
+    "newspaperArticle": "NEWS",
+    "magazineArticle": "MGZN",
+    "manuscript": "MANSCPT",
+    "computerProgram": "COMP",
+    "blogPost": "BLOG",
+}
+
+
+_CSL_TYPES = {
+    "journalArticle": "article-journal",
+    "book": "book",
+    "bookSection": "chapter",
+    "conferencePaper": "paper-conference",
+    "thesis": "thesis",
+    "report": "report",
+    "webpage": "webpage",
+    "preprint": "article",
+    "manuscript": "manuscript",
+    "computerProgram": "software",
+    "blogPost": "post-weblog",
+    "patent": "patent",
+}
+
+
+def _clean_text(value: str) -> str:
+    """去除 Zotero 字段值中的 HTML 标记并解码实体。"""
+    return html.unescape(_HTML_TAG_RE.sub("", value)).strip()
+
+
+def _item_year(item: Item) -> str | None:
+    """从 Zotero 保存的日期字符串中返回 4 位年份（若存在）。"""
+    if not item.date:
+        return None
+    match = _YEAR_RE.search(item.date)
+    return match.group(1) if match else item.date
+
+
+def _item_date_parts(item: Item) -> list[list[int]] | None:
+    """把 Zotero 保存的日期字符串转换为 CSL date-parts。"""
+    if not item.date:
+        return None
+    match = _DATE_PARTS_RE.match(item.date.strip())
+    if match is None:
+        return None
+    parts = [int(match.group(1))]
+    for group in (match.group(2), match.group(3)):
+        if group is None:
+            continue
+        value = int(group)
+        if value <= 0:
+            break
+        parts.append(value)
+    return [parts]
+
+
+class CitationExportMixin(ABC):
+    """为能够加载条目的读取器提供 BibTeX/CSL-JSON/RIS 渲染能力。"""
+
+    @abstractmethod
+    def get_item(self, key: str) -> Item | None:
+        """返回 *key* 对应的完整条目（由具体读取器实现）。"""
+
+    def export_citation(self, key: str, fmt: str = "bibtex") -> str | None:
+        item = self.get_item(key)
+        if item is None:
+            return None
+        if fmt == "bibtex":
+            return self._to_bibtex(item)
+        if fmt in ("csl", "csl-json", "json"):
+            return self._to_csl_json(item)
+        if fmt == "ris":
+            return self._to_ris(item)
+        return None
+
+    @staticmethod
+    def _escape_bibtex(value: str) -> str:
+        """转义字段值中的 LaTeX/BibTeX 特殊字符。
+
+        这里只进行单次正则替换，避免为反斜杠转义插入的花括号在后续循环中
+        被再次转义。
+        """
+        return _BIBTEX_ESCAPE_RE.sub(lambda match: _BIBTEX_ESCAPES[match.group(1)], value)
+
+    @staticmethod
+    def _to_bibtex(item: Item) -> str:
+        bib_type = _BIBTEX_TYPES.get(item.item_type, "misc")
+        cite_key = item.key.lower()
+        esc = CitationExportMixin._escape_bibtex
+        authors = " and ".join(
+            f"{esc(_clean_text(c.last_name))}, {esc(_clean_text(c.first_name))}"
+            for c in item.creators
+            if c.creator_type == "author"
+        )
+        lines = [f"@{bib_type}{{{cite_key},"]
+        title = _clean_text(item.title)
+        if title:
+            lines.append(f"  title = {{{esc(title)}}},")
+        if authors:
+            lines.append(f"  author = {{{authors}}},")
+        year = _item_year(item)
+        if year:
+            lines.append(f"  year = {{{esc(year)}}},")
+        if item.doi:
+            lines.append(f"  doi = {{{esc(item.doi)}}},")
+        if item.url:
+            lines.append(f"  url = {{{esc(item.url)}}},")
+        lines.append("}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _to_csl_json(item: Item) -> str:
+        """把 Item 转换为 CSL-JSON 格式（单个条目，而非数组）。"""
+        csl: dict = {
+            "id": item.key,
+            "type": _CSL_TYPES.get(item.item_type, "article"),
+            "title": _clean_text(item.title),
+        }
+        authors = [
+            {"family": _clean_text(c.last_name), "given": _clean_text(c.first_name)}
+            for c in item.creators
+            if c.creator_type == "author"
+        ]
+        if authors:
+            csl["author"] = authors
+        date_parts = _item_date_parts(item)
+        if date_parts:
+            csl["issued"] = {"date-parts": date_parts}
+        if item.abstract:
+            csl["abstract"] = _clean_text(item.abstract)
+        if item.doi:
+            csl["DOI"] = item.doi
+        if item.url:
+            csl["URL"] = item.url
+        return json.dumps(csl, indent=2, ensure_ascii=False)
+
+    @staticmethod
+    def _to_ris(item: Item) -> str:
+        """把 Item 转换为 RIS 格式。"""
+        lines = [f"TY  - {_RIS_TYPES.get(item.item_type, 'GEN')}"]
+        title = _clean_text(item.title)
+        if title:
+            lines.append(f"TI  - {title}")
+        for c in item.creators:
+            if c.creator_type == "author":
+                lines.append(f"AU  - {_clean_text(c.last_name)}, {_clean_text(c.first_name)}")
+        year = _item_year(item)
+        if year:
+            lines.append(f"PY  - {year}")
+        if item.abstract:
+            lines.append(f"AB  - {_clean_text(item.abstract)}")
+        if item.doi:
+            lines.append(f"DO  - {item.doi}")
+        if item.url:
+            lines.append(f"UR  - {item.url}")
+        for tag in item.tags:
+            lines.append(f"KW  - {_clean_text(tag)}")
+        lines.append("ER  - ")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _html_to_markdown(html_value: str) -> str:
+        from markdownify import markdownify as md
+
+        return md(html_value, strip=["img"]).strip()
+
+
 _EXCLUDED_TYPE_NAMES = ("attachment", "note", "annotation")
 
-# 保持在 SQLite 旧版 999 个变量上限之下，并预留库参数的位置。
+
 _ITEM_BATCH_SIZE = 900
 
-# 支持的 Zotero userdata schema 范围。较新的 schema 可能重命名读取器所依赖的
-# 表，因此直接以明确的错误拒绝，而不是在命令执行到一半时出现难以理解的
-# SQL 错误。
+
 MIN_SCHEMA_VERSION = 100
+
+
 MAX_SCHEMA_VERSION = 200
 
-# schema v130 及以上的数据库不再包含全文分词表。Zotero Desktop 改为在每个
-# 附件文件旁保存纯文本缓存；这里只扫描有限数量的缓存，使全文搜索继续可用，
-# 同时不会把整个语料载入内存。
+
 _FULLTEXT_CACHE_FILENAME = ".zotero-ft-cache"
-# 上限依据真实库的观测结果（参考库中有 1,510 个缓存）设定，使普通库能够
-# 完整扫描，而异常庞大的集合也保持有限。扫描被截断时通过
-# SearchResult.fulltext_limited 报告，而不是报错或默默假装已完整搜索语料。
+
+
 _FULLTEXT_CACHE_MAX_FILES = 4000
+
+
 _FULLTEXT_CACHE_MAX_BYTES_PER_FILE = 8 * 1024 * 1024
+
+
 _FULLTEXT_CACHE_MAX_TOTAL_BYTES = 256 * 1024 * 1024
-
-
-class ZoteroSchemaError(RuntimeError):
-    """本地 Zotero userdata schema 超出已验证范围时抛出。"""
-
-    def __init__(
-        self,
-        version: int,
-        *,
-        minimum: int = MIN_SCHEMA_VERSION,
-        maximum: int = MAX_SCHEMA_VERSION,
-    ) -> None:
-        self.schema_version = version
-        self.minimum = minimum
-        self.maximum = maximum
-        super().__init__(
-            f"Unsupported Zotero database schema version {version} "
-            f"(tested range {minimum}-{maximum}). The database may come from a "
-            "newer Zotero release; update zotero-cli or use a supported Zotero version."
-        )
 
 
 class ZoteroReader(CitationExportMixin):

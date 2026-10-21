@@ -11,7 +11,7 @@ from unittest.mock import patch
 from tests.support import SAMPLE_DATA_DIR
 from tests.support import invoke_cli as _invoke
 
-from zotero_cli.zotero.reader import ZoteroReader
+from zotero_cli.zotero.access.reader import ZoteroReader
 
 
 class TestDuplicateReader:
@@ -95,7 +95,7 @@ class TestDuplicateReader:
     def test_find_duplicates_stops_after_doi_limit(self):
         reader = ZoteroReader(SAMPLE_DATA_DIR / "zotero.sqlite")
         try:
-            with patch("zotero_cli.zotero.reader.SequenceMatcher") as matcher:
+            with patch("zotero_cli.zotero.access.reader.SequenceMatcher") as matcher:
                 groups = reader.find_duplicates(strategy="both", limit=1)
             assert len(groups) == 1
             assert groups[0].match_type == "doi"
@@ -155,7 +155,7 @@ def test_find_duplicates_scoped_to_requested_library() -> None:
 
 def test_find_duplicates_uses_blocking_instead_of_full_scan(tmp_path: Path, monkeypatch) -> None:
     """分块策略把 SequenceMatcher 调用次数压到远低于二次方基线。"""
-    from zotero_cli.zotero import reader as reader_module
+    from zotero_cli.zotero.access import reader as reader_module
 
     db_path = tmp_path / "zotero.sqlite"
     shutil.copy2(SAMPLE_DATA_DIR / "zotero.sqlite", db_path)

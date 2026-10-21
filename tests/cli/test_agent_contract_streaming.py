@@ -161,7 +161,7 @@ class TestFulltextLimitedMeta:
 
     def test_list_json_meta_reports_fulltext_limited(self):
         fake = SimpleNamespace(items=[], total=0, fulltext_limited=True)
-        with patch("zotero_cli.cli.commands.zotero.reading.ZoteroReader") as reader_cls:
+        with patch("zotero_cli.cli.commands.zotero.items.ZoteroReader") as reader_cls:
             reader_cls.return_value.search.return_value = fake
             result = _run(["--json", "zotero", "list"])
         assert result.exit_code == EXIT_OK, result.output
@@ -170,7 +170,7 @@ class TestFulltextLimitedMeta:
 
     def test_list_stream_summary_reports_fulltext_limited(self):
         fake = SimpleNamespace(items=[], total=0, fulltext_limited=True)
-        with patch("zotero_cli.cli.commands.zotero.reading.ZoteroReader") as reader_cls:
+        with patch("zotero_cli.cli.commands.zotero.items.ZoteroReader") as reader_cls:
             reader_cls.return_value.search.return_value = fake
             result = _run(["zotero", "list", "--stream"])
         assert result.exit_code == EXIT_OK, result.output

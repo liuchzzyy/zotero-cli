@@ -6,7 +6,7 @@ from unittest.mock import patch
 from tests.support import invoke_cli, isolate_workspace_backend
 
 from zotero_cli.workspace.rag.index import RagIndex
-from zotero_cli.zotero.reader import ZoteroReader
+from zotero_cli.zotero.access.reader import ZoteroReader
 
 
 def test_metadata_change_reindexes_without_force(tmp_path):

@@ -159,7 +159,7 @@ class TestCiteCommand:
         assert "not found" in result.output
 
     def test_cite_copies_to_clipboard(self, test_db_path):
-        with patch("zotero_cli.cli.commands.zotero.cite._copy_to_clipboard", return_value=True) as mock_copy:
+        with patch("zotero_cli.cli.commands.zotero.items._copy_to_clipboard", return_value=True) as mock_copy:
             result = _invoke(["zotero", "cite", "ATTN001"], test_db_path)
             assert result.exit_code == 0
             assert "copied to clipboard" in result.output

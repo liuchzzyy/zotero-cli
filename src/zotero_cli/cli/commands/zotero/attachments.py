@@ -8,18 +8,18 @@ from pathlib import Path
 
 import typer
 
-from zotero_cli.cli.commands.zotero.reading import app
+from zotero_cli.cli.commands.zotero.items import app
 from zotero_cli.config import load_config, resolve_write_credentials
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
-from zotero_cli.zotero.attachment_upload import (
+from zotero_cli.zotero.access.idempotency import PendingMutationError
+from zotero_cli.zotero.access.writer import SYNC_REMINDER, ZoteroWriter
+from zotero_cli.zotero.pdf import (
     AttachmentUploadFailure,
     attachment_upload_scope,
     cache_attachment_upload,
     upload_attachment_protected,
 )
-from zotero_cli.zotero.idempotency import PendingMutationError
-from zotero_cli.zotero.writer import SYNC_REMINDER, ZoteroWriter
 
 
 @app.command(name="attach")

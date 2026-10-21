@@ -110,11 +110,11 @@ def test_note_dry_run_never_writes():
 
 
 def test_note_unknown_outcome_blocks_retry(tmp_path):
-    from zotero_cli.zotero.writer_errors import ZoteroWriteError
+    from zotero_cli.zotero.access.errors import ZoteroWriteError
 
     runner = CliRunner()
     with (
-        patch("zotero_cli.zotero.idempotency.state_dir", return_value=tmp_path),
+        patch("zotero_cli.zotero.access.idempotency.state_dir", return_value=tmp_path),
         patch("zotero_cli.cli.commands.zotero.notes.ZoteroWriter") as writer,
     ):
         writer.return_value.add_note.side_effect = ZoteroWriteError(

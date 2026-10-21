@@ -6,7 +6,7 @@ import importlib.util
 import sqlite3
 from pathlib import Path
 
-from zotero_cli.zotero.reader import ZoteroReader
+from zotero_cli.zotero.access.reader import ZoteroReader
 
 SAMPLE_DATA_DIR = Path(__file__).resolve().parents[1] / "sample_data"
 GENERATOR_PATH = SAMPLE_DATA_DIR / "create_test_db.py"

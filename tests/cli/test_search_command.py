@@ -7,7 +7,7 @@ import json
 from tests.support import SAMPLE_DATA_DIR
 from tests.support import invoke_cli as _invoke
 
-from zotero_cli.zotero.reader import ZoteroReader
+from zotero_cli.zotero.access.reader import ZoteroReader
 
 
 class TestItemTypeFilter:
@@ -100,7 +100,7 @@ class TestSortOrder:
 
 class TestFulltextBudgetMeta:
     def test_search_json_reports_limited_fulltext_scan(self, monkeypatch):
-        from zotero_cli.zotero import reader as reader_module
+        from zotero_cli.zotero.access import reader as reader_module
 
         monkeypatch.setattr(
             reader_module.ZoteroReader,

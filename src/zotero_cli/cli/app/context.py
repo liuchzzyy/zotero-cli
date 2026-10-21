@@ -7,7 +7,7 @@ from typing import Any
 import typer
 
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id
-from zotero_cli.zotero.reader import ZoteroReader
+from zotero_cli.zotero.access.reader import ZoteroReader
 
 
 def load_context_config(ctx: typer.Context | Any) -> Any:

@@ -11,7 +11,7 @@ from tests.support import SAMPLE_DATA_DIR
 from zotero_cli.ai_pdf import extract_doi_from_markdown
 from zotero_cli.cli import main
 from zotero_cli.config import PdfConfig
-from zotero_cli.zotero.writer_errors import ZoteroWriteError
+from zotero_cli.zotero.access.errors import ZoteroWriteError
 
 
 class TestExtractDoi:
@@ -41,8 +41,8 @@ class TestAddPdfCLI:
             "ZOT_FORMAT": "",
         }
         with (
-            patch("zotero_cli.cli.commands.zotero.add.resolve_doi", return_value={"title": "T"}),
-            patch("zotero_cli.cli.commands.zotero.add.ZoteroWriter") as mock_writer_cls,
+            patch("zotero_cli.cli.commands.zotero.items.resolve_doi", return_value={"title": "T"}),
+            patch("zotero_cli.cli.commands.zotero.items.ZoteroWriter") as mock_writer_cls,
         ):
             mock_writer = MagicMock()
             mock_writer_cls.return_value = mock_writer
@@ -92,8 +92,8 @@ class TestAddPdfCLI:
         with (
             patch("zotero_cli.config.load_pdf_config", return_value=PdfConfig(mineru_token="token")),
             patch("zotero_cli.ai_pdf.MinerUParseCache") as cache_cls,
-            patch("zotero_cli.cli.commands.zotero.add.resolve_doi", return_value={"title": "T"}),
-            patch("zotero_cli.cli.commands.zotero.add.ZoteroWriter") as mock_writer_cls,
+            patch("zotero_cli.cli.commands.zotero.items.resolve_doi", return_value={"title": "T"}),
+            patch("zotero_cli.cli.commands.zotero.items.ZoteroWriter") as mock_writer_cls,
         ):
             cache = cache_cls.return_value
             cache.get.return_value = None
@@ -112,8 +112,8 @@ def test_add_pdf_upload_failure_returns_partial_state(tmp_path):
     pdf = tmp_path / "paper.pdf"
     pdf.write_bytes(b"%PDF-1.4 test")
     with (
-        patch("zotero_cli.cli.commands.zotero.add.ZoteroWriter") as cls,
-        patch("zotero_cli.cli.commands.zotero.add.resolve_doi", return_value={"title": "T"}),
+        patch("zotero_cli.cli.commands.zotero.items.ZoteroWriter") as cls,
+        patch("zotero_cli.cli.commands.zotero.items.resolve_doi", return_value={"title": "T"}),
     ):
         cls.return_value.add_item.return_value = "NEW001"
         cls.return_value.upload_attachment.side_effect = ZoteroWriteError("upload failed")

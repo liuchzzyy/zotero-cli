@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 from tests.support import SAMPLE_DATA_DIR
 
+from zotero_cli.zotero.access.reader import ZoteroReader
 from zotero_cli.zotero.models import Item
-from zotero_cli.zotero.reader import ZoteroReader
 
 
 def _read_items(reader: ZoteroReader, method: str) -> list[Item]:
@@ -95,7 +95,7 @@ def test_large_collection_is_hydrated_in_batches(
             [(i,) for i in range(100, 120)],
         )
     # 在不依赖 Python 3.11+ sqlite3 API 的前提下强制走多查询路径。
-    monkeypatch.setattr("zotero_cli.zotero.reader._ITEM_BATCH_SIZE", 7)
+    monkeypatch.setattr("zotero_cli.zotero.access.reader._ITEM_BATCH_SIZE", 7)
     with ZoteroReader(db_path, library_id=2) as reader:
         items = reader.get_collection_items("GRPCOL03")
         assert [item.key for item in items] == ["GRPITM09", *[f"BATCH{i}" for i in range(100, 120)]]
@@ -122,7 +122,7 @@ def _seed_large_user_library(db_path: Path, count: int = 1000) -> None:
 
 def test_search_filter_and_sort_respect_legacy_parameter_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # 在所有 Python 版本上都强制走多查询路径（不依赖 sqlite3 setlimit）。
-    from zotero_cli.zotero import reader as reader_module
+    from zotero_cli.zotero.access import reader as reader_module
 
     monkeypatch.setattr(reader_module, "_ITEM_BATCH_SIZE", 100)
     db_path = tmp_path / "zotero.sqlite"
@@ -142,7 +142,7 @@ def test_search_filter_and_sort_respect_legacy_parameter_limit(tmp_path: Path, m
 
 
 def test_batched_sort_keeps_requested_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from zotero_cli.zotero import reader as reader_module
+    from zotero_cli.zotero.access import reader as reader_module
 
     monkeypatch.setattr(reader_module, "_ITEM_BATCH_SIZE", 100)
     db_path = tmp_path / "zotero.sqlite"

@@ -6,14 +6,14 @@ import json
 
 import typer
 
-from zotero_cli.cli.commands.zotero.reading import app
+from zotero_cli.cli.commands.zotero.items import app
 from zotero_cli.cli.renderers import format_items
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id, resolve_write_credentials
 from zotero_cli.output.envelope import envelope_error, envelope_ok, envelope_partial_data
 from zotero_cli.output.exit_codes import emit_error, exit_code_for
-from zotero_cli.zotero.reader import ZoteroReader
-from zotero_cli.zotero.writer import SYNC_REMINDER, ZoteroWriter
-from zotero_cli.zotero.writer_errors import ZoteroWriteError
+from zotero_cli.zotero.access.reader import ZoteroReader
+from zotero_cli.zotero.access.writer import SYNC_REMINDER, ZoteroWriter
+from zotero_cli.zotero.items import restore_items
 
 RESTORE_SYNC_NOTE = (
     "Restored remotely. The local database only reflects the restore after Zotero Desktop syncs; "
@@ -78,26 +78,18 @@ def trash_restore_cmd(
         )
 
     writer = ZoteroWriter(library_id=library_id, api_key=api_key, library_type=library_type)
-    restored: list[str] = []
-    failed: list[dict] = []
-    for key in keys:
-        try:
-            writer.restore_from_trash(key)
-            restored.append(key)
-            if not json_out:
-                typer.echo(f"Restored: {key}")
-        except ZoteroWriteError as error:
-            failed.append(
-                {
-                    "key": key,
-                    "code": error.code,
-                    "message": str(error),
-                    "retryable": error.retryable,
-                    "committed": error.committed,
-                }
-            )
-            if not json_out:
-                typer.echo(f"Error: restore failed for '{key}': {error}", err=True)
+
+    def report(row: dict[str, object], is_error: bool) -> None:
+        if json_out:
+            return
+        if is_error:
+            typer.echo(f"Error: restore failed for '{row['key']}': {row['message']}", err=True)
+        else:
+            typer.echo(f"Restored: {row['key']}")
+
+    result = restore_items(writer, keys, report=report)
+    restored = result.restored
+    failed = result.failed
 
     if not failed:
         if json_out:

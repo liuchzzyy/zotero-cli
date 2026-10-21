@@ -8,7 +8,7 @@ from pathlib import Path
 
 import typer
 
-from zotero_cli.cli.commands.zotero.reading import app as zotero_app
+from zotero_cli.cli.commands.zotero.items import app as zotero_app
 from zotero_cli.config import (
     get_data_dir,
     get_prefs_js_path,
@@ -19,16 +19,17 @@ from zotero_cli.config import (
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.output.sanitize import sanitize_text
-from zotero_cli.zotero.attachment_upload import (
+from zotero_cli.zotero.access.idempotency import PendingMutationError
+from zotero_cli.zotero.access.reader import ZoteroReader
+from zotero_cli.zotero.access.writer import SYNC_REMINDER, ZoteroWriter
+from zotero_cli.zotero.pdf import (
     AttachmentUploadFailure,
     attachment_upload_scope,
     cache_attachment_upload,
+    export_pdf,
+    select_pdf_attachment,
     upload_attachment_protected,
 )
-from zotero_cli.zotero.idempotency import PendingMutationError
-from zotero_cli.zotero.pdf import export_pdf, select_pdf_attachment
-from zotero_cli.zotero.reader import ZoteroReader
-from zotero_cli.zotero.writer import SYNC_REMINDER, ZoteroWriter
 
 app = typer.Typer(help="列出并定位本地 PDF 附件。", no_args_is_help=True)
 zotero_app.add_typer(app, name="pdf")

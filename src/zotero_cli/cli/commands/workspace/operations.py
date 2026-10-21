@@ -35,8 +35,8 @@ from zotero_cli.workspace.store import (
     validate_name,
     workspace_file_path,
 )
+from zotero_cli.zotero.access.reader import ZoteroReader
 from zotero_cli.zotero.models import Collection, Item
-from zotero_cli.zotero.reader import ZoteroReader
 
 _ADD_HINT = "Use 'zot workspace new' to create it first"
 

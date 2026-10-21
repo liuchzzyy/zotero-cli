@@ -11,6 +11,11 @@ build/
 .coverage
 .coverage.*
 htmlcov/
+# 测试与调试产生的本地凭据文件
+*.credentials.json
+*.secrets.json
+# 本地日志统一写入 .zot/log，避免误提交散落的日志
+*.log
 # Docs build output
 site/
 # Internal dev docs (plans, specs)

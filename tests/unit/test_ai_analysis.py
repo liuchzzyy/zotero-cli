@@ -25,9 +25,8 @@ from zotero_cli.ai_notes.pipeline import analyze_item
 from zotero_cli.ai_notes.short_note import normalize_short_note, validate_short_note
 from zotero_cli.ai_pdf import MinerUParseResult
 from zotero_cli.config import AiNoteConfig
+from zotero_cli.zotero.access.writer import ZoteroWriteError, merge_short_note_into_extra
 from zotero_cli.zotero.models import Attachment, Creator, Item, Note
-from zotero_cli.zotero.short_note_merge import merge_short_note_into_extra
-from zotero_cli.zotero.writer import ZoteroWriteError
 
 _REAL_FORMAT_TEMPLATE = pipeline_module.format_template
 

@@ -3,18 +3,17 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 
 import typer
 
-from zotero_cli.cli.commands.zotero.reading import app
+from zotero_cli.cli.commands.zotero.items import app
 from zotero_cli.cli.renderers import format_notes
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id, resolve_write_credentials
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
-from zotero_cli.zotero.reader import ZoteroReader
-from zotero_cli.zotero.writer import SYNC_REMINDER, ZoteroWriter
-from zotero_cli.zotero.writer_errors import ZoteroWriteError
+from zotero_cli.zotero.access.reader import ZoteroReader
+from zotero_cli.zotero.access.writer import SYNC_REMINDER, ZoteroWriter
+from zotero_cli.zotero.notes import NoteCreationError, create_note
 
 
 @app.command(name="note")
@@ -58,99 +57,27 @@ def note(
                 context="note",
             )
 
-        from zotero_cli.zotero.idempotency import (
-            PendingMutationError,
-            begin_mutation,
-            failure_definitely_rejected,
-            release_rejected_mutation,
-            request_scope,
-            store_cached,
-        )
-
-        cache_scope = request_scope("note", library_type, str(write_library_id), {"parent": key, "content": content})
-        if idempotency_key:
-            try:
-                cached = begin_mutation(cache_scope, idempotency_key)
-            except PendingMutationError as error:
-                emit_error(
-                    "conflict",
-                    str(error),
-                    output_json=json_out,
-                    retryable=False,
-                    hint="Reconcile the remote parent's notes before proceeding; do not bypass this with a new key",
-                    context="note",
-                )
-            except (OSError, sqlite3.Error):
-                emit_error(
-                    "configuration_error",
-                    "Could not durably reserve note creation; no write attempted",
-                    output_json=json_out,
-                    retryable=False,
-                    hint="Check the idempotency state directory and database",
-                    context="note",
-                )
-            if cached is not None:
-                if json_out:
-                    typer.echo(json.dumps(cached, indent=2, ensure_ascii=False))
-                else:
-                    typer.echo(f"Note added: {cached.get('data', {}).get('note_key', '?')} (cached).")
-                return
-
-        writer = None
         try:
-            writer = ZoteroWriter(library_id=str(write_library_id), api_key=api_key, library_type=library_type)
-            note_key = writer.add_note(key, content)
-        except Exception as exc:
-            # pyzotero 解析明确的 HTTP 拒绝时也可能失败；其他解析或本地错误
-            # 不能证明远端未提交，因此不暴露任意异常消息。
-            write_error = (
-                exc
-                if isinstance(exc, ZoteroWriteError)
-                else ZoteroWriteError("Note creation did not return a usable result")
+            env, cached = create_note(
+                key,
+                content,
+                library_id=str(write_library_id),
+                api_key=api_key,
+                library_type=library_type,
+                idempotency_key=idempotency_key,
+                writer_factory=ZoteroWriter,
             )
-            # 优先检查客户端保留的响应；无响应时以写入异常的提交状态作依据。
-            response = getattr(getattr(writer, "_zot", None), "request", None) if writer is not None else None
-            rejected = failure_definitely_rejected(
-                response=response,
-                code=write_error.code,
-                retryable=write_error.retryable,
-                committed=write_error.committed,
-            )
-            if rejected and idempotency_key:
-                try:
-                    release_rejected_mutation(cache_scope, idempotency_key)
-                except (OSError, sqlite3.Error):
-                    rejected = False  # 持久化解除失败时保留写入预约。
-            outcome_unknown = not rejected
+        except NoteCreationError as error:
             emit_error(
-                write_error.code,
-                str(write_error),
-                output_json=json_out,
-                retryable=False if outcome_unknown else write_error.retryable,
-                hint=(
-                    "The write outcome is unknown. Reconcile the remote parent's notes; do not retry with a new key"
-                    if outcome_unknown
-                    else "Check item key and API credentials"
-                ),
-                context="note",
+                error.code, str(error), output_json=json_out, retryable=error.retryable, hint=error.hint, context="note"
             )
-
-        env = envelope_ok(
-            {"note_key": note_key, "parent_key": key, "sync_required": True},
-            next=[f"zot zotero note {key}"],
-        )
-        if idempotency_key:
-            try:
-                store_cached(cache_scope, idempotency_key, env)
-            except (OSError, sqlite3.Error):
-                emit_error(
-                    "configuration_error",
-                    f"Note '{note_key}' was created but its retry result could not be saved",
-                    output_json=json_out,
-                    retryable=False,
-                    hint="Reconcile this note remotely; the pending reservation still blocks blind retries",
-                    context="note",
-                )
+        if cached:
+            if json_out:
+                typer.echo(json.dumps(env, indent=2, ensure_ascii=False))
+            else:
+                typer.echo(f"Note added: {env.get('data', {}).get('note_key', '?')} (cached).")
+            return
+        note_key = env["data"]["note_key"]
         if json_out:
             typer.echo(json.dumps(env, indent=2, ensure_ascii=False))
         else:

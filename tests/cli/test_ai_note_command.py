@@ -10,7 +10,7 @@ from tests.support import invoke_cli
 
 from zotero_cli.ai_notes.errors import NoteAnalysisError
 from zotero_cli.config import AiNoteConfig
-from zotero_cli.zotero.idempotency import PendingMutationError
+from zotero_cli.zotero.access.idempotency import PendingMutationError
 from zotero_cli.zotero.models import Note
 
 

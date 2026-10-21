@@ -202,7 +202,7 @@ outlast a two-minute budget.
 ```python
 from pathlib import Path
 from zotero_cli.config import load_config
-from zotero_cli.zotero.reader import ZoteroReader
+from zotero_cli.zotero.access.reader import ZoteroReader
 
 reader = ZoteroReader(Path(load_config().data_dir) / "zotero.sqlite")
 conn = reader._connect()

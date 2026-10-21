@@ -59,9 +59,9 @@ from zotero_cli.ai_notes.templates import (
 from zotero_cli.ai_notes.text import join_spaced_digits, prepare
 from zotero_cli.ai_pdf import MinerUError, MinerUParseCache, MinerUParseResult
 from zotero_cli.workspace.rag import PdfDocument, clean_html, resolve_pdf_kinds
+from zotero_cli.zotero.access.reader import ZoteroReader
+from zotero_cli.zotero.access.writer import ZoteroWriter
 from zotero_cli.zotero.models import Item
-from zotero_cli.zotero.reader import ZoteroReader
-from zotero_cli.zotero.writer import ZoteroWriter
 
 _MISSING_FIELD = "未知"
 

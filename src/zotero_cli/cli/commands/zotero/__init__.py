@@ -1,39 +1,8 @@
-"""`zot zotero` 的基础命令。"""
+"""按对象注册 Zotero 基础与应用命令。"""
 
-from zotero_cli.cli.commands.zotero import (
-    add,
-    attachments,
-    cite,
-    collection_reorganize,
-    delete,
-    duplicates,
-    export,
-    notes,
-    open_item,
-    pdf,
-    relate,
-    tag,
-    trash,
-    update,
-)
-from zotero_cli.cli.commands.zotero.collection import app as collection_app
-from zotero_cli.cli.commands.zotero.reading import app as zotero_app
+from zotero_cli.cli.commands.zotero import attachments, collections, items, notes, pdf, tags, trash
 
-zotero_app.add_typer(collection_app, name="collection")
+zotero_app = items.app
+zotero_app.add_typer(collections.app, name="collection")
 
-__all__ = [
-    "add",
-    "attachments",
-    "cite",
-    "collection_reorganize",
-    "delete",
-    "duplicates",
-    "export",
-    "notes",
-    "open_item",
-    "pdf",
-    "relate",
-    "tag",
-    "trash",
-    "update",
-]
+__all__ = ["items", "attachments", "collections", "notes", "pdf", "tags", "trash", "zotero_app"]

@@ -1,12 +1,4 @@
-"""Zotero Web API 写入层（基于 pyzotero 1.16 / httpx2）。
-
-ZoteroWriter 定义在此；错误转换在 writer_errors 中，Extra 字段的 short-note
-合并逻辑在 short_note_merge 中。
-
-删除语义：Zotero Web API 的 DELETE 会永久删除条目。回收站恢复路径
-（原始 PATCH deleted=0）仅适用于被 Zotero Desktop 移入回收站的条目；
-CLI 的删除操作不可撤销。
-"""
+"""基于 pyzotero 的 Zotero 远程写入封装。"""
 
 from __future__ import annotations
 
@@ -16,15 +8,29 @@ import httpx2
 from pyzotero import zotero
 from pyzotero.zotero_errors import PyZoteroError, ResourceNotFoundError
 
-from zotero_cli.zotero.short_note_merge import merge_short_note_into_extra
-from zotero_cli.zotero.writer_errors import (
+from zotero_cli.zotero.access.errors import (
     ZoteroWriteError,
     _friendly_api_error,
     error_for_http_status,
     response_retry_after,
 )
 
+
+def merge_short_note_into_extra(extra: str, short_note: str) -> str:
+    """把 short-note 行合并进 Zotero Extra 文本，并替换已有的同名行。
+
+    保留其他所有 Extra 行（资助方、译名等），并在末尾追加唯一一行
+    "short-note: ..."。
+    """
+    lines = [line for line in (extra or "").splitlines() if not line.strip().lower().startswith("short-note:")]
+    while lines and not lines[-1].strip():
+        lines.pop()
+    lines.append(f"short-note: {short_note.strip()}")
+    return "\n".join(lines)
+
+
 SYNC_REMINDER = "Change saved. Run Zotero sync to update local database."
+
 
 API_TIMEOUT = 30.0  # 秒
 

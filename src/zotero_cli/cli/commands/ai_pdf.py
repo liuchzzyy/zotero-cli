@@ -12,8 +12,8 @@ from zotero_cli.cli.renderers import format_pdf_text
 from zotero_cli.config import get_data_dir, get_prefs_js_path, load_config, load_pdf_config, resolve_library_id
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error, emit_exception
+from zotero_cli.zotero.access.reader import ZoteroReader
 from zotero_cli.zotero.pdf import select_pdf_attachment
-from zotero_cli.zotero.reader import ZoteroReader
 
 _NO_PDF_HINT = "Check item details with: zot zotero read KEY"
 _USAGE_HINT = 'Find item keys with: zot zotero search "<query>"'

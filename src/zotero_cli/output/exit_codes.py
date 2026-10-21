@@ -189,7 +189,7 @@ def _is_zotero_schema_error(exc: BaseException) -> bool:
     if _class_name_is(exc, "ZoteroSchemaError"):
         return True
     try:
-        from zotero_cli.zotero.reader import ZoteroSchemaError
+        from zotero_cli.zotero.access.errors import ZoteroSchemaError
     except Exception:
         return False
     return isinstance(exc, ZoteroSchemaError)

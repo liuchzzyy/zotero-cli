@@ -7,14 +7,14 @@ from typing import Any
 
 import typer
 
-from zotero_cli.cli.commands.zotero.reading import app
+from zotero_cli.cli.commands.zotero.items import app
 from zotero_cli.cli.renderers import ErrorInfo, print_error
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id, resolve_write_credentials
 from zotero_cli.output.envelope import envelope_error, envelope_ok, envelope_partial
 from zotero_cli.output.exit_codes import EXIT_NOT_FOUND, emit_error, exit_code_for
-from zotero_cli.zotero.reader import ZoteroReader
-from zotero_cli.zotero.writer import SYNC_REMINDER, ZoteroWriter
-from zotero_cli.zotero.writer_errors import ZoteroWriteError
+from zotero_cli.zotero.access.reader import ZoteroReader
+from zotero_cli.zotero.access.writer import SYNC_REMINDER, ZoteroWriter
+from zotero_cli.zotero.tags import update_tags
 
 
 @app.command("tag")
@@ -60,41 +60,31 @@ def tag_cmd(
                 context="tag",
             )
         writer = ZoteroWriter(library_id=str(write_library_id), api_key=api_key, library_type=library_type)
-        succeeded: list[dict[str, Any]] = []
-        failed: list[dict[str, Any]] = []
-        for key in keys:
-            try:
-                if add_tag:
-                    writer.add_tags(key, [add_tag])
-                    succeeded.append({"key": key, "tags_added": [add_tag]})
-                    if not json_out:
-                        typer.echo(f"Tag '{add_tag}' added to '{key}'.")
-                if remove_tag:
-                    writer.remove_tags(key, [remove_tag])
-                    succeeded.append({"key": key, "tags_removed": [remove_tag]})
-                    if not json_out:
-                        typer.echo(f"Tag '{remove_tag}' removed from '{key}'.")
-            except ZoteroWriteError as error:
-                failed.append(
-                    {
-                        "key": key,
-                        "error": {
-                            "code": error.code,
-                            "message": str(error),
-                            "retryable": error.retryable,
-                            "committed": error.committed,
-                        },
-                    }
-                )
-                if not json_out:
-                    print_error(
-                        ErrorInfo(
-                            message=str(error),
-                            context="tag",
-                            hint=f"Failed for key '{key}'" + (" (write may have committed)" if error.committed else ""),
-                        ),
-                        output_json=False,
-                    )
+
+        def report(row: dict[str, Any], is_error: bool) -> None:
+            if json_out:
+                return
+            key = str(row["key"])
+            if not is_error:
+                if "tags_added" in row:
+                    typer.echo(f"Tag '{add_tag}' added to '{key}'.")
+                if "tags_removed" in row:
+                    typer.echo(f"Tag '{remove_tag}' removed from '{key}'.")
+                return
+            error = row["error"]
+            assert isinstance(error, dict)
+            print_error(
+                ErrorInfo(
+                    message=str(error["message"]),
+                    context="tag",
+                    hint=f"Failed for key '{key}'" + (" (write may have committed)" if error["committed"] else ""),
+                ),
+                output_json=False,
+            )
+
+        result = update_tags(writer, keys, add_tag=add_tag, remove_tag=remove_tag, report=report)
+        succeeded = result.succeeded
+        failed = result.failed
         first_failure: dict[str, Any] | None = None
         if failed:
             candidate = failed[0].get("error")
