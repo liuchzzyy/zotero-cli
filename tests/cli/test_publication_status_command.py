@@ -1,4 +1,4 @@
-"""`update-status` 子命令与 Semantic Scholar 客户端测试。"""
+"""`zotero publication-status` 子命令与 Semantic Scholar 客户端测试。"""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from zotero_cli.zotero.items import (
 
 class TestUpdateStatusCli:
     def test_no_preprint_ids_json_envelope(self) -> None:
-        result = _run(["--json", "metadata", "update-status", "--limit", "1"])
+        result = _run(["--json", "zotero", "publication-status", "--limit", "1"])
         assert result.exit_code == 0
         env = json.loads(result.output)
         assert env["ok"] is True
@@ -25,7 +25,7 @@ class TestUpdateStatusCli:
         assert env["data"]["checked"] == 0
 
     def test_missing_item_json_not_found(self) -> None:
-        result = _run(["--json", "metadata", "update-status", "MISSING"])
+        result = _run(["--json", "zotero", "publication-status", "MISSING"])
         assert result.exit_code == 4
         env = json.loads(result.output)
         assert env["ok"] is False
@@ -173,7 +173,7 @@ def _preprint_info(**_kwargs: object) -> PreprintInfo:
 
 
 def test_explicit_dry_run_is_a_preview_without_writes() -> None:
-    result = _run(["--json", "metadata", "update-status", "--dry-run", "--limit", "1"])
+    result = _run(["--json", "zotero", "publication-status", "--dry-run", "--limit", "1"])
     assert result.exit_code == 0
     env = json.loads(result.output)
     assert env["ok"] is True
@@ -181,7 +181,7 @@ def test_explicit_dry_run_is_a_preview_without_writes() -> None:
 
 
 def test_apply_and_dry_run_are_mutually_exclusive() -> None:
-    result = _run(["--json", "metadata", "update-status", "--apply", "--dry-run"])
+    result = _run(["--json", "zotero", "publication-status", "--apply", "--dry-run"])
     assert result.exit_code == 3
     env = json.loads(result.output)
     assert env["ok"] is False
@@ -190,10 +190,10 @@ def test_apply_and_dry_run_are_mutually_exclusive() -> None:
 
 def test_semantic_scholar_failure_is_surfaced_as_network_error() -> None:
     with (
-        patch("zotero_cli.cli.commands.metadata.update_status.extract_preprint_info", side_effect=_preprint_info),
-        patch("zotero_cli.cli.commands.metadata.update_status.SemanticScholarClient", _FailingClient),
+        patch("zotero_cli.zotero.items.extract_preprint_info", side_effect=_preprint_info),
+        patch("zotero_cli.zotero.items.SemanticScholarClient", _FailingClient),
     ):
-        result = _run(["--json", "metadata", "update-status", "--limit", "1"])
+        result = _run(["--json", "zotero", "publication-status", "--limit", "1"])
     assert result.exit_code == 5
     env = json.loads(result.output)
     assert env["ok"] is False
@@ -203,10 +203,10 @@ def test_semantic_scholar_failure_is_surfaced_as_network_error() -> None:
 
 def test_semantic_scholar_rate_limit_is_surfaced_distinctly() -> None:
     with (
-        patch("zotero_cli.cli.commands.metadata.update_status.extract_preprint_info", side_effect=_preprint_info),
-        patch("zotero_cli.cli.commands.metadata.update_status.SemanticScholarClient", _RateLimitedClient),
+        patch("zotero_cli.zotero.items.extract_preprint_info", side_effect=_preprint_info),
+        patch("zotero_cli.zotero.items.SemanticScholarClient", _RateLimitedClient),
     ):
-        result = _run(["--json", "metadata", "update-status", "--limit", "1"])
+        result = _run(["--json", "zotero", "publication-status", "--limit", "1"])
     assert result.exit_code == 5
     env = json.loads(result.output)
     assert env["ok"] is False

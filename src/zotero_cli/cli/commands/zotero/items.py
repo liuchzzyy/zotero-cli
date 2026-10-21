@@ -22,10 +22,11 @@ from zotero_cli.config import (
     get_prefs_js_path,
     load_config,
     resolve_library_id,
+    resolve_semantic_scholar_api_key,
     resolve_write_credentials,
 )
 from zotero_cli.output.envelope import envelope_error, envelope_ok, envelope_partial, envelope_partial_data
-from zotero_cli.output.exit_codes import EXIT_CONFLICT, emit_error, exit_code_for
+from zotero_cli.output.exit_codes import EXIT_CONFLICT, EXIT_NETWORK, EXIT_RUNTIME, emit_error, exit_code_for
 from zotero_cli.output.sanitize import sanitize_text
 from zotero_cli.output.streaming import emit_progress, stream_items
 from zotero_cli.zotero.access.errors import ZoteroWriteError
@@ -39,9 +40,13 @@ from zotero_cli.zotero.access.idempotency import (
 from zotero_cli.zotero.access.reader import ZoteroReader
 from zotero_cli.zotero.access.writer import SYNC_REMINDER, ZoteroWriter
 from zotero_cli.zotero.items import (
+    SemanticScholarError,
     UpdateInputError,
     _load_updates_from_jsonl,
     _parse_inline_fields,
+    apply_publication_updates,
+    batch_summarize_items,
+    check_publication_statuses,
     delete_items,
     import_items,
     resolve_doi,
@@ -1522,3 +1527,318 @@ def relate(
         typer.echo(format_items(items, output_json=json_out, detail=detail))
     finally:
         reader.close()
+
+
+_NETWORK_FAMILY_CODES = frozenset({"network_error", "rate_limited"})
+
+
+def _write_failure_exit_code(failure_codes: list[str]) -> int:
+    """当所有写入失败都属于网络/限流时返回退出码 5，否则返回运行时错误码（1）。"""
+    if failure_codes and all(code in _NETWORK_FAMILY_CODES for code in failure_codes):
+        return EXIT_NETWORK
+    return EXIT_RUNTIME
+
+
+@app.command(name="summary")
+def summary_cmd(
+    ctx: typer.Context,
+    key: str | None = typer.Argument(None, help="Zotero 条目键；省略则批量导出全库条目摘要。"),
+    offset: int = typer.Option(0, "--offset", help="批量导出时的偏移量（分页）。"),
+    limit: int | None = typer.Option(None, "--limit", help="覆盖全局结果上限。"),
+    exclude_tags: list[str] = typer.Option([], "--exclude-tag", help="排除包含指定标签的条目，可重复。"),
+    exclude_collection_keys: list[str] = typer.Option(
+        [], "--exclude-collection-key", help="排除包含指定集合键的条目，可重复。"
+    ),
+) -> None:
+    """汇总单个条目元数据，或批量导出条目摘要供 AI 使用。"""
+    config = load_config(profile=ctx.obj.get("profile"))
+    json_out = ctx.obj.get("json", False)
+    data_dir = get_data_dir(config)
+    db_path = data_dir / "zotero.sqlite"
+    library_id = resolve_library_id(db_path, ctx.obj)
+    reader = ZoteroReader(db_path, library_id=library_id)
+    try:
+        if key:
+            item = reader.get_item(key)
+            if item is None:
+                emit_error(
+                    "not_found",
+                    f"Item '{key}' not found",
+                    output_json=json_out,
+                    hint="Run 'zot zotero search' to find valid item keys",
+                    context="summary",
+                )
+            notes = reader.get_notes(key)
+            detail = ctx.obj.get("detail", "standard")
+            if json_out:
+                data: dict[str, Any] = {
+                    "title": item.title,
+                    "authors": [c.full_name for c in item.creators],
+                    "year": item.date,
+                    "doi": item.doi,
+                }
+                if detail != "minimal":
+                    data["abstract"] = item.abstract
+                    data["tags"] = item.tags
+                    data["notes"] = [n.content[:500] for n in notes]
+                typer.echo(json.dumps(envelope_ok(data, meta={"detail": detail}), indent=2, ensure_ascii=False))
+            else:
+                typer.echo(f"Title: {sanitize_text(item.title)}")
+                typer.echo(f"Authors: {', '.join(sanitize_text(c.full_name) for c in item.creators)}")
+                typer.echo(f"Year: {sanitize_text(item.date or 'N/A')}")
+                if item.doi:
+                    typer.echo(f"DOI: {sanitize_text(item.doi)}")
+                if item.url:
+                    typer.echo(f"URL: {sanitize_text(item.url)}")
+                if detail != "minimal":
+                    if item.tags:
+                        typer.echo(f"Tags: {', '.join(sanitize_text(t) for t in item.tags)}")
+                    if item.extra:
+                        journal = sanitize_text(item.extra.get("publicationTitle"))
+                        volume = sanitize_text(item.extra.get("volume", ""))
+                        issue = sanitize_text(item.extra.get("issue", ""))
+                        pages = sanitize_text(item.extra.get("pages", ""))
+                        parts = [
+                            p
+                            for p in [
+                                journal,
+                                f"vol.{volume}" if volume else "",
+                                f"({issue})" if issue else "",
+                                f"pp.{pages}" if pages else "",
+                            ]
+                            if p
+                        ]
+                        if parts:
+                            typer.echo(f"Source: {' '.join(parts)}")
+                    if item.abstract:
+                        typer.echo(f"\nAbstract:\n{sanitize_text(item.abstract)}")
+                    if notes:
+                        typer.echo(f"\nNotes ({len(notes)}):")
+                        for n in notes:
+                            typer.echo(f"  {sanitize_text(n.content[:500])}")
+            return
+
+        # 批量导出摘要
+        limit_val = limit if limit is not None else ctx.obj.get("limit", 10000)
+        detail = ctx.obj.get("detail", "standard")
+        emit_progress(
+            "start",
+            phase="summarize_all",
+            offset=offset,
+            limit=limit_val,
+            detail=detail,
+            exclude_tags=list(exclude_tags) if exclude_tags else None,
+            exclude_collection_keys=list(exclude_collection_keys) if exclude_collection_keys else None,
+        )
+
+        def on_progress(done: int, total: int, filtered_total: int) -> None:
+            emit_progress("progress", phase="summarize_all", done=done, total=total, filtered_total=filtered_total)
+
+        items_data, total = batch_summarize_items(
+            reader,
+            offset=offset,
+            limit=limit_val,
+            detail=detail,
+            exclude_tags=tuple(exclude_tags),
+            exclude_collection_keys=tuple(exclude_collection_keys),
+            progress=on_progress,
+        )
+        emit_progress(
+            "complete", phase="summarize_all", done=len(items_data), total=len(items_data), filtered_total=total
+        )
+        if json_out:
+            typer.echo(
+                json.dumps(
+                    envelope_ok(
+                        items_data,
+                        meta={
+                            "count": len(items_data),
+                            "detail": detail,
+                            "filtered_total": total,
+                            "excluded_tags": list(exclude_tags),
+                            "excluded_collection_keys": list(exclude_collection_keys),
+                        },
+                    ),
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
+        else:
+            typer.echo(json.dumps(items_data, indent=2, ensure_ascii=False))
+    finally:
+        reader.close()
+
+
+@app.command(name="publication-status")
+def publication_status_cmd(
+    ctx: typer.Context,
+    key: str | None = typer.Argument(None, help="条目键；省略则检查库中全部预印本。"),
+    apply: bool = typer.Option(False, "--apply", help="在 Zotero 中更新已发表条目的元数据。"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="显式只读预览，绝不写入。"),
+    ss_api_key: str | None = typer.Option(None, "--api-key", help="Semantic Scholar API 密钥。"),
+    collection: str | None = typer.Option(None, "--collection", help="限定集合名称。"),
+    limit: int | None = typer.Option(None, "--limit", help="最多检查的预印本数量。"),
+) -> None:
+    """通过 Semantic Scholar 检查并更新预印本的正式发表状态。"""
+    if apply and dry_run:
+        emit_error(
+            "validation_error",
+            "--apply and --dry-run are mutually exclusive",
+            output_json=ctx.obj.get("json", False),
+            hint="Use --dry-run to preview; omit it with --apply to write",
+            context="publication-status",
+        )
+    config = load_config(profile=ctx.obj.get("profile"))
+    json_out = ctx.obj.get("json", False)
+    limit_val = limit if limit is not None else ctx.obj.get("limit", 50)
+
+    api_key = resolve_semantic_scholar_api_key(config, explicit=ss_api_key)
+    if not api_key and not json_out:
+        typer.echo(
+            "No API key — rate limited to ~1 request/3s. Set semantic_scholar_api_key in .zot/config.toml.",
+            err=True,
+        )
+
+    data_dir = get_data_dir(config)
+    db_path = data_dir / "zotero.sqlite"
+    library_id = resolve_library_id(db_path, ctx.obj)
+    reader = ZoteroReader(db_path, library_id=library_id)
+
+    try:
+
+        def on_check_progress(idx: int, total: int, info_str: str, is_start: bool) -> None:
+            if json_out:
+                return
+            if is_start:
+                label = f"[{idx + 1}/{total}]"
+                safe_title = sanitize_text(info_str)
+                short_title = safe_title[:60] + ("..." if len(safe_title) > 60 else "")
+                typer.echo(f"{label} {short_title}", nl=False)
+            else:
+                if info_str == "not_found":
+                    typer.echo(" → Not found on Semantic Scholar")
+                elif info_str == "not_published":
+                    typer.echo(" → Not yet published")
+                else:
+                    typer.echo(f" → Published in {sanitize_text(info_str)}")
+
+        try:
+            results, published_count, checked_count, arxiv_count, has_items = check_publication_statuses(
+                reader,
+                key=key,
+                collection=collection,
+                limit=limit_val,
+                api_key=api_key,
+                progress=on_check_progress,
+            )
+        except LookupError as error:
+            emit_error(
+                "not_found",
+                str(error),
+                output_json=json_out,
+                hint="Run 'zot zotero search' to find valid item keys",
+                context="publication-status",
+            )
+        except ValueError as error:
+            emit_error(
+                "not_found",
+                str(error),
+                output_json=json_out,
+                hint="Run 'zot zotero collection list' to find valid collection keys",
+                context="publication-status",
+            )
+        except SemanticScholarError as exc:
+            emit_error(
+                "rate_limited" if exc.rate_limited else "network_error",
+                str(exc),
+                output_json=json_out,
+                retryable=exc.retryable,
+                hint="Retry later or configure a semantic_scholar_api_key to raise rate limits",
+                context="publication-status",
+            )
+    finally:
+        reader.close()
+
+    if checked_count == 0:
+        if json_out:
+            data = {"results": [], "published": 0, "checked": 0, "updated": 0, "sync_required": False}
+            typer.echo(
+                json.dumps(envelope_ok(data, meta={"count": 0}, dry_run=not apply), indent=2, ensure_ascii=False)
+            )
+        else:
+            typer.echo("No preprints found." if not has_items else "No items with preprint IDs found.")
+        return
+
+    if not json_out:
+        biorxiv_count = checked_count - arxiv_count
+        parts = []
+        if arxiv_count:
+            parts.append(f"{arxiv_count} arXiv")
+        if biorxiv_count:
+            parts.append(f"{biorxiv_count} bioRxiv/medRxiv")
+        typer.echo(f"\nChecking {' + '.join(parts)} preprint(s)...")
+        if not api_key:
+            est_time = checked_count * 3
+            typer.echo(f"Estimated time: ~{est_time}s (use API key to speed up)")
+        typer.echo(f"\nFound {published_count}/{checked_count} published paper(s).")
+
+    updated = 0
+    update_failed: list[dict[str, Any]] = []
+
+    if apply and published_count > 0:
+        library_type = ctx.obj.get("library_type", "user")
+        group_id = ctx.obj.get("group_id")
+        zot_library_id, zot_api_key = resolve_write_credentials(config, library_type=library_type, group_id=group_id)
+
+        if not zot_library_id or not zot_api_key:
+            emit_error(
+                "auth_missing",
+                "Zotero write credentials not configured",
+                output_json=json_out,
+                hint="Run 'zot config init' to set up API credentials",
+                context="publication-status",
+            )
+
+        writer = ZoteroWriter(library_id=zot_library_id, api_key=zot_api_key, library_type=library_type)
+
+        def on_update_report(item_key: str, title_or_err: str, is_error: bool) -> None:
+            if not json_out:
+                if is_error:
+                    typer.echo(f"  Failed {item_key}: {title_or_err}", err=True)
+                else:
+                    typer.echo(f"  Updated {item_key}: {sanitize_text(title_or_err)[:50]}...")
+
+        updated, update_failed = apply_publication_updates(writer, results, report=on_update_report)
+
+    data = {
+        "results": results,
+        "published": published_count,
+        "checked": checked_count,
+        "updated": updated,
+        "update_failed": update_failed,
+        "sync_required": updated > 0,
+    }
+    failure_codes = [str(failure["error"].get("code", "")) for failure in update_failed]
+    if json_out:
+        if apply and update_failed:
+            env = envelope_partial_data(data, meta={"count": len(results)})
+        else:
+            env = envelope_ok(data, meta={"count": len(results)}, dry_run=not apply)
+        typer.echo(json.dumps(env, indent=2, ensure_ascii=False))
+        if apply and update_failed:
+            raise SystemExit(_write_failure_exit_code(failure_codes))
+        return
+
+    if published_count == 0:
+        return
+
+    if not apply:
+        typer.echo("\nDry-run mode. Use --apply to update Zotero metadata.")
+        return
+
+    typer.echo(f"\nUpdated {updated} item(s).")
+    if updated > 0:
+        typer.echo(SYNC_REMINDER)
+    if update_failed:
+        typer.echo(f"{len(update_failed)} item(s) failed to update.", err=True)
+        raise SystemExit(_write_failure_exit_code(failure_codes))

@@ -7,7 +7,7 @@ import math
 import re
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
@@ -19,6 +19,10 @@ from zotero_cli.config import load_config, resolve_crossref_mailto
 from zotero_cli.zotero.access.errors import ZoteroWriteError
 from zotero_cli.zotero.access.idempotency import failure_definitely_rejected
 from zotero_cli.zotero.access.writer import ZoteroWriter
+from zotero_cli.zotero.models import Item
+
+if TYPE_CHECKING:
+    from zotero_cli.zotero.access.reader import ZoteroReader
 
 CROSSREF_API_BASE = "https://api.crossref.org/works"
 
@@ -781,3 +785,190 @@ def restore_items(
             if report:
                 report(row, True)
     return TrashRestoreResult(restored=restored, failed=failed)
+
+
+def writable_fields_for_item(item: Item) -> dict[str, str]:
+    """供元数据清理流程使用的、可写入字段中对 AI 安全的子集。"""
+    fields: dict[str, str] = {"title": item.title}
+    if item.abstract is not None:
+        fields["abstractNote"] = item.abstract
+    for field_name in ("publicationTitle", "journalAbbreviation", "language", "publisher"):
+        value = item.extra.get(field_name)
+        if value:
+            fields[field_name] = value
+    return fields
+
+
+def summarize_item_for_agent(item: Item, detail: str) -> dict[str, Any]:
+    """为 AI 分类或清理流程生成结构化条目摘要。"""
+    if detail == "minimal":
+        return {
+            "key": item.key,
+            "title": item.title,
+            "authors": [c.full_name for c in item.creators],
+            "date": item.date,
+        }
+    if detail == "full":
+        data = asdict(item)
+        data["writable_fields"] = writable_fields_for_item(item)
+        return data
+    return {
+        "key": item.key,
+        "title": item.title,
+        "authors": [c.full_name for c in item.creators],
+        "abstract": item.abstract,
+        "tags": item.tags,
+        "date": item.date,
+    }
+
+
+def batch_summarize_items(
+    reader: ZoteroReader,
+    *,
+    offset: int = 0,
+    limit: int = 10000,
+    detail: str = "standard",
+    exclude_tags: tuple[str, ...] = (),
+    exclude_collection_keys: tuple[str, ...] = (),
+    progress: Callable[[int, int, int], None] | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    """为 AI 分类或清理流程批量过滤并导出条目元数据。返回 (items, filtered_total)。"""
+    result = reader.search("", limit=1_000_000, offset=0)
+    excluded_collection_key_set = set(exclude_collection_keys)
+    filtered_items = [
+        item
+        for item in result.items
+        if (not exclude_tags or not any(tag in item.tags for tag in exclude_tags))
+        and (
+            not excluded_collection_key_set
+            or not any(collection_key in excluded_collection_key_set for collection_key in item.collections)
+        )
+    ]
+    total = len(filtered_items)
+    paged_items = filtered_items[offset : offset + limit]
+    page_total = len(paged_items)
+    items: list[dict[str, Any]] = []
+    for i, item in enumerate(paged_items, 1):
+        if progress and page_total >= 100 and i % max(1, page_total // 20) == 0:
+            progress(i, page_total, total)
+        items.append(summarize_item_for_agent(item, detail))
+    return items, total
+
+
+def check_publication_statuses(
+    reader: ZoteroReader,
+    *,
+    key: str | None = None,
+    collection: str | None = None,
+    limit: int = 50,
+    api_key: str | None = None,
+    progress: Callable[[int, int, str, bool], None] | None = None,
+) -> tuple[list[dict[str, Any]], int, int, int, bool]:
+    """检查条目是否为预印本且已正式发表。
+
+    返回 (results, published_count, checked_count, arxiv_count, has_items)。
+    """
+    if key:
+        item = reader.get_item(key)
+        if not item:
+            raise LookupError(f"Item '{key}' not found.")
+        items = [item]
+    else:
+        items = reader.get_arxiv_preprints(collection=collection, limit=limit)
+
+    if not items:
+        return [], 0, 0, 0, False
+
+    preprint_items: list[tuple[str, PreprintInfo, str]] = []
+    for item in items:
+        info = extract_preprint_info(
+            url=item.url,
+            doi=item.doi,
+            extra=item.extra.get("extra") if item.extra else None,
+        )
+        if info:
+            preprint_items.append((item.key, info, item.title))
+
+    if not preprint_items:
+        return [], 0, 0, 0, True
+
+    arxiv_count = sum(1 for _, info, _ in preprint_items if info.source == "arxiv")
+
+    client = SemanticScholarClient(api_key=api_key or None)
+    results: list[dict[str, Any]] = []
+    published_count = 0
+    try:
+        for i, (item_key, info, title) in enumerate(preprint_items):
+            if progress:
+                progress(i, len(preprint_items), title, True)
+            status = client.check_publication(info)
+            if status and status.is_published:
+                published_count += 1
+                row = {
+                    "key": item_key,
+                    "preprint_id": info.preprint_id,
+                    "source": info.source,
+                    "title": title,
+                    "published": True,
+                    "venue": status.venue,
+                    "journal": status.journal_name,
+                    "doi": status.doi,
+                    "date": status.publication_date,
+                }
+                results.append(row)
+                if progress:
+                    progress(i, len(preprint_items), status.venue or status.journal_name or "Unknown venue", False)
+            else:
+                row = {
+                    "key": item_key,
+                    "preprint_id": info.preprint_id,
+                    "source": info.source,
+                    "title": title,
+                    "published": False,
+                }
+                results.append(row)
+                if progress:
+                    status_desc = "not_found" if status is None else "not_published"
+                    progress(i, len(preprint_items), status_desc, False)
+    finally:
+        client.close()
+
+    return results, published_count, len(preprint_items), arxiv_count, True
+
+
+def apply_publication_updates(
+    writer: ZoteroWriter,
+    results: list[dict[str, Any]],
+    report: Callable[[str, str, bool], None] | None = None,
+) -> tuple[int, list[dict[str, Any]]]:
+    """将已确认发表的预印本元数据写回 Zotero。返回 (updated_count, update_failed)。"""
+    updated = 0
+    update_failed: list[dict[str, Any]] = []
+    for r in results:
+        if not r.get("published"):
+            continue
+        fields: dict[str, str] = {}
+        if r.get("doi"):
+            fields["DOI"] = r["doi"]
+        if r.get("venue"):
+            fields["publicationTitle"] = r["venue"]
+        elif r.get("journal"):
+            fields["publicationTitle"] = r["journal"]
+        if r.get("date"):
+            fields["date"] = r["date"]
+        if not fields:
+            continue
+        try:
+            writer.update_item(r["key"], fields)
+            r["updated"] = True
+            updated += 1
+            if report:
+                report(r["key"], r.get("title", ""), False)
+        except ZoteroWriteError as error:
+            failure = {"code": error.code, "message": str(error), "retryable": error.retryable}
+            r["updated"] = False
+            r["update_error"] = failure
+            update_failed.append({"key": r["key"], "error": failure})
+            if report:
+                report(r["key"], str(error), True)
+    return updated, update_failed

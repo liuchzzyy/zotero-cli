@@ -117,7 +117,8 @@ uv run zot zotero list --collection "00 | 收件箱"
 uv run zot zotero recent
 uv run zot zotero relate ITEMKEY
 uv run zot zotero duplicates                 # 发现重复组时 exit 6（conflict）；无重复 exit 0
-uv run zot metadata summarize ITEMKEY
+uv run zot zotero summary ITEMKEY
+uv run zot zotero publication-status         # 检查预印本发表状态（--apply 写回）
 uv run zot zotero stats
 
 # 永久删除（Web API DELETE；不可恢复，不是移入回收站）
@@ -143,7 +144,7 @@ uv run zot schema zotero search
 uv run zot schema --diff prev.json   # 与缓存 schema 做结构 diff
 ```
 
-程序化调用统一使用 `--json`。Zotero 基础命令使用 `zot zotero` 分组：条目检索、读取、统计、最近记录、重复项、引文、PDF 附件定位和基础读写。MinerU 解析、AI 笔记和 pdf_rag/RAG 已分别迁移至 `ai_pdf`、`ai_notes` 和 `pdf_rag` 包，并由 Typer 的 `zot ai-pdf`、`zot ai-note`、`zot pdf-rag` 提供；元数据流水线由 `zot metadata` 提供。命令按安全等级分组：read / write / destructive，分组结果同时反映在 `zot --help` 和 `zot schema` 中；嵌套的 pdf_rag/config 变更子命令也分别归入 write/destructive。
+程序化调用统一使用 `--json`。Zotero 基础命令使用 `zot zotero` 分组：条目检索、读取、统计、最近记录、摘要导出、重复项、引文、发表状态检测、PDF 附件定位和基础读写。MinerU 解析、AI 笔记和 pdf-rag 已分别迁移至 `ai_pdf`、`ai_notes` 和 `pdf_rag` 包，并由 Typer 的 `zot ai-pdf`、`zot ai-note`、`zot pdf-rag` 提供。命令按安全等级分组：read / write / destructive，分组结果同时反映在 `zot --help` 和 `zot schema` 中；嵌套的 pdf-rag/config 变更子命令也分别归入 write/destructive。
 
 `zot schema --diff prev.json` 输出结构 diff；缓存文件结构非法返回 `validation_error`（exit 3）。不支持的本地 Zotero userdata schema 返回 `configuration_error`（exit 3，附修复提示）。
 
@@ -157,7 +158,7 @@ uv run zot schema --diff prev.json   # 与缓存 schema 做结构 diff
 - 写入是远端操作，随后立即读取本地 SQLite 可能仍是旧快照；先用 Web API 回读或等待 Zotero Desktop 同步，再判断写入是否生效。
 - `--stream` 对 `zot zotero list` / `zot zotero recent` / `zot zotero search` 输出 NDJSON（每行一个 item envelope + 汇总行），优先于 `--no-json`；`recent` 的汇总带 `has_more`。
 - `search` / `list` 在 v130 有界全文扫描（4000 个 cache 文件 / 单文件 8 MiB / 总量 256 MiB）达到文件/字节预算、或退化为仅元数据匹配时，JSON `meta` 带 `fulltext_limited: true`，人类模式在 stderr 提示：这是“结果可能不完整”的提示，不是错误。
-- `stats`、`metadata summarize`、`metadata summarize-all`、`config profile list/set/cache stats/clear`、所有 `pdf_rag`/`collection` 命令在 JSON 模式下都恰好输出一个 envelope。`completions --json` 返回 `{shell, script, fallback, warning}`（warning 仍走 stderr）；`zot schema` 根节点名为 `zot`。
+- `stats`、`zotero summary`、`config profile list/set/cache stats/clear`、所有 `pdf-rag`/`collection` 命令在 JSON 模式下都恰好输出一个 envelope。`completions --json` 返回 `{shell, script, fallback, warning}`（warning 仍走 stderr）；`zot schema` 根节点名为 `zot`。
 - 人类可读输出统一经过 sanitizer：去除 CR（`\r`）等 C0/C1 控制字符（保留 tab/换行），cite/open/update-status/cache-list 等文本不会把终端控制序列带到 stdout/stderr。
 - `export --format json` 在文本模式输出原始 JSON 元数据；加 `--json` 时仍使用 envelope。
 - 退出码：0 成功；1 运行时/内部错误；2 认证缺失或无效；3 参数/配置/确认错误；4 未找到；5 网络或限流；6 冲突。**`duplicates` 的 exit 6 是“发现潜在重复组”的正向信号，不是错误**：JSON 仍是 `ok: true` + `data`（组列表）+ `meta.count`，没有重复时 exit 0。脚本可安全地用 `if zot zotero duplicates; then 无重复; else 处理重复; fi` 分支；不要把它当成通用冲突错误。`duplicates` 选项：`--by doi|title|both`（默认 both）、`--threshold`（默认 0.85）、`--limit`。
@@ -306,7 +307,6 @@ uv build
 - `src/zotero_cli/ai_pdf/`：`access/` 封装 MinerU 请求与解析包缓存，`parsing.py` 提供按文件解析及批量解析，`documents.py` 处理 Zotero 附件选择，`content.py` 读取 Markdown、结构化内容、大纲与区段，`models.py` 和 `errors.py` 定义数据与错误。
 - `src/zotero_cli/ai_notes/`：`access/client.py` 访问模型；`execution.py` 管理配置、资源和幂等；`analysis.py` 编排完整分析；`documents.py` 收集与去重文档；`evidence.py` 规划证据预算；`classification.py` 分类；`generation.py` 构造提示词并生成内容；`short_notes.py` 执行简记业务；`persistence.py` 写回笔记与标签；`rendering.py` 生成笔记 HTML。CLI 只处理参数、进度、结果呈现和退出码。
 - `src/zotero_cli/pdf_rag/`：文献集清单存储、索引构建与检索实现（`pdf_rag/`）；索引和 AI 笔记复用 AI PDF 的批量解析服务。
-- `src/zotero_cli/cli/commands/metadata/`：`zot metadata` 命令组与其 `summarize`/`summarize-all`/`update-status` 实现。
 - `src/zotero_cli/zotero/items.py`：Semantic Scholar 预印本状态查询（领域逻辑）。
 - `src/zotero_cli/zotero/attachments.py`：本地附件定位与 WSL/Windows 路径转换。
 - `src/zotero_cli/config/`：配置路径、模型、加载与 Zotero 解析，公共 API 位于 `__init__.py`。

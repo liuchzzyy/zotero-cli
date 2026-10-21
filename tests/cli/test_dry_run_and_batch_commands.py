@@ -319,11 +319,11 @@ class TestOffset:
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["--json", "metadata", "summarize-all", "--offset", "1"],
+            ["--json", "zotero", "summary", "--offset", "1"],
             env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"},
         )
         assert result.exit_code == 0
-        # `summarize-all` 先输出 NDJSON 进度事件，再输出最终的
+        # `summary` 批量模式先输出 NDJSON 进度事件，再输出最终的
         # envelope JSON 文档；解析最后一段即可。
         last_envelope_start = result.output.rfind("\n{\n")
         envelope_text = result.output[last_envelope_start + 1 :] if last_envelope_start >= 0 else result.output
@@ -334,7 +334,7 @@ class TestOffset:
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["--json", "--detail", "full", "metadata", "summarize-all", "--limit", "1"],
+            ["--json", "--detail", "full", "zotero", "summary", "--limit", "1"],
             env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"},
         )
         assert result.exit_code == 0
@@ -353,7 +353,7 @@ class TestOffset:
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["--json", "--detail", "minimal", "metadata", "summarize-all", "--limit", "1"],
+            ["--json", "--detail", "minimal", "zotero", "summary", "--limit", "1"],
             env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"},
         )
         assert result.exit_code == 0
@@ -366,7 +366,7 @@ class TestOffset:
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["--json", "metadata", "summarize-all", "--exclude-tag", "transformer", "--limit", "100"],
+            ["--json", "zotero", "summary", "--exclude-tag", "transformer", "--limit", "100"],
             env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"},
         )
         assert result.exit_code == 0
@@ -379,7 +379,7 @@ class TestOffset:
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["--json", "metadata", "summarize-all", "--exclude-collection-key", "COLTR02", "--limit", "100"],
+            ["--json", "zotero", "summary", "--exclude-collection-key", "COLTR02", "--limit", "100"],
             env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"},
         )
         assert result.exit_code == 0

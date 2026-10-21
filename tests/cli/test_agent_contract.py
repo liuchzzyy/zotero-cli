@@ -778,17 +778,17 @@ def _update_status_client():
 def _update_status_env_patches():
     return (
         patch(
-            "zotero_cli.cli.commands.metadata.update_status.load_config",
+            "zotero_cli.cli.commands.zotero.items.load_config",
             return_value=SimpleNamespace(default_limit=50, semantic_scholar_api_key=None),
         ),
-        patch("zotero_cli.cli.commands.metadata.update_status.get_data_dir", return_value=Path("/tmp/fixture")),
-        patch("zotero_cli.cli.commands.metadata.update_status.resolve_library_id", return_value=1),
+        patch("zotero_cli.cli.commands.zotero.items.get_data_dir", return_value=Path("/tmp/fixture")),
+        patch("zotero_cli.cli.commands.zotero.items.resolve_library_id", return_value=1),
         patch(
-            "zotero_cli.cli.commands.metadata.update_status.ZoteroReader",
+            "zotero_cli.cli.commands.zotero.items.ZoteroReader",
             return_value=_update_status_reader(),
         ),
         patch(
-            "zotero_cli.cli.commands.metadata.update_status.SemanticScholarClient",
+            "zotero_cli.zotero.items.SemanticScholarClient",
             return_value=_update_status_client(),
         ),
     )
@@ -804,13 +804,11 @@ class TestUpdateStatusPartialFailures:
             patches[2],
             patches[3],
             patches[4],
-            patch(
-                "zotero_cli.cli.commands.metadata.update_status.resolve_write_credentials", return_value=("1", "key")
-            ),
-            patch("zotero_cli.cli.commands.metadata.update_status.ZoteroWriter") as writer,
+            patch("zotero_cli.cli.commands.zotero.items.resolve_write_credentials", return_value=("1", "key")),
+            patch("zotero_cli.cli.commands.zotero.items.ZoteroWriter") as writer,
         ):
             writer.return_value.update_item.side_effect = error
-            result = _run(["--json", "metadata", "update-status", "ATTN001", "--apply"])
+            result = _run(["--json", "zotero", "publication-status", "ATTN001", "--apply"])
         assert result.exit_code == 5, result.output
         env = json.loads(result.stdout)
         assert env["ok"] == "partial"
@@ -827,13 +825,11 @@ class TestUpdateStatusPartialFailures:
             patches[2],
             patches[3],
             patches[4],
-            patch(
-                "zotero_cli.cli.commands.metadata.update_status.resolve_write_credentials", return_value=("1", "key")
-            ),
-            patch("zotero_cli.cli.commands.metadata.update_status.ZoteroWriter") as writer,
+            patch("zotero_cli.cli.commands.zotero.items.resolve_write_credentials", return_value=("1", "key")),
+            patch("zotero_cli.cli.commands.zotero.items.ZoteroWriter") as writer,
         ):
             writer.return_value.update_item.side_effect = error
-            result = _run(["--json", "metadata", "update-status", "ATTN001", "--apply"])
+            result = _run(["--json", "zotero", "publication-status", "ATTN001", "--apply"])
         assert result.exit_code == 1, result.output
         assert json.loads(result.stdout)["ok"] == "partial"
 
@@ -845,12 +841,10 @@ class TestUpdateStatusPartialFailures:
             patches[2],
             patches[3],
             patches[4],
-            patch(
-                "zotero_cli.cli.commands.metadata.update_status.resolve_write_credentials", return_value=("1", "key")
-            ),
-            patch("zotero_cli.cli.commands.metadata.update_status.ZoteroWriter"),
+            patch("zotero_cli.cli.commands.zotero.items.resolve_write_credentials", return_value=("1", "key")),
+            patch("zotero_cli.cli.commands.zotero.items.ZoteroWriter"),
         ):
-            result = _run(["--json", "metadata", "update-status", "ATTN001", "--apply"])
+            result = _run(["--json", "zotero", "publication-status", "ATTN001", "--apply"])
         assert result.exit_code == EXIT_OK, result.output
         env = json.loads(result.stdout)
         assert env["ok"] is True
@@ -865,7 +859,7 @@ class TestUpdateStatusPartialFailures:
             patches[3],
             patches[4],
         ):
-            result = _run(["--json", "metadata", "update-status", "ATTN001"])
+            result = _run(["--json", "zotero", "publication-status", "ATTN001"])
         assert result.exit_code == EXIT_OK, result.output
         env = json.loads(result.stdout)
         assert env["dry_run"] is True

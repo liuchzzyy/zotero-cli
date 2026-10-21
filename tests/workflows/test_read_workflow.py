@@ -39,7 +39,7 @@ def test_full_read_workflow(test_db_path):
     assert "@" in r.output  # BibTeX
 
     # Summarize
-    r = _run(["metadata", "summarize", key], test_db_path)
+    r = _run(["zotero", "summary", key], test_db_path)
     assert r.exit_code == 0
     assert "Title:" in r.output
 

@@ -28,13 +28,11 @@ SAFETY_TIERS: dict[tuple[str, ...], str] = {
     # 只读命令
     ("config",): READ,
     ("zotero",): READ,
-    ("metadata",): READ,
     ("ai-pdf",): READ,
     ("ai-note",): WRITE,
     ("completions",): READ,
     ("pdf-rag",): READ,
     ("schema",): READ,
-    ("metadata", "update-status"): WRITE,
     # Zotero 基础库写入及破坏性命令
     ("zotero", "add"): WRITE,
     ("zotero", "attach"): WRITE,
@@ -43,6 +41,7 @@ SAFETY_TIERS: dict[tuple[str, ...], str] = {
     ("zotero", "note"): WRITE,
     ("zotero", "tag"): WRITE,
     ("zotero", "update"): WRITE,
+    ("zotero", "publication-status"): WRITE,
     ("zotero", "delete"): DESTRUCTIVE,
     ("zotero", "collection", "create"): WRITE,
     ("zotero", "collection", "move"): WRITE,
