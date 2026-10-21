@@ -6,9 +6,9 @@ from typing import Annotated
 
 import typer
 
-from zotero_cli.metadata.summarize import summarize
-from zotero_cli.metadata.summarize_all import summarize_all
-from zotero_cli.metadata.update_status import update_status
+from zotero_cli.cli.commands.metadata.summarize import summarize
+from zotero_cli.cli.commands.metadata.summarize_all import summarize_all
+from zotero_cli.cli.commands.metadata.update_status import update_status
 
 metadata_app = typer.Typer(help="读取和更新 Zotero 元数据。", invoke_without_command=True, rich_markup_mode=None)
 

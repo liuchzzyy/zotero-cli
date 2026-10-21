@@ -23,9 +23,9 @@ from zotero_cli.cli.commands.workspace.indexing import (
     drop_workspace_vector_collection,
     prune_workspace_items,
 )
+from zotero_cli.cli.output.exit_codes import emit_error
 from zotero_cli.cli.output.renderers import format_items, format_workspace_list
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id
-from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.workspace.store import (
     Workspace,
     cleanup_empty_workspace_root,

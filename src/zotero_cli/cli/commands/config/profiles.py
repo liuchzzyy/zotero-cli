@@ -8,6 +8,8 @@ from pathlib import Path
 import typer
 
 from zotero_cli.cli.commands.config.commands import _emit_config_error, _json_out
+from zotero_cli.cli.output.envelope import envelope_ok
+from zotero_cli.cli.output.exit_codes import emit_error
 from zotero_cli.config import (
     ConfigError,
     get_default_profile,
@@ -17,8 +19,6 @@ from zotero_cli.config import (
     resolve_config_path,
     write_config_data,
 )
-from zotero_cli.output.envelope import envelope_ok
-from zotero_cli.output.exit_codes import emit_error
 
 app = typer.Typer(help="管理配置 profile。", invoke_without_command=True, rich_markup_mode=None)
 

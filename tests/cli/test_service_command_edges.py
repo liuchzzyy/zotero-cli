@@ -19,7 +19,7 @@ from click.testing import Result
 from tests.support import FIXTURES_DIR, invoke_cli, parse_json_output
 
 from zotero_cli import config
-from zotero_cli.metadata import publication_status as semantic_scholar
+from zotero_cli.cli.commands.metadata import publication_status as semantic_scholar
 from zotero_cli.zotero import idempotency
 from zotero_cli.zotero.writer import SYNC_REMINDER
 

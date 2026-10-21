@@ -22,6 +22,7 @@ from zotero_cli.cli.commands.workspace._output import (
     load_workspace_or_exit,
     output_json,
 )
+from zotero_cli.cli.output.exit_codes import emit_error
 from zotero_cli.config import (
     get_data_dir,
     get_prefs_js_path,
@@ -30,7 +31,6 @@ from zotero_cli.config import (
     load_vector_store_config,
     resolve_library_id,
 )
-from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.workspace.rag import (
     build_metadata_chunk,
     chunk_mineru_content,

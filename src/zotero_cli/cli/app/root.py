@@ -15,12 +15,12 @@ from zotero_cli.cli.commands.ai_notes import ai_note
 from zotero_cli.cli.commands.ai_pdf import ai_pdf
 from zotero_cli.cli.commands.completions import completions_cmd
 from zotero_cli.cli.commands.config import app as config_app
+from zotero_cli.cli.commands.metadata import metadata_app
 from zotero_cli.cli.commands.schema import schema_cmd
 from zotero_cli.cli.commands.workspace import workspace_app
 from zotero_cli.cli.commands.zotero.reading import app as zotero_reading_app
-from zotero_cli.metadata import metadata_app
-from zotero_cli.output.envelope import request_scope
-from zotero_cli.output.exit_codes import set_verbose
+from zotero_cli.cli.output.envelope import request_scope
+from zotero_cli.cli.output.exit_codes import set_verbose
 
 app = typer.Typer(
     cls=TieredGroup,

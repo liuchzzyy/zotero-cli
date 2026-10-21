@@ -11,15 +11,15 @@ import pytest
 from tests.support import invoke_agent_cli as _run
 
 from zotero_cli.cli import _hoist_global_flags, main
-from zotero_cli.config import AiNoteConfig
-from zotero_cli.output.envelope import envelope_error, envelope_ok, envelope_partial, envelope_partial_data
-from zotero_cli.output.exit_codes import (
+from zotero_cli.cli.output.envelope import envelope_error, envelope_ok, envelope_partial, envelope_partial_data
+from zotero_cli.cli.output.exit_codes import (
     EXIT_AUTH,
     EXIT_NOT_FOUND,
     EXIT_OK,
     EXIT_VALIDATION,
     exit_code_for,
 )
+from zotero_cli.config import AiNoteConfig
 from zotero_cli.zotero.models import Item
 from zotero_cli.zotero.reader import ZoteroSchemaError
 from zotero_cli.zotero.writer_errors import ZoteroWriteError
@@ -126,7 +126,7 @@ class TestExitCodes:
         assert exit_code_for("configuration_error") == EXIT_VALIDATION
 
     def test_error_code_map_covers_emitted_codes(self):
-        from zotero_cli.output.exit_codes import CODE_TO_EXIT
+        from zotero_cli.cli.output.exit_codes import CODE_TO_EXIT
 
         for code in (
             "auth_missing",
@@ -780,17 +780,17 @@ def _update_status_client():
 def _update_status_env_patches():
     return (
         patch(
-            "zotero_cli.metadata.update_status.load_config",
+            "zotero_cli.cli.commands.metadata.update_status.load_config",
             return_value=SimpleNamespace(default_limit=50, semantic_scholar_api_key=None),
         ),
-        patch("zotero_cli.metadata.update_status.get_data_dir", return_value=Path("/tmp/fixture")),
-        patch("zotero_cli.metadata.update_status.resolve_library_id", return_value=1),
+        patch("zotero_cli.cli.commands.metadata.update_status.get_data_dir", return_value=Path("/tmp/fixture")),
+        patch("zotero_cli.cli.commands.metadata.update_status.resolve_library_id", return_value=1),
         patch(
-            "zotero_cli.metadata.update_status.ZoteroReader",
+            "zotero_cli.cli.commands.metadata.update_status.ZoteroReader",
             return_value=_update_status_reader(),
         ),
         patch(
-            "zotero_cli.metadata.update_status.SemanticScholarClient",
+            "zotero_cli.cli.commands.metadata.update_status.SemanticScholarClient",
             return_value=_update_status_client(),
         ),
     )
@@ -806,8 +806,10 @@ class TestUpdateStatusPartialFailures:
             patches[2],
             patches[3],
             patches[4],
-            patch("zotero_cli.metadata.update_status.resolve_write_credentials", return_value=("1", "key")),
-            patch("zotero_cli.metadata.update_status.ZoteroWriter") as writer,
+            patch(
+                "zotero_cli.cli.commands.metadata.update_status.resolve_write_credentials", return_value=("1", "key")
+            ),
+            patch("zotero_cli.cli.commands.metadata.update_status.ZoteroWriter") as writer,
         ):
             writer.return_value.update_item.side_effect = error
             result = _run(["--json", "metadata", "update-status", "ATTN001", "--apply"])
@@ -827,8 +829,10 @@ class TestUpdateStatusPartialFailures:
             patches[2],
             patches[3],
             patches[4],
-            patch("zotero_cli.metadata.update_status.resolve_write_credentials", return_value=("1", "key")),
-            patch("zotero_cli.metadata.update_status.ZoteroWriter") as writer,
+            patch(
+                "zotero_cli.cli.commands.metadata.update_status.resolve_write_credentials", return_value=("1", "key")
+            ),
+            patch("zotero_cli.cli.commands.metadata.update_status.ZoteroWriter") as writer,
         ):
             writer.return_value.update_item.side_effect = error
             result = _run(["--json", "metadata", "update-status", "ATTN001", "--apply"])
@@ -843,8 +847,10 @@ class TestUpdateStatusPartialFailures:
             patches[2],
             patches[3],
             patches[4],
-            patch("zotero_cli.metadata.update_status.resolve_write_credentials", return_value=("1", "key")),
-            patch("zotero_cli.metadata.update_status.ZoteroWriter"),
+            patch(
+                "zotero_cli.cli.commands.metadata.update_status.resolve_write_credentials", return_value=("1", "key")
+            ),
+            patch("zotero_cli.cli.commands.metadata.update_status.ZoteroWriter"),
         ):
             result = _run(["--json", "metadata", "update-status", "ATTN001", "--apply"])
         assert result.exit_code == EXIT_OK, result.output

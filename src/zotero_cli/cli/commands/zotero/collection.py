@@ -10,10 +10,10 @@ import typer
 
 from zotero_cli.cli.app.context import open_reader
 from zotero_cli.cli.app.group import TieredGroup
+from zotero_cli.cli.output.envelope import envelope_ok
+from zotero_cli.cli.output.exit_codes import emit_error
 from zotero_cli.cli.output.renderers import format_collections, format_items, format_success
 from zotero_cli.config import load_config, resolve_write_credentials
-from zotero_cli.output.envelope import envelope_ok
-from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.zotero.models import Collection
 from zotero_cli.zotero.writer import SYNC_REMINDER, ZoteroWriter
 from zotero_cli.zotero.writer_errors import ZoteroWriteError

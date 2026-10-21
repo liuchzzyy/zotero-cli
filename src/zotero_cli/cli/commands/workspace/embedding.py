@@ -16,8 +16,8 @@ from zotero_cli.cli.commands.workspace._output import (
     output_json,
 )
 from zotero_cli.cli.commands.workspace.indexing import _read_index_stats, _vector_store_for
+from zotero_cli.cli.output.exit_codes import emit_error
 from zotero_cli.config import EmbeddingConfig, load_embedding_config
-from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.workspace.rag import embed_texts
 from zotero_cli.workspace.rag.index import RagIndex
 from zotero_cli.workspace.store import workspace_index_path

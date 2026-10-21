@@ -7,9 +7,9 @@ import json
 import typer
 
 from zotero_cli.cli.commands.config.commands import _json_out
-from zotero_cli.output.envelope import envelope_ok
-from zotero_cli.output.exit_codes import emit_error
-from zotero_cli.output.sanitize import sanitize_text
+from zotero_cli.cli.output.envelope import envelope_ok
+from zotero_cli.cli.output.exit_codes import emit_error
+from zotero_cli.cli.output.sanitize import sanitize_text
 
 app = typer.Typer(help="管理 MinerU 解析缓存。", invoke_without_command=True, rich_markup_mode=None)
 

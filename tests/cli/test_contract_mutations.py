@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from tests.support import invoke_agent_cli as _run
 
-from zotero_cli.output.exit_codes import EXIT_OK
+from zotero_cli.cli.output.exit_codes import EXIT_OK
 from zotero_cli.zotero import idempotency
 
 
