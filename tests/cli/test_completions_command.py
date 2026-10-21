@@ -1,4 +1,4 @@
-"""Tests for the completions command: bounded subprocess and deterministic fallback."""
+"""`completions` 子命令测试：子进程超时与确定性回退。"""
 
 from __future__ import annotations
 
@@ -6,15 +6,13 @@ import subprocess
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from click.testing import CliRunner
-
-from zotero_cli.cli import main
+from tests.support import invoke_cli as _invoke_cli
 
 _SNIPPET = 'eval "$(_ZOT_COMPLETE=bash_source zot)"'
 
 
 def _invoke(shell: str = "bash"):
-    return CliRunner().invoke(main, ["completions", shell])
+    return _invoke_cli(["completions", shell])
 
 
 @patch("zotero_cli.cli.commands.completions.subprocess.run")
@@ -76,7 +74,7 @@ def test_zsh_and_fish_fallbacks_are_shell_specific(mock_run):
 
 
 def _invoke_json(shell: str = "bash"):
-    return CliRunner().invoke(main, ["--json", "completions", shell])
+    return _invoke_cli(["completions", shell], json_output=True)
 
 
 @patch("zotero_cli.cli.commands.completions.subprocess.run")
@@ -108,5 +106,5 @@ def test_json_fallback_envelope_reports_warning(mock_run):
     assert envelope["data"]["fallback"] is True
     assert "could not execute 'zot'" in envelope["data"]["warning"]
     assert "_ZOT_COMPLETE=zsh_source zot" in envelope["data"]["script"]
-    # Warnings still go to stderr so stdout stays one clean envelope.
+    # 警告仍输出到 stderr，使 stdout 保持为单个干净的 envelope。
     assert "could not execute 'zot'" in result.stderr

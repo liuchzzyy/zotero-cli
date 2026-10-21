@@ -1,4 +1,4 @@
-"""Tests for file attachment upload."""
+"""附件上传命令测试。"""
 
 from __future__ import annotations
 

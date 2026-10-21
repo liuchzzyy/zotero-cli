@@ -1,4 +1,4 @@
-"""M-22: persistent state must not depend on the current working directory."""
+"""持久状态不得依赖当前工作目录。"""
 
 from __future__ import annotations
 
@@ -67,7 +67,7 @@ def test_installed_state_root_ignores_cwd(monkeypatch: pytest.MonkeyPatch, tmp_p
     assert paths.state_root() == first
 
 
-# --- M-26: relative XDG/ZOT_STATE_DIR values are ignored ---------------------
+# --- 相对的 XDG/ZOT_STATE_DIR 取值会被忽略 --------------------------------
 
 
 def _user_fallback(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, kind: str) -> Path:
@@ -113,7 +113,7 @@ def test_tilde_zot_state_dir_is_expanded(monkeypatch: pytest.MonkeyPatch, tmp_pa
     assert paths.state_root() == home / "mystate"
 
 
-# --- M-25: installed config discovery is per-user, never CWD-based ------------
+# --- 已安装配置的发现基于用户目录，绝不依赖当前工作目录 ------------------
 
 
 def test_installed_config_search_uses_xdg_config_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -147,7 +147,7 @@ def test_installed_config_does_not_read_foreign_cwd_config(monkeypatch: pytest.M
 
     from zotero_cli.config import load_config
 
-    # The installed CLI never reads the foreign project's .zot/config.toml.
+    # 已安装的 CLI 绝不读取其他项目的 .zot/config.toml。
     assert load_config(resolved).library_id == ""
 
 
@@ -155,7 +155,7 @@ def test_checkout_config_path_stays_repo_local(monkeypatch: pytest.MonkeyPatch) 
     assert _real_config_file_path() == paths.project_root() / ".zot" / "config.toml"
 
 
-# --- version-check test isolation -------------------------------------------
+# --- 版本检查的测试隔离 --------------------------------------------------
 
 
 def test_version_check_cache_file_is_isolated(tmp_path: Path) -> None:

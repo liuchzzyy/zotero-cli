@@ -1,10 +1,10 @@
-"""Tests for group library support."""
+"""群组文库支持测试。"""
 
 from __future__ import annotations
 
 import json
 
-from tests.support import FIXTURES_DIR
+from tests.support import SAMPLE_DATA_DIR
 from tests.support import invoke_cli as _invoke
 
 from zotero_cli.zotero.reader import ZoteroReader
@@ -12,7 +12,7 @@ from zotero_cli.zotero.reader import ZoteroReader
 
 class TestGroupReader:
     def test_resolve_group_library_id(self):
-        reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite")
+        reader = ZoteroReader(SAMPLE_DATA_DIR / "zotero.sqlite")
         try:
             lib_id = reader.resolve_group_library_id(99999)
             assert lib_id == 2
@@ -20,7 +20,7 @@ class TestGroupReader:
             reader.close()
 
     def test_resolve_group_library_id_not_found(self):
-        reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite")
+        reader = ZoteroReader(SAMPLE_DATA_DIR / "zotero.sqlite")
         try:
             lib_id = reader.resolve_group_library_id(99998)
             assert lib_id is None
@@ -28,8 +28,8 @@ class TestGroupReader:
             reader.close()
 
     def test_default_reader_includes_user_items(self):
-        """Default library_id=1 includes personal items."""
-        reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite")
+        """默认 library_id=1 应包含个人条目。"""
+        reader = ZoteroReader(SAMPLE_DATA_DIR / "zotero.sqlite")
         try:
             result = reader.search("")
             keys = [i.key for i in result.items]
@@ -38,18 +38,18 @@ class TestGroupReader:
             reader.close()
 
     def test_default_reader_excludes_group_items(self):
-        """Default library_id=1 still returns group items (no libraryID filter applied)."""
-        reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite")
+        """默认 library_id=1 仍会返回群组条目（未施加 libraryID 过滤）。"""
+        reader = ZoteroReader(SAMPLE_DATA_DIR / "zotero.sqlite")
         try:
             result = reader.search("")
-            # With library_id=1, _library_filter returns empty -> no filter -> group items visible
-            # This is expected: default behavior unchanged, all items visible
+            # library_id=1 时 _library_filter 返回空 -> 不过滤 -> 群组条目可见
+            # 这是预期行为：默认行为未变，所有条目都可见
             assert result.items is not None
         finally:
             reader.close()
 
     def test_search_group_library(self):
-        reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite", library_id=2)
+        reader = ZoteroReader(SAMPLE_DATA_DIR / "zotero.sqlite", library_id=2)
         try:
             result = reader.search("")
             keys = [i.key for i in result.items]
@@ -59,7 +59,7 @@ class TestGroupReader:
             reader.close()
 
     def test_get_item_group(self):
-        reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite", library_id=2)
+        reader = ZoteroReader(SAMPLE_DATA_DIR / "zotero.sqlite", library_id=2)
         try:
             item = reader.get_item("GRPITM09")
             assert item is not None
@@ -68,7 +68,7 @@ class TestGroupReader:
             reader.close()
 
     def test_get_item_wrong_library(self):
-        reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite", library_id=2)
+        reader = ZoteroReader(SAMPLE_DATA_DIR / "zotero.sqlite", library_id=2)
         try:
             item = reader.get_item("ATTN001")
             assert item is None
@@ -76,7 +76,7 @@ class TestGroupReader:
             reader.close()
 
     def test_get_collections_group(self):
-        reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite", library_id=2)
+        reader = ZoteroReader(SAMPLE_DATA_DIR / "zotero.sqlite", library_id=2)
         try:
             colls = reader.get_collections()
             names = [c.name for c in colls]
@@ -86,13 +86,13 @@ class TestGroupReader:
             reader.close()
 
     def test_fulltext_search_respects_library_isolation(self):
-        """Fulltext search for a word in the group library must not return user-library items."""
-        reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite", library_id=2)
+        """在群组文库中做全文检索不得返回用户文库条目。"""
+        reader = ZoteroReader(SAMPLE_DATA_DIR / "zotero.sqlite", library_id=2)
         try:
             result = reader.search("protein")
             keys = [i.key for i in result.items]
             assert "GRPITM09" in keys
-            # "transformer" is a fulltext word only in user library — must not appear
+            # "transformer" 只是用户文库中的全文词——不得出现在结果里
             result2 = reader.search("transformer")
             keys2 = [i.key for i in result2.items]
             assert "ATTN001" not in keys2

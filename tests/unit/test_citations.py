@@ -1,4 +1,4 @@
-"""Citation export formatting regressions for M-05."""
+"""引文导出格式的回归防护。"""
 
 from __future__ import annotations
 
@@ -116,8 +116,8 @@ def test_bibtex_escapes_braces_and_backslashes() -> None:
 
 def test_bibtex_backslash_is_escaped_without_double_escaping() -> None:
     bibtex = _reader(title=r"back\slash with {braces}").export_citation("ATTN001", "bibtex") or ""
-    # Single-pass escaping: the braces introduced by the backslash escape stay
-    # unescaped, so one token is emitted instead of a nested double escape.
+    # 单趟转义：由反斜杠转义引入的花括号保持不转义，
+    # 因此只产出一个记号，而不是嵌套的双重转义。
     assert r"\textbackslash{}" in bibtex
     assert r"\textbackslash\{\}" not in bibtex
 

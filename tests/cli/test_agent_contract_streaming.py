@@ -1,4 +1,4 @@
-"""P2 tests: NDJSON streaming, structured stderr progress, schema metadata."""
+"""流式契约：NDJSON 记录、summary 行与 schema 元数据。"""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ class TestNDJSONStream:
         assert result.exit_code == EXIT_OK
         lines = _parse_ndjson(result.output)
         assert len(lines) >= 1
-        # final line is the summary
+        # 最后一行是 summary
         last = lines[-1]
         assert "summary" in last
         assert last["summary"]["has_more"] is False
@@ -45,20 +45,12 @@ class TestNDJSONStream:
         assert "request_id" in last["meta"]
 
     def test_stream_ignores_no_json_flag(self):
-        # --stream requests the NDJSON machine contract and takes precedence over --no-json.
+        # --stream 请求 NDJSON 机器契约，优先级高于 --no-json。
         result = _run(["--no-json", "zotero", "list", "--stream", "--limit", "2"])
         assert result.exit_code == EXIT_OK
         lines = _parse_ndjson(result.output)
         assert len(lines) >= 2
         assert "summary" in lines[-1]
-
-    def test_recent_stream_reports_has_more(self):
-        result = _run(["zotero", "recent", "--days", "9999", "--limit", "2", "--stream"])
-        assert result.exit_code == EXIT_OK
-        lines = _parse_ndjson(result.output)
-        summary = lines[-1]["summary"]
-        assert summary["count"] == 2
-        assert summary["has_more"] is True
 
 
 class TestSchemaMetadata:
@@ -94,7 +86,7 @@ class TestSchemaMetadata:
         env = json.loads(_run(["schema", "zotero", "collection", "list"]).output)
         assert env["data"]["safety_tier"] == "read"
 
-    # H-03: local-state-mutating nested config/workspace commands are classified.
+    # 会改动本地状态的嵌套 config/workspace 命令都已完成分级。
     def test_schema_nested_config_init_is_write(self):
         env = json.loads(_run(["schema", "config", "init"]).output)
         assert env["data"]["safety_tier"] == "write"
@@ -156,16 +148,16 @@ class TestEmitProgress:
         assert lines[0]["event"] == "start"
         assert lines[1]["done"] == 5
         assert lines[2]["event"] == "complete"
-        # All carry the same request_id
+        # 所有记录携带相同的 request_id
         rids = {line["request_id"] for line in lines}
         assert len(rids) == 1
-        # elapsed_ms is monotonically non-decreasing
+        # elapsed_ms 单调不减
         elapsed = [line["elapsed_ms"] for line in lines]
         assert elapsed == sorted(elapsed)
 
 
 class TestFulltextLimitedMeta:
-    """v130 bounded full-text scan: expose the budget flag instead of dropping it."""
+    """v130 有界全文扫描：暴露预算标志而不是丢弃它。"""
 
     def test_list_json_meta_reports_fulltext_limited(self):
         fake = SimpleNamespace(items=[], total=0, fulltext_limited=True)

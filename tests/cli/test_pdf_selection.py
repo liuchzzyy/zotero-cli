@@ -1,4 +1,4 @@
-"""Selecting a specific child PDF must not silently use the first attachment."""
+"""`ai-pdf` / `zotero pdf` 必须按指定附件取 PDF，绝不静默退化为第一个附件。"""
 
 import json
 from pathlib import Path
@@ -49,6 +49,15 @@ def test_specific_child_pdf_is_selected_even_with_same_filename(tmp_path):
     assert json.loads(result.output)["data"]["markdown"] == "SI text"
     assert json.loads(result.output)["data"]["attachment_key"] == "SUPP001"
     cache_cls.return_value.lookup.assert_called_once_with(second_path)
+
+
+def test_ai_pdf_without_pdf_attachment_is_not_found():
+    with patch("zotero_cli.cli.commands.ai_pdf.ZoteroReader") as reader_cls:
+        reader_cls.return_value.get_pdf_attachments.return_value = []
+        result = CliRunner().invoke(main, ["--json", "ai-pdf", "DEEP003"])
+    # 按代理契约以 4（NOT_FOUND）退出，而不是抛异常。
+    assert result.exit_code == 4
+    assert "no pdf" in result.output.lower() or "not found" in result.output.lower()
 
 
 def test_ambiguous_parent_pdf_does_not_pick_first():

@@ -1,4 +1,4 @@
-"""Schema-parity and schema-version guard tests for the local Zotero fixture."""
+"""本地 Zotero 夹具的 schema 一致性与版本护栏测试。"""
 
 from __future__ import annotations
 
@@ -8,9 +8,9 @@ from pathlib import Path
 
 from zotero_cli.zotero.reader import ZoteroReader
 
-FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures"
-GENERATOR_PATH = FIXTURES_DIR / "create_test_db.py"
-BINARY_FIXTURE = FIXTURES_DIR / "zotero.sqlite"
+SAMPLE_DATA_DIR = Path(__file__).resolve().parents[1] / "sample_data"
+GENERATOR_PATH = SAMPLE_DATA_DIR / "create_test_db.py"
+BINARY_FIXTURE = SAMPLE_DATA_DIR / "zotero.sqlite"
 
 
 def _load_generator():
@@ -28,7 +28,7 @@ def _schema(db_path: Path) -> dict[str, list[str]]:
 
 
 def test_generator_and_binary_fixture_schema_are_in_sync(tmp_path: Path) -> None:
-    """H-09: the checked-in fixture must match what the generator produces."""
+    """入库的夹具必须与生成器的产物一致。"""
     generator = _load_generator()
     generated = tmp_path / "generated.sqlite"
     generator.create_test_db(generated)
@@ -39,18 +39,18 @@ def test_generator_and_binary_fixture_schema_are_in_sync(tmp_path: Path) -> None
 
 
 def test_binary_fixture_uses_v130_fulltext_schema() -> None:
-    """H-09: fixture models Zotero userdata v130 (fulltextItems, no word tables)."""
+    """夹具建模 Zotero userdata v130（含 fulltextItems，不含 word 表）。"""
     with sqlite3.connect(BINARY_FIXTURE) as conn:
         tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert "fulltextItems" in tables
     assert "fulltextWords" not in tables
     assert "fulltextItemWords" not in tables
-    assert (FIXTURES_DIR / "storage" / "ATCH005" / ".zotero-ft-cache").is_file()
-    assert (FIXTURES_DIR / "storage" / "GRPATT10" / ".zotero-ft-cache").is_file()
+    assert (SAMPLE_DATA_DIR / "storage" / "ATCH005" / ".zotero-ft-cache").is_file()
+    assert (SAMPLE_DATA_DIR / "storage" / "GRPATT10" / ".zotero-ft-cache").is_file()
 
 
 def test_legacy_fulltext_schema_still_supported(tmp_path: Path) -> None:
-    """C-01: Zotero 6 databases with word tables keep working."""
+    """带 word 表的 Zotero 6 数据库仍可正常工作。"""
     db_path = tmp_path / "legacy.sqlite"
     with sqlite3.connect(db_path) as conn:
         conn.executescript("""
@@ -92,7 +92,7 @@ def test_legacy_fulltext_schema_still_supported(tmp_path: Path) -> None:
 
 
 def test_search_prefers_v130_fulltext_cache_over_missing_legacy_tables(tmp_path) -> None:
-    """C-01: a database without any fulltext table degrades to metadata search."""
+    """没有任何全文表的数据库降级为元数据检索。"""
     db_path = tmp_path / "no-fulltext.sqlite"
     with sqlite3.connect(db_path) as conn:
         conn.executescript("""

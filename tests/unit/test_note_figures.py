@@ -1,4 +1,4 @@
-"""Figures reach the model as payload, and a text-only model degrades instead of failing."""
+"""图片以载荷形式送达模型；纯文本模型应降级而不是失败。"""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ def _response(content):
 
 
 def _client(outcomes):
-    """Return a client whose transport replays ``outcomes`` (text or exception)."""
+    """返回一个按 `outcomes`（文本或异常）重放的传输层客户端。"""
     client = AiClient(AiNoteConfig(model="m1", api_key="k", base_url="http://127.0.0.1:1/v1"))
     completions = _FakeCompletions(outcomes)
     client._client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
@@ -57,8 +57,8 @@ class TestAiClientFigures:
         assert content[2] == {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAA"}}
 
     def test_generic_image_mention_does_not_trigger_text_only_retry(self):
-        # Payload-size errors may mention "image" but are not a capability
-        # rejection; silently dropping the figures would hide the real failure.
+        # 载荷体积类错误可能提到 "image"，但这并不代表模型不支持图片；
+        # 此时静默丢弃图片会掩盖真正的失败原因。
         client, completions = _client([Exception("Request too large: image size exceeds provider limit")])
         client.config.fallback_models = []
         with pytest.raises(Exception):
@@ -79,14 +79,14 @@ class TestAiClientFigures:
         client, completions = _client([rejection, "degraded ok"])
         assert client.chat("prompt", figures=_FIGURE) == "degraded ok"
         assert isinstance(completions.calls[0]["messages"][1]["content"], list)
-        # Every text block survives; only the image parts are dropped.
+        # 所有文本块都保留，只丢弃图片部分。
         assert completions.calls[1]["messages"][1]["content"] == "prompt" + TEXT_ONLY_NOTICE
 
     def test_unrelated_error_skips_the_image_retry_and_uses_fallback(self):
         client, completions = _client([Exception("rate limited"), "from m2"])
         client.config.fallback_models = ["m2"]
         assert client.chat("prompt", figures=_FIGURE) == "from m2"
-        # no text-only retry: the first error had nothing to do with images
+        # 不重试纯文本：首个错误与图片毫无关系
         assert len(completions.calls) == 2
         assert [c["model"] for c in completions.calls] == ["m1", "m2"]
         assert isinstance(completions.calls[1]["messages"][1]["content"], list)
@@ -96,7 +96,7 @@ class TestAiClientFigures:
         client, completions = _client([rejection, Exception("boom"), "from m2"])
         client.config.fallback_models = ["m2"]
         assert client.chat("prompt", figures=_FIGURE) == "from m2"
-        # m1: images then text-only; m2 must still receive the image parts
+        # m1 先带图片再退化为纯文本；m2 仍须收到图片部分
         assert isinstance(completions.calls[0]["messages"][1]["content"], list)
         assert completions.calls[1]["messages"][1]["content"] == "prompt" + TEXT_ONLY_NOTICE
         assert isinstance(completions.calls[2]["messages"][1]["content"], list)

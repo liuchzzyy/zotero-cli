@@ -1,4 +1,4 @@
-"""An idempotency key identifies one request in one library."""
+"""幂等键标识的是同一文库内的同一次请求。"""
 
 import json
 from unittest.mock import patch
@@ -28,7 +28,7 @@ def test_update_same_key_different_payload_or_library_is_not_cached(tmp_path):
     assert json.loads(d.output)["meta"]["request_id"] == json.loads(a.output)["meta"]["request_id"]
 
 
-# --- M-04: every idempotent mutation reserves before writing ---
+# --- 每个幂等写入都必须在落笔前预留 ---
 
 ENV = {"ZOT_LIBRARY_ID": "123", "ZOT_API_KEY": "fake"}
 

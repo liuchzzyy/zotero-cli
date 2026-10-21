@@ -37,7 +37,7 @@ def test_cache_connections_are_closed(tmp_path: Path, monkeypatch: pytest.Monkey
         connections[0].execute("SELECT 1")
 
 
-# --- M-04: cache purge and definite-rejection classification ---
+# --- 缓存清理与确定性拒绝的分类 ---
 
 
 def test_expired_cache_rows_are_purged_on_connect(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

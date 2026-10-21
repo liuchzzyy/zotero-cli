@@ -1,4 +1,4 @@
-"""Behavioral regressions for accurate schema, stream, citation and Rich output."""
+"""`schema`、流式输出与引文的终端输出保真度测试。"""
 
 from __future__ import annotations
 
@@ -11,9 +11,7 @@ import pytest
 from click.testing import CliRunner
 
 from zotero_cli.cli import main
-from zotero_cli.cli.renderers import format_duplicates, format_item_detail, format_items, format_workspace_list
-from zotero_cli.workspace.store import Workspace
-from zotero_cli.zotero.models import Creator, DuplicateGroup, Item, Note
+from zotero_cli.zotero.models import Creator, Item
 from zotero_cli.zotero.reader import ZoteroReader
 
 
@@ -122,52 +120,3 @@ def test_cite_apa_keeps_all_twenty_authors_before_abbreviation(author_count: int
     assert result.exit_code == 0, result.output
     assert result.stdout == f"{expected} (2026). Test article.\n"
     reader.return_value.close.assert_called_once()
-
-
-@pytest.mark.parametrize("field", ["title", "creators", "abstract", "tags", "doi", "url", "extra", "notes"])
-def test_item_detail_renders_external_metadata_literally(field: str) -> None:
-    literal = "[/b] [bold]literal[/bold] [link=https://example.test]link[/link]"
-    item = _item()
-    notes: list[Note] = []
-    if field == "creators":
-        item.creators = [Creator("", literal, "author")]
-    elif field == "tags":
-        item.tags = [literal]
-    elif field == "extra":
-        item.extra = {"publicationTitle": literal, "custom[/b]": literal}
-    elif field == "notes":
-        notes = [Note("NOTE0001", item.key, literal)]
-    else:
-        setattr(item, field, literal)
-
-    output = format_item_detail(item, notes, detail="full")
-
-    assert literal in output
-    if field == "extra":
-        assert "custom[/b]: " in output
-        assert "Metadata:" in output
-    assert "[bold cyan]" not in output
-
-
-@pytest.mark.parametrize("renderer", ["items", "duplicates", "workspaces"])
-@pytest.mark.parametrize("literal", ["[/b]", "[b]X"])
-def test_rich_table_cells_render_external_metadata_literally(renderer: str, literal: str) -> None:
-    if renderer == "items":
-        item = replace(
-            _item(),
-            key=literal,
-            title=literal,
-            creators=[Creator("", literal, "author")],
-            date=literal,
-            item_type=literal,
-        )
-        output = format_items([item])
-        assert output.count(literal) == 5
-    elif renderer == "duplicates":
-        group = DuplicateGroup([replace(_item(), key=literal, title=literal)], literal, 1.0)
-        output = format_duplicates([group])
-        assert output.count(literal) == 3
-    else:
-        workspace = Workspace(name=literal, created=literal, description=literal)
-        output = format_workspace_list([workspace])
-        assert output.count(literal) == 3

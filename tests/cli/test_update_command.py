@@ -1,4 +1,4 @@
-"""Tests for the update command."""
+"""`zotero update` 子命令测试。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
-from tests.support import FIXTURES_DIR, invoke_cli, parse_json_output
+from tests.support import SAMPLE_DATA_DIR, invoke_cli, parse_json_output
 
 from zotero_cli.cli import main
 from zotero_cli.zotero.writer import ZoteroWriter
@@ -82,7 +82,7 @@ class TestUpdateCommand:
 
     def test_update_no_credentials(self):
         runner = CliRunner()
-        env = {"ZOT_DATA_DIR": str(FIXTURES_DIR), "ZOT_LIBRARY_ID": "", "ZOT_API_KEY": "", "ZOT_FORMAT": "table"}
+        env = {"ZOT_DATA_DIR": str(SAMPLE_DATA_DIR), "ZOT_LIBRARY_ID": "", "ZOT_API_KEY": "", "ZOT_FORMAT": "table"}
         result = runner.invoke(main, ["zotero", "update", "ATTN001", "--title", "X"], env=env)
         assert result.exit_code != 0
         assert "credentials" in result.output.lower() or "config" in result.output.lower()

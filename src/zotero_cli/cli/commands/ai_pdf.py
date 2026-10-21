@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
-import re
 
 import typer
 
 from zotero_cli.ai_pdf import MinerUError, MinerUParseCache
+from zotero_cli.ai_pdf.outline import extract_markdown_section, parse_markdown_outline
 from zotero_cli.cli.renderers import format_pdf_text
 from zotero_cli.config import get_data_dir, get_prefs_js_path, load_config, load_pdf_config, resolve_library_id
 from zotero_cli.output.envelope import envelope_ok
@@ -18,29 +18,6 @@ from zotero_cli.zotero.reader import ZoteroReader
 _NO_PDF_HINT = "Check item details with: zot zotero read KEY"
 _USAGE_HINT = 'Find item keys with: zot zotero search "<query>"'
 _CACHE_STATE_HINT = "The local MinerU cache appears corrupt; remove the affected package directory and retry"
-
-
-def _parse_outline(markdown: str) -> list[tuple[int, str, int]]:
-    pattern = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
-    return [
-        (index, match.group(2).strip(), len(match.group(1)))
-        for index, match in enumerate(pattern.finditer(markdown), 1)
-    ]
-
-
-def _extract_section(markdown: str, section_num: int) -> str:
-    pattern = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
-    matches = list(pattern.finditer(markdown))
-    if section_num < 1 or section_num > len(matches):
-        return ""
-    target = matches[section_num - 1]
-    target_level = len(target.group(1))
-    end = len(markdown)
-    for match in matches[section_num:]:
-        if len(match.group(1)) <= target_level:
-            end = match.start()
-            break
-    return markdown[target.start() : end].strip()
 
 
 def ai_pdf(
@@ -170,7 +147,7 @@ def ai_pdf(
 
             markdown = parsed.markdown
             if section is not None:
-                content = _extract_section(markdown, section)
+                content = extract_markdown_section(markdown, section)
                 if not content:
                     emit_error(
                         "not_found",
@@ -183,7 +160,8 @@ def ai_pdf(
                 return
             if outline:
                 outline_data = [
-                    {"number": number, "text": text, "level": level} for number, text, level in _parse_outline(markdown)
+                    {"number": number, "text": text, "level": level}
+                    for number, text, level in parse_markdown_outline(markdown)
                 ]
                 if json_out:
                     typer.echo(

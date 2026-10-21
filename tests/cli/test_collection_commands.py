@@ -1,8 +1,10 @@
+"""`workspace` 之外，`zotero collection` 的增删改、试运行与部分成功语义。"""
+
 import json
 from unittest.mock import patch
 
 from click.testing import CliRunner
-from tests.support import FIXTURES_DIR
+from tests.support import SAMPLE_DATA_DIR
 
 from zotero_cli.cli import main
 from zotero_cli.zotero.reader import ZoteroReader
@@ -139,7 +141,7 @@ def test_collection_items_known_key_returns_envelope():
 
 
 def test_collection_delete_dry_run_surfaces_nested_cascade_from_local_tree() -> None:
-    reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite")
+    reader = ZoteroReader(SAMPLE_DATA_DIR / "zotero.sqlite")
     try:
         collections = reader.get_collections()
     finally:
@@ -159,7 +161,7 @@ def test_collection_delete_dry_run_surfaces_nested_cascade_from_local_tree() -> 
 
 
 def test_collection_delete_confirmation_mentions_nested_cascade() -> None:
-    reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite")
+    reader = ZoteroReader(SAMPLE_DATA_DIR / "zotero.sqlite")
     try:
         collections = reader.get_collections()
     finally:

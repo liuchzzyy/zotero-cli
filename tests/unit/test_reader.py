@@ -101,7 +101,7 @@ class TestSearchFulltextBudget:
         conn.execute("CREATE TABLE itemAttachments (itemID INTEGER PRIMARY KEY, parentItemID INTEGER)")
         conn.execute("CREATE TABLE fulltextItems (itemID INTEGER PRIMARY KEY)")
         conn.execute("CREATE TABLE deletedItems (itemID INTEGER PRIMARY KEY)")
-        # Keys match the fixture storage dirs so cache files are readable.
+        # 键与夹具存储目录一致，使缓存文件可被读取。
         for attachment_id, parent_id, key in ((5, 1, "ATCH005"), (10, 2, "GRPATT10")):
             conn.execute("INSERT INTO items VALUES (?, ?, 2, 1)", (attachment_id, key))
             conn.execute("INSERT INTO items VALUES (?, ?, 2, 1)", (parent_id, f"ITEM{parent_id:02d}"))
@@ -178,7 +178,7 @@ class TestContextManager:
         with ZoteroReader(test_db_path) as reader:
             item = reader.get_item("ATTN001")
             assert item is not None
-        # Connection should be closed after exiting context
+        # 退出上下文后连接应已关闭
         assert reader._conn is None
 
 
@@ -241,7 +241,7 @@ class TestRelatedItems:
         assert isinstance(related, list)
 
 
-# --- L-01: LIKE wildcards from user queries are escaped ---
+# --- 用户查询中的 LIKE 通配符会被转义 ---
 
 
 def test_like_pattern_escapes_user_wildcards() -> None:
@@ -264,12 +264,12 @@ def test_search_treats_percent_and_underscore_as_literal_text(test_db_path: Path
         conn.execute("INSERT INTO itemData VALUES (99, 4, 900)")  # fixture title fieldID = 4
     with ZoteroReader(db_path) as reader:
         assert [item.key for item in reader.search("100%", limit=10).items] == ["PERCENT1"]
-        # "_" is not a wildcard here, so only a literal underscore matches.
+        # 此处 "_" 不是通配符，因此只有字面下划线才会匹配。
         assert reader.search("_", limit=10).total == 0
         assert reader.search("%", limit=10).total == 1
 
 
-# --- L-02: dc:relation predicate is resolved, not hardcoded ---
+# --- dc:relation 谓词经解析得到，而非硬编码 ---
 
 
 def test_related_items_resolve_relation_predicate_by_name(test_db_path: Path, tmp_path: Path) -> None:

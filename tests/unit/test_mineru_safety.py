@@ -1,4 +1,4 @@
-"""Exercise MinerU safety boundaries over real files and requests preparation."""
+"""以真实文件与请求构造验证 MinerU 的安全边界。"""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ _TOKEN = "test-only-mineru-token"
 
 
 class _MinerUTransport(BaseAdapter):
-    """Replace only HTTP I/O, leaving requests auth and redirects intact."""
+    """只替换 HTTP I/O，保留 requests 的鉴权与重定向逻辑。"""
 
     def __init__(self, archive: bytes, zip_url: str) -> None:
         super().__init__()
@@ -73,7 +73,7 @@ class _MinerUTransport(BaseAdapter):
 
 @pytest.fixture(autouse=True)
 def isolated_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Read a real empty config, never the user's credential-bearing config."""
+    """读取真实的空配置，绝不读取用户含凭据的配置。"""
     config_path = tmp_path / "config.toml"
     config_path.write_text("[pdf]\n", encoding="utf-8")
     monkeypatch.setattr(config.paths, "config_file_path", lambda *_args: config_path)
@@ -81,7 +81,7 @@ def isolated_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def pdf(tmp_path: Path) -> Path:
-    source = Path(__file__).resolve().parents[1] / "fixtures" / "test.pdf"
+    source = Path(__file__).resolve().parents[1] / "sample_data" / "minimal-one-page.pdf"
     destination = tmp_path / "paper.pdf"
     shutil.copyfile(source, destination)
     return destination
@@ -160,7 +160,7 @@ def test_cross_origin_archive_ignores_session_auth(archive: bytes) -> None:
 
 
 def test_archive_auth_uses_the_origin_requests_actually_sends(archive: bytes) -> None:
-    # urllib.parse and requests disagree on backslashes before an authority '@'.
+    # 在 authority 中的 @ 之前出现反斜杠时，urllib.parse 与 requests 的判断不一致。
     zip_url = r"https://storage.example.invalid\@mineru.example.invalid/result.zip?signature=test"
     client, transport = _client(archive, zip_url)
 
@@ -210,8 +210,8 @@ def test_archive_redirects_recheck_exact_origin(archive: bytes, scheme: str) -> 
     zip_url = f"{scheme}://mineru.example.invalid/result.zip"
     same_origin = f"{scheme}://mineru.example.invalid/relative.zip"
     cross_origin = "https://mineru.example.invalid:444/presigned.zip?signature=test%2Fvalue"
-    # requests allows http -> https on the same host to retain Authorization,
-    # although the scheme change crosses the security boundary here.
+    # requests 允许同一主机内 http -> https 跳转时保留 Authorization，
+    # 但此处的协议变更已经跨越了安全边界。
     upgraded = "https://mineru.example.invalid/final.zip?signature=test%2Fvalue"
     client, transport = _client(archive, zip_url, api_base=api_base)
     transport.redirects = {zip_url: "relative.zip", same_origin: upgraded, upgraded: cross_origin}

@@ -1,4 +1,4 @@
-"""Global output flags must never steal another option's value."""
+"""全局输出标志绝不能吞掉其他选项的值。"""
 
 from __future__ import annotations
 

@@ -1,10 +1,9 @@
-"""Incremental indexing tracks notes and metadata in addition to PDF files."""
+"""增量索引必须同时跟踪笔记与元数据的变化，而不只是 PDF 文件。"""
 
 from dataclasses import replace
 from unittest.mock import patch
 
-from tests.integration.test_workspace_rag import _patch_workspace
-from tests.support import invoke_cli
+from tests.support import invoke_cli, isolate_workspace_backend
 
 from zotero_cli.workspace.rag.index import RagIndex
 from zotero_cli.zotero.reader import ZoteroReader
@@ -18,7 +17,7 @@ def test_metadata_change_reindexes_without_force(tmp_path):
         item = original(reader, key)
         return replace(item, title=title[0]) if item else None
 
-    with _patch_workspace(tmp_path), patch.object(ZoteroReader, "get_item", changed_item):
+    with isolate_workspace_backend(tmp_path), patch.object(ZoteroReader, "get_item", changed_item):
         invoke_cli(["workspace", "new", "metadata-regression"])
         invoke_cli(["workspace", "add", "metadata-regression", "ATTN001"])
         first = invoke_cli(["workspace", "index", "metadata-regression", "--no-embed"])
@@ -38,7 +37,7 @@ def test_metadata_change_reindexes_without_force(tmp_path):
 def test_note_change_reindexes_without_force(tmp_path):
     notes = [("NOTE1", "old marker")]
     with (
-        _patch_workspace(tmp_path),
+        isolate_workspace_backend(tmp_path),
         patch("zotero_cli.cli.commands.workspace.indexing._collect_note_refs", side_effect=lambda *_: notes),
     ):
         invoke_cli(["workspace", "new", "notes-regression"])

@@ -1,9 +1,8 @@
-"""MS/SI classification from figure and table numbering.
+"""依据图与表的编号区分正文与补充材料。
 
-Every case is either a real publisher form observed in the local MinerU cache or
-a regression for an item the earlier string heuristics got wrong. The numbering
-is the strongest available signal: an SI cover repeats the article title and
-filename, so per-attachment text cues cannot separate the pair.
+每个用例要么是本地 MinerU 缓存里观察到的真实出版方写法，要么是早期字符串启发式
+判错过的回归样本。编号是当前最强的信号：补充材料封面会重复文章标题与文件名，
+因此按附件文本线索无法把这一对区分开。
 """
 
 from __future__ import annotations
@@ -12,12 +11,12 @@ import pytest
 
 from zotero_cli.workspace.rag import CaptionCounts, PdfDocument, caption_counts, resolve_pdf_kinds
 
-# Article front matter: what keeps a document out of the "supplementary" role.
+# 论文前置内容：决定文档不被判为"补充材料"的依据。
 _FRONT_MATTER = "Abstract: aqueous zinc batteries. \n1. Introduction\n"
 
 
 def _blocks(*captions: tuple[str, str]) -> list[dict[str, object]]:
-    """Build image/table blocks carrying the given (type, caption) pairs."""
+    """构造携带给定 (类型, 图注) 组合的图片/表格块。"""
     blocks: list[dict[str, object]] = []
     for block_type, caption in captions:
         blocks.append({"type": block_type, "page_idx": 0, f"{block_type}_caption": [caption]})
@@ -77,7 +76,7 @@ class TestCaptionForms:
         assert counts == CaptionCounts()
 
     def test_caption_with_leading_panel_letter_is_still_found(self) -> None:
-        # MinerU merges the panel letter into the caption of the panel it closes.
+        # MinerU 会把分图字母并入它所在分图的图注。
         counts = caption_counts(_blocks(("image", "e Supplementary Figure 5. Temperature dependence.")))
         assert counts.figure_supplementary == 1
 
@@ -87,8 +86,8 @@ class TestCaptionForms:
         assert counts.figure_supplementary == 0
 
     def test_figures_outrank_tables(self) -> None:
-        # A Nature-style supplement numbers figures plainly but tables with an S;
-        # figures must decide so a real article is not demoted.
+        # Nature 风格的补充材料中图用普通编号而表用 S 编号；
+        # 此时应由图来决定，避免真实论文被降级。
         counts = CaptionCounts(figure_supplementary=0, figure_plain=18, table_supplementary=4, table_plain=0)
         assert counts.kind == "main"
 
@@ -109,8 +108,8 @@ class TestResolveKinds:
         assert resolve_pdf_kinds([]) == {}
 
     def test_s_numbered_attachment_becomes_the_supplement(self) -> None:
-        # Item DDM2563M: the article was read as SI because its Introduction
-        # starts past the 2500-char window and its SI mention lands at char 9073.
+        # 条目 DDM2563M：正文被误判为补充材料，原因是其 Introduction
+        # 起点超出 2500 字符窗口，而 SI 的提及出现在第 9073 个字符处。
         main = PdfDocument("MS", "a.pdf", _FRONT_MATTER, _blocks(*_figures(5, numbered_s=False)))
         si = PdfDocument("SI", "a.pdf", "# Enhanced kinetics", _blocks(*_figures(34, numbered_s=True)))
         assert resolve_pdf_kinds([main, si]) == {"MS": "main", "SI": "supplementary"}
@@ -121,8 +120,8 @@ class TestResolveKinds:
         assert resolve_pdf_kinds([main, si]) == {"MS": "main", "SI": "supplementary"}
 
     def test_s_numbered_tables_rescue_a_nature_style_supplement(self) -> None:
-        # Item XTNNHCYF: the SI numbers its figures plainly ("Figure 1") but its
-        # tables "Supplementary Table 1"; both attachments otherwise look alike.
+        # 条目 XTNNHCYF：补充材料的图使用普通编号（"Figure 1"），而表使用
+        # "Supplementary Table 1"；除此之外两个附件看上去完全一致。
         main = PdfDocument("MS", "a.pdf", "", _blocks(*_figures(4, numbered_s=False)))
         si = PdfDocument(
             "SI",
@@ -133,7 +132,7 @@ class TestResolveKinds:
         assert resolve_pdf_kinds([main, si]) == {"MS": "main", "SI": "supplementary"}
 
     def test_front_matter_is_never_demoted_to_supplementary(self) -> None:
-        # Both attachments carry S-numbered captions (a merged article+SI PDF).
+        # 两个附件都带 S 编号图注（即正文与补充材料合并的 PDF）。
         main = PdfDocument("MS", "a.pdf", _FRONT_MATTER, _blocks(*_figures(9, numbered_s=True)))
         si = PdfDocument("SI", "b.pdf", "", _blocks(*_figures(2, numbered_s=True)))
         kinds = resolve_pdf_kinds([main, si])

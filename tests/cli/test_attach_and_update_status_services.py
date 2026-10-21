@@ -1,4 +1,4 @@
-"""Offline CLI-to-service coverage with real files, readers, and retry storage."""
+"""`attach` 与 `metadata update-status` 的服务边界：真实文件、读取器与重试存储，全程离线。"""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ import httpx
 import httpx2
 import pytest
 from click.testing import Result
-from tests.support import FIXTURES_DIR, invoke_cli, parse_json_output
+from tests.support import SAMPLE_DATA_DIR, invoke_cli, parse_json_output
 
 from zotero_cli import config
 from zotero_cli.zotero import idempotency
@@ -64,7 +64,7 @@ def sandbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Service
     data_dir = tmp_path / "zotero"
     data_dir.mkdir()
     db_path = data_dir / "zotero.sqlite"
-    shutil.copy2(FIXTURES_DIR / "zotero.sqlite", db_path)
+    shutil.copy2(SAMPLE_DATA_DIR / "zotero.sqlite", db_path)
     pdf = tmp_path / "supplement 研究.pdf"
     pdf.write_bytes(b"%PDF-1.4 offline fixture\n")
     isolated_config = tmp_path / "offline.toml"
@@ -294,8 +294,8 @@ def test_attach_failure_keeps_reservation_for_unknown_outcome(sandbox: ServiceSa
     assert failed.exit_code == expected_exit, failed.output
     error = parse_json_output(failed.output)["error"]
     assert error["code"] == expected_code
-    # M-04: the idempotency key is reserved before the upload. An unknown outcome
-    # keeps the reservation, so the failure is not retryable with the same key.
+    # 幂等键在上传前就已预留。结果未知时必须保留预留，
+    # 因此用同一个键重试是不允许的。
     assert error["retryable"] is False
     assert "outcome is unknown" in error["hint"].lower()
     assert sandbox.zotero.attachment_simple.call_count == 1
@@ -306,7 +306,7 @@ def test_attach_failure_keeps_reservation_for_unknown_outcome(sandbox: ServiceSa
     retried = _invoke(sandbox, args)
     assert retried.exit_code == 6, retried.output
     assert parse_json_output(retried.output)["error"]["code"] == "conflict"
-    # The reservation is kept: no second upload happens for the same key.
+    # 预留被保留：同一个键不会触发第二次上传。
     assert sandbox.zotero.attachment_simple.call_count == 1
 
 
@@ -525,7 +525,7 @@ def test_update_status_apply_continues_after_failed_write_and_reports_exact_coun
     _seed_preprints(sandbox)
     sandbox.zotero.update_item.side_effect = [httpx2.ConnectError("offline write interrupted"), None]
     result = _invoke(sandbox, ["metadata", "update-status", "--apply"], json_output=json_output)
-    # fix2: a partial apply (one write failed) is ok="partial" and exits non-zero.
+    # 部分应用（有一条写入失败）时 ok="partial"，且退出码非零。
     assert result.exit_code == 5, result.output
     assert sandbox.zotero.update_item.call_count == 2
     if json_output:
@@ -555,7 +555,7 @@ def test_update_status_all_writes_failed_never_claims_sync_required(
     _seed_preprints(sandbox)
     sandbox.zotero.update_item.side_effect = httpx2.ConnectError("offline service unavailable")
     result = _invoke(sandbox, ["metadata", "update-status", "--apply"], json_output=json_output)
-    # fix2: all writes failed -> still ok="partial" (data has update_failed) and exit 5.
+    # 全部写入失败时仍为 ok="partial"（data 中带 update_failed），退出码为 5。
     assert result.exit_code == 5, result.output
     if json_output:
         envelope = parse_json_output(result.output)
@@ -617,8 +617,8 @@ def test_update_status_failed_lookup_does_not_write_or_claim_published(
         assert (data["checked"], data["published"], data["updated"], data["sync_required"]) == (1, 0, 0, False)
         assert data["results"][0]["published"] is False
     else:
-        # L-04: Semantic Scholar lookup failures are surfaced instead of silently
-        # reporting the item as an unpublished preprint.
+        # Semantic Scholar 查询失败必须显式上报，而不是静默地
+        # 把条目报告成未发表预印本。
         assert result.exit_code == 5, result.output
         error = parse_json_output(result.output)["error"]
         assert error["code"] == "network_error"

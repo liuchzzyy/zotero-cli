@@ -1,4 +1,4 @@
-"""Tests for the platform_paths module."""
+"""跨平台路径转换测试。"""
 
 from __future__ import annotations
 

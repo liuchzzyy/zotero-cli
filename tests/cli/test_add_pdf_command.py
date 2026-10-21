@@ -1,4 +1,4 @@
-"""Tests for add-from-PDF feature."""
+"""从 PDF 添加条目的命令测试。"""
 
 from __future__ import annotations
 
@@ -6,11 +6,12 @@ import json
 from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
-from tests.support import FIXTURES_DIR
+from tests.support import SAMPLE_DATA_DIR
 
 from zotero_cli.ai_pdf import extract_doi_from_markdown
 from zotero_cli.cli import main
 from zotero_cli.config import PdfConfig
+from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
 
 class TestExtractDoi:
@@ -34,7 +35,7 @@ class TestAddPdfCLI:
         pdf.write_bytes(b"%PDF-1.4 test")
         runner = CliRunner()
         env = {
-            "ZOT_DATA_DIR": str(FIXTURES_DIR),
+            "ZOT_DATA_DIR": str(SAMPLE_DATA_DIR),
             "ZOT_LIBRARY_ID": "123",
             "ZOT_API_KEY": "abc",
             "ZOT_FORMAT": "",
@@ -60,7 +61,7 @@ class TestAddPdfCLI:
         pdf.write_bytes(b"%PDF-1.4 test")
         runner = CliRunner()
         env = {
-            "ZOT_DATA_DIR": str(FIXTURES_DIR),
+            "ZOT_DATA_DIR": str(SAMPLE_DATA_DIR),
             "ZOT_LIBRARY_ID": "123",
             "ZOT_API_KEY": "abc",
             "ZOT_FORMAT": "",
@@ -83,7 +84,7 @@ class TestAddPdfCLI:
         pdf.write_bytes(b"%PDF-1.4 test")
         runner = CliRunner()
         env = {
-            "ZOT_DATA_DIR": str(FIXTURES_DIR),
+            "ZOT_DATA_DIR": str(SAMPLE_DATA_DIR),
             "ZOT_LIBRARY_ID": "123",
             "ZOT_API_KEY": "abc",
             "ZOT_FORMAT": "",
@@ -105,3 +106,28 @@ class TestAddPdfCLI:
 
         assert result.exit_code == 0
         cache.ensure.assert_called_once_with(pdf)
+
+
+def test_add_pdf_upload_failure_returns_partial_state(tmp_path):
+    pdf = tmp_path / "paper.pdf"
+    pdf.write_bytes(b"%PDF-1.4 test")
+    with (
+        patch("zotero_cli.cli.commands.zotero.add.ZoteroWriter") as cls,
+        patch("zotero_cli.cli.commands.zotero.add.resolve_doi", return_value={"title": "T"}),
+    ):
+        cls.return_value.add_item.return_value = "NEW001"
+        cls.return_value.upload_attachment.side_effect = ZoteroWriteError("upload failed")
+        result = CliRunner().invoke(
+            main,
+            ["--json", "zotero", "add", "--pdf", str(pdf), "--doi", "10.1234/test"],
+            env={"ZOT_LIBRARY_ID": "123", "ZOT_API_KEY": "fake"},
+        )
+    payload = json.loads(result.output)
+    assert result.exit_code == 1
+    assert payload["ok"] == "partial"
+    assert payload["data"]["key"] == "NEW001"
+    assert payload["data"]["attachment_error"] == "upload failed"
+    # next 是官方定义的顶层提示列表，绝不出现在 data 之内。
+    assert "zot zotero attach NEW001" in payload["next"][0]
+    assert "next" not in payload["data"]
+    assert "error" not in payload

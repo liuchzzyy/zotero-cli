@@ -1,4 +1,4 @@
-"""H-05: destructive delete requires explicit confirmation."""
+"""破坏性删除必须获得显式确认。"""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ def test_delete_with_yes_executes() -> None:
     assert payload["ok"] is True
     assert payload["data"]["permanent"] is True
     assert payload["data"]["permanently_deleted"] == ["ABC123"]
-    # Permanent deletion must never advertise the trash/restore workflow.
+    # 永久删除不得宣称可用回收站/恢复流程。
     assert "next" not in payload
     assert "trash" not in result.output
 

@@ -1,4 +1,4 @@
-"""Tests for the zot config command group (init/show/profile/cache)."""
+"""`zot config` 命令组测试（init / show / profile / cache）。"""
 
 from __future__ import annotations
 
@@ -129,7 +129,7 @@ def test_config_init_preserves_profile_sections_and_backs_up(tmp_path):
     assert data["default"]["profile"] == "lab"
     assert data["profile"]["lab"]["library_id"] == "999"
     assert data["profile"]["lab"]["api_key"] == "new-key"
-    # Never drop credentials or unrelated sections.
+    # 绝不丢弃凭据或无关配置段。
     assert data["profile"]["lab"]["semantic_scholar_api_key"] == "s2-key"
     assert data["profile"]["personal"] == {"library_id": "111", "api_key": "aaa"}
     assert data["ai_notes"] == {"api_key": "ai-key", "model": "file-model"}
@@ -404,7 +404,7 @@ mineru_token = "mineru-token"
 
 
 def test_config_init_handles_preexisting_foreign_parent(tmp_path):
-    """task-31: init must never chmod a foreign/sticky parent directory (/tmp case)."""
+    """init 绝不能对外部或带粘滞位的父目录执行 chmod（以 /tmp 为例）。"""
     parent = tmp_path / "foreign"
     parent.mkdir()
     os.chmod(parent, 0o1777)
@@ -441,7 +441,7 @@ def test_config_init_handles_preexisting_foreign_parent(tmp_path):
     assert data["default"]["profile"] == "main"
     assert data["profile"]["main"]["library_id"] == "42"
     assert data["profile"]["main"]["api_key"] == "secret-abc"
-    # Unrelated sections and profile keys survive the merge.
+    # 无关配置段与配置档键在合并后依然保留。
     assert data["ai_notes"] == {"api_key": "ai-key", "model": "file-model"}
     assert data["pdf"] == {"mineru_token": "mineru-token"}
 
@@ -453,7 +453,7 @@ def test_config_init_handles_preexisting_foreign_parent(tmp_path):
     assert config_path.read_text(encoding="utf-8") == before_dry_run
 
 
-# --- H-07: invalid default profile fails closed ------------------------------
+# --- 无效的默认配置档必须失败关闭 ----------------------------------------
 
 INVALID_DEFAULT_PROFILE_CONFIG = """
 [default]
@@ -544,7 +544,7 @@ def test_write_command_blocked_before_writer_when_profile_config_invalid(tmp_pat
     writer_cls.assert_not_called()
 
 
-# --- M-20: invalid UTF-8 config is a typed configuration error ---------------
+# --- 非 UTF-8 配置应报为带类型的配置错误 --------------------------------
 
 
 def test_config_show_invalid_utf8_is_typed_error(tmp_path):
@@ -557,7 +557,7 @@ def test_config_show_invalid_utf8_is_typed_error(tmp_path):
     assert "not valid UTF-8" in envelope["error"]["message"]
 
 
-# --- M-18/M-24: symlink write-through and no-op init -------------------------
+# --- 符号链接写穿透与空操作 init ----------------------------------------
 
 
 def test_config_init_writes_through_symlink(tmp_path):
@@ -600,7 +600,7 @@ def test_config_init_noop_second_run_skips_rewrite(tmp_path):
     assert (config_path.stat().st_mtime_ns, backup.stat().st_mtime_ns) == first_mtimes
 
 
-# --- M-14: config init JSON reports the effective profile --------------------
+# --- config init 的 JSON 报告生效配置档 --------------------------------
 
 
 def test_config_init_json_reports_effective_profile(tmp_path):
@@ -649,7 +649,7 @@ def test_config_init_dry_run_json_reports_profile_without_backup(tmp_path):
     assert envelope["data"]["backup_path"] == ""
 
 
-# --- M-21/M-23: cache list limits and cache clear envelope -------------------
+# --- cache list 上限与 cache clear 的 envelope --------------------------
 
 
 def _cache_entries(count: int) -> list[dict[str, str]]:

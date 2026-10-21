@@ -1,4 +1,4 @@
-"""Exercise writer payloads and errors through an offline Zotero HTTP boundary."""
+"""通过离线 Zotero HTTP 边界验证写入载荷与错误映射。"""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ CREATED_KEY = "NEW00001"
 
 
 class OfflineZotero:
-    """Serve deterministic API documents; reject every unrecognised request."""
+    """返回确定性的 API 文档，并拒绝所有未识别的请求。"""
 
     def __init__(self) -> None:
         self.requests: list[httpx.Request] = []
@@ -117,7 +117,7 @@ def offline_writer(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[ZoteroWrit
 
 
 def invoke_write(writer: ZoteroWriter, operation: str, file_path: Path) -> object:
-    """Use real public methods, sharing only their input fixtures."""
+    """调用真实公开方法，只共享其输入夹具。"""
     calls: dict[str, Callable[[], object]] = {
         "add_note": lambda: writer.add_note(ITEM_KEY, "<p>New note</p>"),
         "add_item": lambda: writer.add_item(doi="10.1234/new"),
@@ -211,7 +211,7 @@ def test_add_item_posts_identifiers_and_metadata(
     expected["DOI" if doi else "url"] = doi or url
     expected.update(metadata or {})
     if url and not (metadata or {}).get("title"):
-        # M-04: URL-only items get the URL as a sensible title.
+        # 仅有 URL 的条目会把 URL 作为合理标题。
         expected["title"] = url
     assert payload == [expected]
     assert metadata == original_metadata
@@ -283,7 +283,7 @@ def test_item_updates_preserve_other_metadata_and_version(
     [request] = api.writes("PATCH")
     assert request.headers["If-Unmodified-Since-Version"] == "17"
     if operation == "restore_from_trash":
-        # Raw PATCH deleted=0; pyzotero update_item rejects the deleted field.
+        # 直接发 PATCH 设 deleted=0；pyzotero 的 update_item 会拒绝 deleted 字段。
         assert json.loads(request.content) == {"deleted": 0}
     else:
         assert json.loads(request.content) == {**original_data, changed_field: expected}
@@ -406,8 +406,8 @@ def test_upload_existing_attachment_runs_real_file_registration(
     registration, authorization = api.writes("POST")
     payload = json.loads(registration.content)[0]
     assert payload["parentItem"] == ITEM_KEY
-    # pyzotero 1.16 sends the basename; the API rejects stored-file filenames
-    # that contain a directory path.
+    # pyzotero 1.16 只发送基名；API 会拒绝包含目录路径的
+    # 已存文件名。
     assert payload["filename"] == attachment_file.name
     assert payload["title"] == attachment_file.name
     assert payload["contentType"] == "application/pdf"
@@ -516,7 +516,7 @@ def test_api_errors_include_actionable_diagnostics(
 def test_rejected_http_mutations_must_not_report_success(
     offline_writer: tuple[ZoteroWriter, OfflineZotero], attachment_file: Path, operation: str
 ) -> None:
-    """A rejected version-guarded HTTP write must surface as a writer error."""
+    """被版本护栏拒绝的 HTTP 写入必须表现为写入器错误。"""
     writer, api = offline_writer
     api.write_status = 412
     with pytest.raises(ZoteroWriteError):
@@ -532,7 +532,7 @@ def test_forbidden_create_reports_auth_invalid(offline_writer: tuple[ZoteroWrite
     assert caught.value.retryable is False
 
 
-# --- M-03: pyzotero error translation ---
+# --- pyzotero 错误转换 ---
 
 
 @pytest.mark.parametrize(

@@ -35,13 +35,13 @@ class TestSearch:
         assert all(i["key"] == "ATTN001" for i in data)
 
     def test_search_with_command_level_limit(self, test_db_path):
-        """--limit after subcommand should work (issue #7)."""
+        """子命令之后的 `--limit` 应当生效（issue #7）。"""
         result = _invoke(["zotero", "search", "", "--limit", "1"], test_db_path, json_output=True)
         data = json.loads(result.output)["data"]
         assert len(data) == 1
 
     def test_search_collection_not_found(self, test_db_path):
-        """Unknown collection should show error with available names (issue #8)."""
+        """未知集合应报错并列出可用名称（issue #8）。"""
         result = _invoke(["zotero", "search", "test", "--collection", "NonExistent"], test_db_path)
         assert result.exit_code != 0
 
@@ -63,13 +63,13 @@ class TestList:
         assert len(data) == 1
 
     def test_list_with_command_level_limit(self, test_db_path):
-        """--limit after subcommand should work (issue #7)."""
+        """子命令之后的 `--limit` 应当生效（issue #7）。"""
         result = _invoke(["zotero", "list", "--limit", "1"], test_db_path, json_output=True)
         data = json.loads(result.output)["data"]
         assert len(data) == 1
 
     def test_list_collection_not_found(self, test_db_path):
-        """Unknown collection should show error with available names (issue #8)."""
+        """未知集合应报错并列出可用名称（issue #8）。"""
         result = _invoke(["zotero", "list", "--collection", "NonExistent"], test_db_path)
         assert result.exit_code != 0
         assert "Collection 'NonExistent' not found" in result.output or "Collection 'NonExistent' not found" in (
@@ -112,7 +112,7 @@ class TestExport:
     def test_export_json(self, test_db_path):
         result = _invoke(["zotero", "export", "ATTN001", "--format", "json"], test_db_path)
         assert result.exit_code == 0
-        # Text mode keeps the historical raw item dict so it can be piped directly.
+        # 文本模式保留历史上的原始条目字典，以便直接管道处理。
         data = json.loads(result.output)
         assert "title" in data
 
@@ -171,7 +171,7 @@ class TestAddFromFile:
         doi_file = tmp_path / "dois.txt"
         doi_file.write_text("10.1038/s41586-023-06139-9\n")
         runner = CliRunner()
-        # Use a non-existent profile dir to ensure no credentials are found
+        # 使用不存在的配置档目录，确保找不到任何凭据
         env = {
             "ZOT_DATA_DIR": str(test_db_path.parent),
             "ZOT_LIBRARY_ID": "",

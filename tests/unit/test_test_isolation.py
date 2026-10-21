@@ -1,4 +1,4 @@
-"""Regression checks for complete credential and network isolation."""
+"""凭据与网络完全隔离的回归检查。"""
 
 from __future__ import annotations
 

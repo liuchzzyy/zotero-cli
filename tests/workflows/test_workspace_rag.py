@@ -1,69 +1,21 @@
-"""Tests for workspace RAG CLI commands (index / embed / query)."""
+"""工作区 RAG 子命令（index / embed / query）的命令层测试。"""
 
 from __future__ import annotations
 
 import json
 import sqlite3
-from contextlib import ExitStack
-from hashlib import sha256
 from unittest.mock import patch
 
 from tests.support import invoke_cli as _invoke
+from tests.support import isolate_workspace_backend
 
-from zotero_cli.ai_pdf import MinerUError, MinerUParseResult
-from zotero_cli.config import VectorStoreConfig
+from zotero_cli.ai_pdf import MinerUError
 from zotero_cli.workspace.rag.index import RagIndex
-
-
-def _patch_workspace(tmp_path):
-    """Patch workspace dirs + vector store so tests are fully isolated."""
-    stack = ExitStack()
-    stack.enter_context(patch("zotero_cli.workspace.store.workspaces_dir", return_value=tmp_path))
-    stack.enter_context(
-        patch(
-            "zotero_cli.cli.commands.workspace.indexing.load_vector_store_config",
-            return_value=VectorStoreConfig(path=str(tmp_path / "_qdrant")),
-        )
-    )
-    cache_cls = stack.enter_context(patch("zotero_cli.cli.commands.workspace.indexing.MinerUParseCache"))
-
-    def fake_ensure_many(paths, _progress=None):
-        results = {}
-        for pdf_path in paths:
-            fingerprint = sha256(pdf_path.read_bytes()).hexdigest()
-            root = tmp_path / "mineru" / fingerprint / "vlm"
-            root.mkdir(parents=True, exist_ok=True)
-            markdown = root / "document.md"
-            content = root / "content_list.json"
-            manifest = root / "manifest.json"
-            markdown.write_text("# Introduction\nAttention mechanism evidence")
-            content.write_text(
-                json.dumps(
-                    [
-                        {"type": "text", "text": "Introduction", "text_level": 1, "page_idx": 0},
-                        {"type": "text", "text": "Attention mechanism evidence", "page_idx": 0},
-                    ]
-                )
-            )
-            manifest.write_text("{}")
-            results[pdf_path] = MinerUParseResult(
-                source_path=pdf_path,
-                fingerprint=fingerprint,
-                model_version="vlm",
-                root=root,
-                markdown_path=markdown,
-                content_list_path=content,
-                manifest_path=manifest,
-            )
-        return results
-
-    cache_cls.return_value.ensure_many.side_effect = fake_ensure_many
-    return stack
 
 
 class TestWorkspaceIndex:
     def test_index_workspace(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "test-idx"])
             _invoke(["workspace", "add", "test-idx", "ATTN001"])
             result = _invoke(["workspace", "index", "test-idx"])
@@ -73,18 +25,18 @@ class TestWorkspaceIndex:
         assert idx_path.exists()
 
     def test_index_nonexistent_workspace(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             result = _invoke(["workspace", "index", "nope"])
         assert "not found" in result.output
 
     def test_index_empty_workspace(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "empty-ws"])
             result = _invoke(["workspace", "index", "empty-ws"])
         assert "empty" in result.output.lower() or "Add items" in result.output
 
     def test_index_force_rebuild(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "test-idx"])
             _invoke(["workspace", "add", "test-idx", "ATTN001"])
             _invoke(["workspace", "index", "test-idx"])
@@ -93,7 +45,7 @@ class TestWorkspaceIndex:
         assert "Indexed" in result.output
 
     def test_index_incremental(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "test-idx"])
             _invoke(["workspace", "add", "test-idx", "ATTN001"])
             _invoke(["workspace", "index", "test-idx"])
@@ -101,7 +53,7 @@ class TestWorkspaceIndex:
         assert "up to date" in result.output
 
     def test_reindex_forces_rebuild(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "test-idx"])
             _invoke(["workspace", "add", "test-idx", "ATTN001"])
             _invoke(["workspace", "index", "test-idx"])
@@ -111,7 +63,7 @@ class TestWorkspaceIndex:
 
     def test_index_no_embed_skips_embedding(self, tmp_path):
         with (
-            _patch_workspace(tmp_path),
+            isolate_workspace_backend(tmp_path),
             patch(
                 "zotero_cli.cli.commands.workspace.indexing.embed_texts",
                 side_effect=AssertionError("should not embed"),
@@ -140,7 +92,7 @@ class TestWorkspaceIndex:
 
     def test_failed_mineru_parse_remains_pending_for_retry(self, tmp_path):
         with (
-            _patch_workspace(tmp_path),
+            isolate_workspace_backend(tmp_path),
             patch("zotero_cli.cli.commands.workspace.indexing.MinerUParseCache") as cache_cls,
         ):
             cache_cls.return_value.ensure_many.side_effect = lambda paths, _progress=None: {
@@ -160,7 +112,7 @@ class TestWorkspaceIndex:
             idx.close()
 
     def test_embed_missing_configuration_returns_exit_3(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "embed-missing"])
             _invoke(["workspace", "add", "embed-missing", "ATTN001"])
             _invoke(["workspace", "index", "embed-missing", "--no-embed"])
@@ -181,7 +133,7 @@ class TestWorkspaceIndex:
 
 class TestWorkspaceQuery:
     def test_query_workspace(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "test-q"])
             _invoke(["workspace", "add", "test-q", "ATTN001"])
             _invoke(["workspace", "index", "test-q"])
@@ -190,7 +142,7 @@ class TestWorkspaceQuery:
         assert "ATTN001" in result.output
 
     def test_query_json_output(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "test-q"])
             _invoke(["workspace", "add", "test-q", "ATTN001"])
             _invoke(["workspace", "index", "test-q"])
@@ -213,7 +165,10 @@ class TestWorkspaceQuery:
             selected = candidates[:top_n]
             return [(cid, 10.0 - idx, chunk) for idx, (cid, _score, chunk) in enumerate(selected)] + candidates[top_n:]
 
-        with _patch_workspace(tmp_path), patch("zotero_cli.cli.commands.workspace.query.rerank_chunks", fake_rerank):
+        with (
+            isolate_workspace_backend(tmp_path),
+            patch("zotero_cli.cli.commands.workspace.query.rerank_chunks", fake_rerank),
+        ):
             _invoke(["workspace", "new", "test-q"])
             _invoke(["workspace", "add", "test-q", "ATTN001"])
             _invoke(["workspace", "index", "test-q"])
@@ -233,7 +188,7 @@ class TestWorkspaceQuery:
         assert data["results"][0]["score"] == 10.0
 
     def test_query_irrelevant(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "test-q"])
             _invoke(["workspace", "add", "test-q", "ATTN001"])
             _invoke(["workspace", "index", "test-q"])
@@ -241,20 +196,20 @@ class TestWorkspaceQuery:
         assert result.exit_code == 0
 
     def test_query_no_index(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "test-q"])
             result = _invoke(["workspace", "query", "test", "--workspace", "test-q"])
         assert "index" in result.output.lower()
 
     def test_query_nonexistent_workspace(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             result = _invoke(["workspace", "query", "test", "--workspace", "nope"])
         assert "not found" in result.output
 
 
 class TestWorkspaceExport:
     def test_export_markdown(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "test-exp"])
             _invoke(["workspace", "add", "test-exp", "ATTN001"])
             result = _invoke(["workspace", "export", "test-exp"])
@@ -264,18 +219,18 @@ class TestWorkspaceExport:
         assert "# Workspace: test-exp" in result.output
 
     def test_export_json(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "test-exp"])
             _invoke(["workspace", "add", "test-exp", "ATTN001"])
             result = _invoke(["workspace", "export", "test-exp", "--format", "json"])
-        # H-07 convention: --format json is raw JSON in text mode, an envelope in --json mode.
+        # H-07 约定：--format json 在文本模式下是原始 JSON，在 --json 模式下是 envelope。
         data = json.loads(result.output)
         assert isinstance(data, list)
         assert len(data) >= 1
         assert data[0]["key"] == "ATTN001"
 
     def test_export_json_envelope_mode(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "test-exp"])
             _invoke(["workspace", "add", "test-exp", "ATTN001"])
             result = _invoke(["workspace", "export", "test-exp", "--format", "json"], json_output=True)
@@ -286,7 +241,7 @@ class TestWorkspaceExport:
         assert payload["meta"]["count"] >= 1
 
     def test_export_bibtex(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "test-exp"])
             _invoke(["workspace", "add", "test-exp", "ATTN001"])
             result = _invoke(["workspace", "export", "test-exp", "--format", "bibtex"])
@@ -295,12 +250,12 @@ class TestWorkspaceExport:
         assert "Attention" in result.output
 
     def test_export_nonexistent(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             result = _invoke(["workspace", "export", "nope"])
         assert "not found" in result.output
 
     def test_export_empty_workspace(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "test-exp"])
             result = _invoke(["workspace", "export", "test-exp"])
         assert "empty" in result.output.lower()
@@ -308,34 +263,34 @@ class TestWorkspaceExport:
 
 class TestWorkspaceImport:
     def test_import_from_search(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "test-imp"])
             result = _invoke(["workspace", "import", "test-imp", "--search", "attention"])
         assert result.exit_code == 0
         assert "Imported" in result.output
 
     def test_import_from_collection(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "test-imp"])
             result = _invoke(["workspace", "import", "test-imp", "--collection", "Machine Learning"])
         assert result.exit_code == 0
         assert "Imported" in result.output
 
     def test_import_from_tag(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "test-imp"])
             result = _invoke(["workspace", "import", "test-imp", "--tag", "transformer"])
         assert result.exit_code == 0
         assert "Imported" in result.output
 
     def test_import_no_source(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "test-imp"])
             result = _invoke(["workspace", "import", "test-imp"])
         assert "specify" in result.output.lower() or "at least" in result.output.lower()
 
     def test_import_dedup(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "test-imp"])
             _invoke(["workspace", "add", "test-imp", "ATTN001"])
             result = _invoke(["workspace", "import", "test-imp", "--search", "attention"])
@@ -343,14 +298,14 @@ class TestWorkspaceImport:
         assert "skipped" in result.output.lower()
 
     def test_import_nonexistent_workspace(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             result = _invoke(["workspace", "import", "nope", "--search", "test"])
         assert "not found" in result.output
 
 
 class TestWorkspaceSearch:
     def test_search_in_workspace(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "test-src"])
             _invoke(["workspace", "add", "test-src", "ATTN001"])
             result = _invoke(["workspace", "search", "attention", "--workspace", "test-src"])
@@ -358,14 +313,14 @@ class TestWorkspaceSearch:
         assert "ATTN001" in result.output
 
     def test_search_no_results(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "test-src"])
             _invoke(["workspace", "add", "test-src", "ATTN001"])
             result = _invoke(["workspace", "search", "xyznonexistent", "--workspace", "test-src"])
         assert "No matching" in result.output or result.output.strip() == ""
 
     def test_search_by_author(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "test-src"])
             _invoke(["workspace", "add", "test-src", "ATTN001"])
             result = _invoke(["workspace", "search", "Vaswani", "--workspace", "test-src"])
@@ -373,14 +328,14 @@ class TestWorkspaceSearch:
         assert "ATTN001" in result.output
 
     def test_search_nonexistent_workspace(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             result = _invoke(["workspace", "search", "test", "--workspace", "nope"])
         assert "not found" in result.output
 
 
 class TestWorkspaceIndexPruning:
     def test_remove_immediately_prunes_index(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "test-prune"])
             _invoke(["workspace", "add", "test-prune", "ATTN001", "BERT002"])
             first = _invoke(["workspace", "index", "test-prune", "--no-embed"])
@@ -405,7 +360,7 @@ class TestWorkspaceIndexPruning:
             idx.close()
 
     def test_remove_warns_when_index_prune_fails(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "prune-warn"])
             _invoke(["workspace", "add", "prune-warn", "ATTN001"])
             _invoke(["workspace", "index", "prune-warn", "--no-embed"])
@@ -422,7 +377,7 @@ class TestWorkspaceIndexPruning:
     def test_index_prunes_stale_manifest_entries_without_remove(self, tmp_path):
         from zotero_cli.workspace import store as workspace_module
 
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "test-stale"])
             _invoke(["workspace", "add", "test-stale", "ATTN001", "BERT002"])
             _invoke(["workspace", "index", "test-stale", "--no-embed"])
@@ -443,7 +398,7 @@ class TestWorkspaceIndexPruning:
         from zotero_cli.workspace import store as workspace_module
 
         for force in (False, True):
-            with _patch_workspace(tmp_path):
+            with isolate_workspace_backend(tmp_path):
                 name = f"empty-prune-{int(force)}"
                 _invoke(["workspace", "new", name])
                 _invoke(["workspace", "add", name, "ATTN001"])
@@ -472,7 +427,7 @@ class TestWorkspaceIndexPruning:
 
 class TestWorkspaceIndexDryRun:
     def test_index_dry_run_has_no_side_effects(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "dry-idx"])
             _invoke(["workspace", "add", "dry-idx", "ATTN001"])
             with patch("zotero_cli.cli.commands.workspace.indexing.MinerUParseCache") as cache_cls:
@@ -486,7 +441,7 @@ class TestWorkspaceIndexDryRun:
         assert not (tmp_path / "_qdrant").exists()
 
     def test_reindex_dry_run_reports_force(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "dry-re"])
             _invoke(["workspace", "add", "dry-re", "ATTN001"])
             result = _invoke(["workspace", "reindex", "dry-re", "--no-embed", "--dry-run"], json_output=True)
@@ -498,7 +453,7 @@ class TestWorkspaceIndexDryRun:
 
 class TestWorkspaceForceFailurePreservesIndex:
     def test_force_mineru_failure_does_not_clear_working_index(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "keep-idx"])
             _invoke(["workspace", "add", "keep-idx", "ATTN001"])
             first = _invoke(["workspace", "index", "keep-idx", "--no-embed"])
@@ -516,7 +471,7 @@ class TestWorkspaceForceFailurePreservesIndex:
 
 class TestWorkspaceCandidateIndexReplacement:
     def test_force_build_failure_preserves_available_index(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "candidate-idx"])
             _invoke(["workspace", "add", "candidate-idx", "ATTN001"])
             first = _invoke(["workspace", "index", "candidate-idx", "--no-embed"])
@@ -536,7 +491,7 @@ class TestWorkspaceCandidateIndexReplacement:
 
 class TestWorkspaceEmbedBehaviour:
     def test_embed_all_fail_returns_typed_error(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "emb-fail"])
             _invoke(["workspace", "add", "emb-fail", "ATTN001"])
             _invoke(["workspace", "index", "emb-fail", "--no-embed"])
@@ -556,7 +511,7 @@ class TestWorkspaceEmbedBehaviour:
         assert payload["error"]["code"] == "network_error"
 
     def test_embed_dry_run_does_not_call_provider(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "emb-dry"])
             _invoke(["workspace", "add", "emb-dry", "ATTN001"])
             _invoke(["workspace", "index", "emb-dry", "--no-embed"])
@@ -570,7 +525,7 @@ class TestWorkspaceEmbedBehaviour:
         assert payload["data"]["index_exists"] is True
 
     def test_reindex_no_embed_skips_provider(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "re-noembed"])
             _invoke(["workspace", "add", "re-noembed", "ATTN001"])
             with patch(
@@ -583,7 +538,7 @@ class TestWorkspaceEmbedBehaviour:
 
 class TestWorkspaceQueryMetadata:
     def test_query_reports_mode_and_degradation(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "q-meta"])
             _invoke(["workspace", "add", "q-meta", "ATTN001"])
             _invoke(["workspace", "index", "q-meta", "--no-embed"])
@@ -600,7 +555,7 @@ class TestWorkspaceQueryMetadata:
         assert payload["data"]["results"] == []
 
     def test_query_top_k_must_be_positive(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "q-topk"])
             _invoke(["workspace", "add", "q-topk", "ATTN001"])
             _invoke(["workspace", "index", "q-topk", "--no-embed"])
@@ -610,7 +565,7 @@ class TestWorkspaceQueryMetadata:
 
 class TestWorkspaceDeleteVectorCleanup:
     def test_delete_drops_collection_and_prunes_empty_store(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "vec-del"])
             _invoke(["workspace", "add", "vec-del", "ATTN001"])
             _invoke(["workspace", "index", "vec-del", "--no-embed"])
@@ -623,7 +578,7 @@ class TestWorkspaceDeleteVectorCleanup:
 
 class TestWorkspaceImportCounts:
     def test_import_with_no_matches_warns_with_counts(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "imp-empty"])
             result = _invoke(["workspace", "import", "imp-empty", "--search", "zzzzqqqxxx999"], json_output=True)
         assert result.exit_code == 0, result.output
@@ -633,7 +588,7 @@ class TestWorkspaceImportCounts:
         assert "Warning" in result.output
 
     def test_import_success_envelope_has_no_would_add(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "imp-clean"])
             dry = _invoke(["workspace", "import", "imp-clean", "--search", "attention", "--dry-run"], json_output=True)
             result = _invoke(["workspace", "import", "imp-clean", "--search", "attention"], json_output=True)
@@ -649,7 +604,7 @@ class TestWorkspaceQueryReadSafety:
     def test_query_does_not_recreate_missing_vector_store(self, tmp_path):
         import shutil
 
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "q-nostore"])
             _invoke(["workspace", "add", "q-nostore", "ATTN001"])
             _invoke(["workspace", "index", "q-nostore", "--no-embed"])
@@ -665,7 +620,7 @@ class TestWorkspaceQueryReadSafety:
     def test_semantic_query_without_store_reports_degradation(self, tmp_path):
         import shutil
 
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "q-nostore2"])
             _invoke(["workspace", "add", "q-nostore2", "ATTN001"])
             _invoke(["workspace", "index", "q-nostore2", "--no-embed"])
@@ -684,7 +639,7 @@ class TestWorkspaceQueryReadSafety:
 
 class TestWorkspaceQueryRerankDegradation:
     def test_rerank_failure_is_reported_in_meta(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "rr-meta"])
             _invoke(["workspace", "add", "rr-meta", "ATTN001"])
             _invoke(["workspace", "index", "rr-meta", "--no-embed"])
@@ -722,7 +677,7 @@ class TestWorkspaceEmbedBounds:
     def test_permanent_provider_failure_fast_fails(self, tmp_path):
         import time
 
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             self._indexed_workspace("emb-fast")
             calls = {"count": 0}
 
@@ -746,7 +701,7 @@ class TestWorkspaceEmbedBounds:
     def test_global_deadline_bounds_retrying(self, tmp_path):
         import time
 
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             self._indexed_workspace("emb-deadline")
 
             def slow_failure(*_args: object, **_kwargs: object) -> None:
@@ -800,7 +755,7 @@ class TestWorkspaceDeleteVectorCleanupWithoutIndex:
     def test_delete_drops_collection_even_when_index_file_is_missing(self, tmp_path):
         from zotero_cli.workspace.rag.vector_store import QdrantVectorStore
 
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "vec-noindex"])
             store = QdrantVectorStore(tmp_path / "_qdrant", "ws_vec-noindex")
             try:
@@ -815,7 +770,7 @@ class TestWorkspaceDeleteVectorCleanupWithoutIndex:
         assert not (tmp_path / "_qdrant").exists()
 
     def test_delete_leaves_foreign_directory_untouched(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "vec-foreign"])
             foreign = tmp_path / "_qdrant"
             foreign.mkdir()
@@ -827,7 +782,7 @@ class TestWorkspaceDeleteVectorCleanupWithoutIndex:
         assert kept is True, "workspace delete must not prune an unowned directory"
 
     def test_delete_warns_but_proceeds_when_vector_cleanup_fails(self, tmp_path):
-        with _patch_workspace(tmp_path):
+        with isolate_workspace_backend(tmp_path):
             _invoke(["workspace", "new", "vec-warn"])
             with patch(
                 "zotero_cli.cli.commands.workspace.operations.drop_workspace_vector_collection",

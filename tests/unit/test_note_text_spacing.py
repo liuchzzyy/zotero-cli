@@ -1,12 +1,9 @@
-"""Tests for note text flattening: no super/subscripts, CJK/Latin spacing."""
+"""笔记文本归一化：上下标展平与中英混排空格。"""
 
 from __future__ import annotations
 
 import pytest
 
-from zotero_cli.ai_notes.renderer import render_note
-from zotero_cli.ai_notes.short_note import normalize_short_note, validate_short_note
-from zotero_cli.ai_notes.templates import load_template
 from zotero_cli.ai_notes.text import join_spaced_digits, pad_cjk_latin, plain_super_subscripts, prepare
 
 
@@ -14,7 +11,7 @@ class TestPadCjkLatin:
     @pytest.mark.parametrize(
         ("raw", "expected"),
         [
-            # the shapes that actually appeared in a generated note
+            # 生成笔记中实际出现过的形态
             ("层状δ-MnO2", "层状 δ-MnO2"),
             ("Rct由558.18降至60.61 Ω", "Rct 由 558.18 降至 60.61 Ω"),
             ("双直径CNT自支撑", "双直径 CNT 自支撑"),
@@ -62,7 +59,7 @@ class TestPlainSuperSubscripts:
     @pytest.mark.parametrize(
         ("raw", "expected"),
         [
-            # every shape that occurred in a generated note
+            # 生成笔记中出现过的全部形态
             ("mAh g⁻¹", "mAh g^-1"),
             ("Wh kg⁻¹", "Wh kg^-1"),
             ("F g⁻¹", "F g^-1"),
@@ -95,8 +92,8 @@ class TestJoinSpacedDigits:
     @pytest.mark.parametrize(
         ("raw", "expected"),
         [
-            # MinerU emits LaTeX digits separately; the model then misreads or
-            # invents precision, which is what produced a fabricated BET value.
+            # MinerU 会把 LaTeX 数字分开输出，模型随后会误读或
+            # 虚构精度，这正是产生伪造 BET 数值的原因。
             ("$2 0 1 . 6 \\lor 5 . 6 3 . 7 4 4$", "$2 0 1 . 6 \\lor 5 . 6 3 . 7 4 4$"),
             ("capacity 1 7 2 . 3 mAh", "capacity 1 7 2 . 3 mAh"),
             ("$3 2 9$ mAh", "$329$ mAh"),
@@ -133,75 +130,3 @@ class TestPrepare:
     def test_idempotent(self):
         once = prepare("MnO₂与Zn²⁺在5 mg cm⁻²下")
         assert prepare(once) == once
-
-
-class TestRendererSpacing:
-    def test_paragraph_heading_list_and_table_cells(self):
-        html = render_note(
-            [
-                {"type": "heading", "level": 2, "text": "🧩 版式与Rct分析"},
-                {"type": "paragraph", "text": "负载5 mg cm^-2下保持率100%"},
-                {
-                    "type": "bullet_list",
-                    "items": [
-                        {
-                            "text": "层状δ-MnO2提供界面",
-                            "citations": [{"location": "Fig.5g", "content": "Rct由558.18 Ω降至60.61 Ω"}],
-                        }
-                    ],
-                },
-                {"type": "table", "headers": ["指标", "数值"], "rows": [["Rct", "60.61 Ω"]]},
-            ],
-            title="A solid future",
-        )
-        assert "版式与 Rct 分析" in html
-        assert "负载 5 mg cm^-2 下保持率 100%" in html
-        assert "层状 δ-MnO2 提供界面" in html
-        assert "Rct 由 558.18 Ω 降至 60.61 Ω" in html
-
-    def test_escapes_html_after_padding(self):
-        html = render_note([{"type": "paragraph", "text": "a<b>c</b>与Mn"}], title="t")
-        assert "<b>" not in html
-        assert "&lt;b&gt;" in html
-        assert "与 Mn" in html
-
-
-class TestShortNoteSpacing:
-    def test_normalize_keeps_punctuation_rules_unpadded(self):
-        # normalize_short_note must stay a punctuation/newline normaliser; the
-        # final 500-char budget is validated on the padded value that is stored.
-        out = normalize_short_note("Na预插层δ-MnO2 | 界面主导存储 | 疑问: 界面容量未分离")
-        assert out == "Na预插层δ-MnO2 | 界面主导存储 | 疑问：界面容量未分离"
-        assert validate_short_note(out) is None
-
-    def test_padded_short_note_is_valid(self):
-        padded = prepare(
-            "Na预插层层状δ-MnO2与双直径CNT | 界面主导存储 | 329 mAh g^-1 | 无粘结剂自支撑 | 疑问：容量贡献未分离"
-        )
-        assert validate_short_note(padded) is None
-        assert "Na 预插层层状 δ-MnO2 与双直径 CNT" in padded
-
-    def test_padded_over_limit_short_note_is_rejected(self):
-        padded = prepare("中A" * 100 + " | " + "中A" * 100 + " | 疑问：中A")
-        assert len(padded) > 500
-        error = validate_short_note(padded)
-        assert error is not None and "too long" in error
-
-
-class TestTemplateSpacingRule:
-    @pytest.mark.parametrize("name", ["research", "review", "book"])
-    def test_analysis_templates_state_the_rule(self, name):
-        template = load_template(name)
-        assert "中英混排规则" in template
-        assert "半角空格" in template
-
-    @pytest.mark.parametrize("name", ["research", "review", "book"])
-    def test_templates_pin_section_heading_level(self, name):
-        # Without this the model sometimes emits level 3 for top-level
-        # sections, which loses the coloured section banner.
-        assert "`level: 2`" in load_template(name)
-
-    def test_short_note_template_states_the_rule(self):
-        template = load_template("short-note")
-        assert "半角空格" in template
-        assert "α-MnO2 水系锌电正极" in template

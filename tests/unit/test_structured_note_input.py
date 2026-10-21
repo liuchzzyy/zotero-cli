@@ -1,4 +1,4 @@
-"""Regression tests for one-request, source-labelled MinerU note evidence."""
+"""单次请求、带来源标注的 MinerU 笔记证据回归测试。"""
 
 from __future__ import annotations
 
@@ -113,9 +113,9 @@ def test_supported_routes_include_gpt_5_6_sol(tmp_path):
 
 
 def test_missing_si_image_is_skipped_not_fatal(tmp_path):
-    # Missing SI image should be marked skipped, not abort the plan
+    # 缺失的补充材料图片应标记为跳过，而不是中断整个计划
     si = _parse(tmp_path, "si", [{"type": "image", "img_path": "images/0.jpg", "page_idx": 0}], image_count=1)
-    # Remove the created image file to simulate missing SI image on disk
+    # 删除已创建的图片文件，模拟磁盘上缺少补充材料图片
     (si.root / "raw" / "images" / "0.jpg").unlink()
     main = _parse(tmp_path, "main", [{"type": "text", "text": "body", "page_idx": 0}])
     evidence = build_evidence([("MAIN", "main", main), ("SI", "supplementary", si)])
@@ -180,9 +180,9 @@ def test_image_block_without_a_path_is_rejected_at_build_time(tmp_path):
 
 
 def test_degenerate_spacer_image_is_skipped_and_reported_not_fatal(tmp_path):
-    # MinerU emits 1x1 spacers; a 151 px panel is ~4 kB, so only sub-kilobyte
-    # files are treated as degenerate. Dropping one must be announced, and it
-    # must never abort an otherwise usable analysis.
+    # MinerU 会输出 1x1 的占位图；151 px 的分图约 4 kB，因此只有不足 1 kB 的
+    # 文件才被视为退化产物。丢弃时必须显式告知，并且
+    # 绝不能中断本可正常使用的分析。
     parsed = _parse(tmp_path, "m", [{"type": "image", "img_path": "images/0.jpg", "page_idx": 0}], image_count=0)
     normal = parsed.root / "raw" / "images" / "0.jpg"
     normal.write_bytes(b"\xff\xd8\xff" + b"a" * 5000)

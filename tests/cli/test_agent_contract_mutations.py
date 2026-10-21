@@ -1,4 +1,4 @@
-"""P1 tests: dry-run coverage, idempotency, meta slot, safety tiers, next hints."""
+"""写入类命令的代理契约：试运行覆盖、幂等、next 提示与重试标记。"""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ class TestDryRunCoverage:
         assert env["data"]["would"]["parent"] == "ABC123"
         assert env["data"]["would"]["size_bytes"] == 4
 
-    def test_delete_dry_run(self):
+    def test_delete_dry_run_emits_machine_envelope(self):
         result = _run(["zotero", "delete", "A", "B", "--dry-run"], env=self.WRITE_ENV)
         env = json.loads(result.output)
         assert env["ok"] is True
@@ -104,11 +104,11 @@ class TestIdempotency:
         args = ["zotero", "update", "ABC", "--title", "T", "--idempotency-key", "k1"]
         first = _run(args, env=env)
         second = _run(args, env=env)
-        # First call hits the writer; second call short-circuits.
+        # 第一次调用会真正落到写入器；第二次调用直接短路返回。
         assert mock_writer_cls.return_value.update_item.call_count == 1
         env_first = json.loads(first.output)
         env_second = json.loads(second.output)
-        # Cached envelope: request_id is the original one.
+        # 命中缓存时，返回的 envelope 仍使用最初的 request_id。
         assert env_second["meta"]["request_id"] == env_first["meta"]["request_id"]
         assert env_second["data"]["key"] == "ABC"
 

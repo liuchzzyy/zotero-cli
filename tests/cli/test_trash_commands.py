@@ -1,4 +1,4 @@
-"""Tests for trash management (list and restore)."""
+"""回收站管理（列出与恢复）测试。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
-from tests.support import FIXTURES_DIR
+from tests.support import SAMPLE_DATA_DIR
 from tests.support import invoke_cli as _invoke
 
 from zotero_cli.zotero.reader import ZoteroReader
@@ -18,7 +18,7 @@ _WRITE_ENV = {"ZOT_LIBRARY_ID": "123", "ZOT_API_KEY": "fake"}
 
 class TestTrashReader:
     def test_get_trash_items_returns_trashed(self):
-        reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite")
+        reader = ZoteroReader(SAMPLE_DATA_DIR / "zotero.sqlite")
         try:
             items = reader.get_trash_items(limit=50)
             assert len(items) >= 1
@@ -28,7 +28,7 @@ class TestTrashReader:
             reader.close()
 
     def test_get_trash_items_excludes_non_trashed(self):
-        reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite")
+        reader = ZoteroReader(SAMPLE_DATA_DIR / "zotero.sqlite")
         try:
             items = reader.get_trash_items(limit=50)
             keys = [i.key for i in items]
@@ -37,7 +37,7 @@ class TestTrashReader:
             reader.close()
 
     def test_get_trash_items_respects_limit(self):
-        reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite")
+        reader = ZoteroReader(SAMPLE_DATA_DIR / "zotero.sqlite")
         try:
             items = reader.get_trash_items(limit=0)
             assert len(items) == 0
@@ -45,7 +45,7 @@ class TestTrashReader:
             reader.close()
 
     def test_get_trash_items_has_full_item_data(self):
-        reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite")
+        reader = ZoteroReader(SAMPLE_DATA_DIR / "zotero.sqlite")
         try:
             items = reader.get_trash_items(limit=50)
             trashed = [i for i in items if i.key == "TRSH007"][0]
@@ -74,7 +74,7 @@ class TestTrashWriter:
         assert kwargs["json"] == {"deleted": 0}
         assert kwargs["headers"]["If-Unmodified-Since-Version"] == "19"
         assert kwargs["headers"]["Authorization"] == "Bearer abc"
-        # RESTORE must not go through pyzotero update_item (it rejects 'deleted').
+        # 恢复操作不得走 pyzotero 的 update_item（它会拒绝 deleted 字段）。
         mock_zot.update_item.assert_not_called()
 
     @patch("zotero_cli.zotero.writer.zotero.Zotero")

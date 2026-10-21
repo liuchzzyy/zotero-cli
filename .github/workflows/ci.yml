@@ -33,14 +33,14 @@ jobs:
           enable-cache: true
       - name: Install dev environment
         run: uv sync --dev --python 3.12
-      - name: Install zsh (paperrag integration tests)
+      - name: Install zsh (completions subprocess tests)
         run: sudo apt-get update -qq && sudo apt-get install -y -qq zsh
       - name: Ruff lint
         run: uv run ruff check .
       - name: Ruff format check
         run: uv run ruff format --check .
       - name: Type check
-        run: uv run python -m mypy src/zotero_cli tools --exclude '(^|/)test_[^/]*\.py$'
+        run: uv run ty check
       - name: Test suite
         run: uv run pytest -q -rf
       - name: Build wheel and sdist

@@ -1,4 +1,4 @@
-"""Version guards prevent stale derived metadata from overwriting current edits."""
+"""版本护栏阻止过期的派生元数据覆盖当前编辑。"""
 
 from __future__ import annotations
 

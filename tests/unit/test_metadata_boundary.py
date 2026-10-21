@@ -1,4 +1,4 @@
-"""Crossref responses and DOI wire identifiers must survive boundary validation."""
+"""Crossref 响应与 DOI 传输标识必须原样通过边界校验。"""
 
 from __future__ import annotations
 

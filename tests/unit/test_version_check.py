@@ -1,4 +1,4 @@
-"""Tests for the version check module (lazy cache path and opt-out hardening)."""
+"""版本检查模块测试（惰性缓存路径与可关闭加固）。"""
 
 from __future__ import annotations
 

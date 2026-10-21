@@ -75,7 +75,7 @@ evidence of the wrong repository — do not "restore" a docs tree.
   (0 failed, 0 skipped). A docs update must not describe skipped tests,
   platform-conditional skips, or known failures as normal; if a test is
   skipped, that is a regression to fix in code, not something to document.
-- **CI exists.** `.github/workflows/ci.yml` runs lint, format check, mypy, the
+- **CI exists.** `.github/workflows/ci.yml` runs lint, format check, `ty check`, the
   full test suite, and wheel/sdist build on Python 3.12 only; a weekly/manual
   best-effort `pip-audit` job is network-dependent and non-blocking. Do not
   document "no CI" or a hard dependency-audit gate. The project supports only

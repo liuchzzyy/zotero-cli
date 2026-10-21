@@ -1,4 +1,4 @@
-"""Reader library/trash boundaries, exercised only on temporary SQLite fixtures."""
+"""读取器的文库与回收站边界，仅在临时 SQLite 夹具上验证。"""
 
 from __future__ import annotations
 
@@ -171,7 +171,7 @@ def test_child_reads_exclude_deleted_children_or_parent(scope_db: Path, method: 
 
 
 def test_default_library_never_returns_group_items(scope_db: Path) -> None:
-    """M-02: the default user-library reader must not leak group-library rows."""
+    """默认用户文库读取器不得泄漏群组文库的行。"""
     with ZoteroReader(scope_db) as reader:
         assert reader.get_item("GROUP001") is None
         assert {item.title for item in reader.search("", limit=100).items} == {"Scope paper 1", "Scope paper 3"}
@@ -180,14 +180,14 @@ def test_default_library_never_returns_group_items(scope_db: Path) -> None:
 
 
 def test_v130_fulltext_cache_search_finds_attachment_text(scope_db: Path) -> None:
-    """C-01: v130 databases resolve full text through .zotero-ft-cache files."""
+    """v130 数据库通过 .zotero-ft-cache 文件解析全文。"""
     with ZoteroReader(scope_db, library_id=1) as reader:
         result = reader.search("fulltext-only", limit=10)
         assert [item.title for item in result.items] == ["Scope paper 1", "Scope paper 3"]
 
 
 def test_schema_mismatch_guard_rejects_unknown_future_schema(tmp_path: Path) -> None:
-    """H-09: unsupported userdata schemas fail with a clear ZoteroSchemaError."""
+    """不支持的 userdata schema 以明确的 ZoteroSchemaError 失败。"""
     db_path = tmp_path / "future.sqlite"
     with sqlite3.connect(db_path) as conn:
         conn.executescript("""

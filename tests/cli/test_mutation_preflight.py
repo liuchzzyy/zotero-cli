@@ -1,4 +1,4 @@
-"""Validate complete mutation requests before constructing a writer."""
+"""在构造写入器之前完成对写入请求的完整校验。"""
 
 from __future__ import annotations
 

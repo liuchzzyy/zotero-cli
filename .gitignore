@@ -6,17 +6,17 @@ __pycache__/
 dist/
 build/
 .pytest_cache/
-.mypy_cache/
 .ruff_cache/
+.ty_cache/
 .coverage
+.coverage.*
+htmlcov/
 # Docs build output
 site/
 # Internal dev docs (plans, specs)
 docs/superpowers/
 docs/gap-analysis.md
 plan/
-logs/
-log/
 .vscode/
 my-docs/
 .sisyphus/

@@ -15,17 +15,17 @@ from typing import NoReturn
 import pytest
 from click.testing import CliRunner
 
-from tests.support import FIXTURES_DIR, REPO_ROOT
+from tests.support import REPO_ROOT, SAMPLE_DATA_DIR
 from zotero_cli.config import AppConfig
 
 
 @pytest.fixture(autouse=True)
 def isolate_test_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep tests deterministic and disconnected from the user's live services."""
+    """让测试保持确定性，并断开与用户真实服务的连接。"""
     for name in tuple(os.environ):
         if name.startswith("ZOT_"):
             monkeypatch.delenv(name)
-    monkeypatch.setenv("ZOT_DATA_DIR", str(FIXTURES_DIR))
+    monkeypatch.setenv("ZOT_DATA_DIR", str(SAMPLE_DATA_DIR))
     monkeypatch.setenv("ZOT_FORMAT", "table")
     for name in (
         "ZOT_LIBRARY_ID",
@@ -42,15 +42,15 @@ def isolate_test_environment(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    """Derive test tier markers from the directory structure."""
+    """按目录结构推导测试层级标记。"""
     for item in items:
         path = Path(str(item.path))
         if "unit" in path.parts:
             item.add_marker(pytest.mark.unit)
         elif "cli" in path.parts:
             item.add_marker(pytest.mark.cli)
-        elif "integration" in path.parts:
-            item.add_marker(pytest.mark.integration)
+        elif "workflows" in path.parts:
+            item.add_marker(pytest.mark.workflows)
 
 
 @pytest.fixture
@@ -59,8 +59,8 @@ def repo_root() -> Path:
 
 
 @pytest.fixture
-def fixtures_dir() -> Path:
-    return FIXTURES_DIR
+def sample_data_dir() -> Path:
+    return SAMPLE_DATA_DIR
 
 
 @pytest.fixture
@@ -70,7 +70,7 @@ def cli_runner() -> CliRunner:
 
 @pytest.fixture
 def test_db_path() -> Path:
-    return FIXTURES_DIR / "zotero.sqlite"
+    return SAMPLE_DATA_DIR / "zotero.sqlite"
 
 
 @pytest.fixture
@@ -78,14 +78,9 @@ def test_config(test_db_path: Path) -> AppConfig:
     return AppConfig(data_dir=str(test_db_path.parent))
 
 
-@pytest.fixture
-def test_data_dir() -> Path:
-    return FIXTURES_DIR
-
-
 @pytest.fixture(autouse=True)
 def block_live_services(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Require every service test to replace its network boundary explicitly."""
+    """要求每个服务测试显式替换其网络边界。"""
 
     def reject_connection(*_args: object, **_kwargs: object) -> NoReturn:
         raise RuntimeError("Live network access disabled in tests; mock the service boundary")
@@ -96,7 +91,7 @@ def block_live_services(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def isolate_runtime_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Keep default config, retry caches and workspaces away from real research state."""
+    """让默认配置、重试缓存与工作区远离真实研究状态。"""
     from zotero_cli import config
     from zotero_cli.cli.app import version_check
     from zotero_cli.workspace import store as workspace

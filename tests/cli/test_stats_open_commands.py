@@ -1,4 +1,4 @@
-"""Tests for stats and open commands."""
+"""`stats` 与 `open` 子命令测试。"""
 
 from __future__ import annotations
 
@@ -73,7 +73,7 @@ class TestOpenCmd:
 
     def test_open_url_no_url(self, test_db_path: Path):
         runner = CliRunner()
-        # DEEP003 is a book, might not have URL - test the error path
+        # DEEP003 是图书，可能没有 URL——用它覆盖错误分支
         result = runner.invoke(
             main,
             ["zotero", "open", "--url", "DEEP003"],
@@ -100,7 +100,7 @@ class TestGetStats:
 
 
 class TestOpenPath:
-    """M-20: no shell invocation; Windows uses os.startfile."""
+    """不经过 shell 调用；Windows 上使用 os.startfile。"""
 
     def test_win32_uses_os_startfile(self, monkeypatch):
         import os

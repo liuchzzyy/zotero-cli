@@ -18,7 +18,7 @@ _WRITE_ENV = {"ZOT_LIBRARY_ID": "abc", "ZOT_API_KEY": "xyz"}
 
 
 def test_delete_no_interaction_requires_yes():
-    """--no-interaction never implies --yes for destructive commands (H-05)."""
+    """对破坏性命令而言 `--no-interaction` 绝不等于 `--yes`。"""
     runner = CliRunner()
     result = runner.invoke(main, ["--json", "--no-interaction", "zotero", "delete", "FAKEKEY"], env=_WRITE_ENV)
     assert result.exit_code == 3
@@ -28,7 +28,7 @@ def test_delete_no_interaction_requires_yes():
 
 
 def test_delete_no_interaction_hoisted_after_subcommand():
-    """The global --no-interaction flag is hoisted from after the subcommand too."""
+    """全局 `--no-interaction` 也能从子命令之后被上提。"""
     runner = CliRunner()
     result = runner.invoke(main, ["--json", "zotero", "delete", "FAKEKEY", "--no-interaction"], env=_WRITE_ENV)
     assert result.exit_code == 3
@@ -54,7 +54,7 @@ def test_verbose_flag_hoisted_after_subcommand():
 
 
 def test_config_init_no_interaction_succeeds_with_auto_detect(tmp_path):
-    """--no-interaction + config init without args should succeed with auto-detected values."""
+    """`--no-interaction` 下无参数执行 config init 应使用自动探测值成功。"""
     runner = CliRunner()
     result = runner.invoke(main, ["--no-interaction", "config", "init", "--config-path", str(tmp_path / "config.toml")])
     assert result.exit_code == 0
@@ -63,7 +63,7 @@ def test_config_init_no_interaction_succeeds_with_auto_detect(tmp_path):
 
 
 def test_config_init_no_interaction_with_options(tmp_path):
-    """--no-interaction + config init with all args should succeed."""
+    """`--no-interaction` 下带全部参数执行 config init 应成功。"""
     config_file = tmp_path / "config.toml"
     runner = CliRunner()
     result = runner.invoke(
@@ -120,7 +120,7 @@ def test_cache_clear_requires_yes_or_dry_run(tmp_path):
 
 
 def test_detail_missing_value_reports_flag_error_without_swallowing_tokens(test_db_path):
-    """A bare --detail must not eat --json or the subcommand token (M-07)."""
+    """裸 `--detail` 不得吞掉 `--json` 或子命令记号。"""
     env = {"ZOT_DATA_DIR": str(test_db_path.parent)}
     runner = CliRunner()
     for args in (
@@ -134,7 +134,7 @@ def test_detail_missing_value_reports_flag_error_without_swallowing_tokens(test_
         assert envelope["error"]["code"] == "validation_error"
         message = envelope["error"]["message"]
         assert "detail" in message
-        # The subcommand name must not be reported as the bad --detail value.
+        # 子命令名不得被当作错误的 --detail 值上报。
         assert "'list'" not in message, message
 
 
@@ -151,5 +151,5 @@ def test_profile_list_no_profiles():
     runner = CliRunner()
     result = runner.invoke(main, ["config", "profile", "list"])
     assert result.exit_code == 0
-    # The autouse fixture isolates config to an empty temp file, so there are no profiles.
+    # 自动夹具把配置隔离到空的临时文件，因此不存在任何配置档。
     assert "No profiles configured" in result.output

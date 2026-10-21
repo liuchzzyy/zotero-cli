@@ -1,3 +1,5 @@
+"""`add`/`update`/`delete` 子命令的写入路径与拒绝语义。"""
+
 from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
@@ -25,7 +27,7 @@ def test_add_by_doi(mock_writer_cls, mock_resolve):
     assert result.exit_code == 0
     assert "NEW001" in result.output
     mock_resolve.assert_called_once_with("10.1234/test")
-    # Resolved fields should be forwarded into the writer.
+    # 解析出的字段应被转发给写入器。
     kwargs = mock_writer.add_item.call_args.kwargs
     assert kwargs["doi"] == "10.1234/test"
     assert kwargs["extra_fields"]["title"] == "Resolved Title"
@@ -58,8 +60,8 @@ def test_add_by_doi_resolver_404_falls_back(mock_writer_cls, mock_resolve):
     assert result.exit_code == 0  # bare item is still created
     assert mock_writer.add_item.call_args.kwargs["extra_fields"] is None
     assert "no record" in result.output.lower() or "no record" in result.stderr.lower() or True
-    # stderr capture is implementation-dependent in CliRunner; we just confirm
-    # the item was still created and the writer call did not receive metadata.
+    # CliRunner 对 stderr 的捕获依赖实现，这里只确认
+    # 条目仍然被创建，且写入器调用没有收到元数据。
 
 
 @patch("zotero_cli.cli.commands.zotero.add.resolve_doi")
@@ -91,9 +93,9 @@ def test_delete_with_confirm(mock_writer_cls):
 
 @patch("zotero_cli.cli.commands.zotero.delete.ZoteroWriter")
 def test_delete_without_confirm(mock_writer_cls):
-    # Without --yes on non-tty stdin (CliRunner uses StringIO), `delete` refuses
-    # the operation and exits EXIT_VALIDATION (3) — guards against unattended
-    # destructive deletes. Confirmation flow is exercised in interactive tests.
+    # 非 TTY 的 stdin（CliRunner 使用 StringIO）下不带 --yes 时，`delete` 会拒绝
+    # 该操作并以 EXIT_VALIDATION (3) 退出——用于防止无人值守场景下的
+    # 执行破坏性删除。确认流程在交互式测试中覆盖。
     runner = CliRunner()
     result = runner.invoke(main, ["zotero", "delete", "K1"], input="n\n", env=WRITE_ENV)
     assert result.exit_code == 3

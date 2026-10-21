@@ -1,10 +1,10 @@
-"""Tests for the recent command."""
+"""`zotero recent` 子命令测试。"""
 
 from __future__ import annotations
 
 import json
 
-from tests.support import FIXTURES_DIR
+from tests.support import SAMPLE_DATA_DIR
 from tests.support import invoke_cli as _invoke
 
 from zotero_cli.zotero.reader import ZoteroReader
@@ -12,29 +12,29 @@ from zotero_cli.zotero.reader import ZoteroReader
 
 class TestRecent:
     def test_recent_default(self):
-        """Recent with no args returns items sorted by dateAdded desc."""
+        """不带参数时按 dateAdded 降序返回条目。"""
         result = _invoke(["zotero", "recent"], json_output=True)
         assert result.exit_code == 0
         data = json.loads(result.output)["data"]
-        # Default 7 days - test items from 2024 won't match
+        # 默认 7 天时间窗——夹具条目均来自 2024 年，因此匹配不到
         assert isinstance(data, list)
 
     def test_recent_days_zero(self):
-        """--days 0 returns nothing (test items are from 2024)."""
+        """`--days 0` 返回空结果（夹具条目均来自 2024 年）。"""
         result = _invoke(["zotero", "recent", "--days", "0"], json_output=True)
         assert result.exit_code == 0
         data = json.loads(result.output)["data"]
         assert len(data) == 0
 
     def test_recent_large_window(self):
-        """--days 9999 returns all items."""
+        """`--days 9999` 返回全部条目。"""
         result = _invoke(["zotero", "recent", "--days", "9999"], json_output=True)
         assert result.exit_code == 0
         data = json.loads(result.output)["data"]
         assert len(data) >= 3
 
     def test_recent_large_window_sorted(self):
-        """Items returned sorted by dateAdded desc."""
+        """返回的条目按 dateAdded 降序排列。"""
         result = _invoke(["zotero", "recent", "--days", "9999"], json_output=True)
         assert result.exit_code == 0
         data = json.loads(result.output)["data"]
@@ -42,7 +42,7 @@ class TestRecent:
         assert dates == sorted(dates, reverse=True)
 
     def test_recent_modified(self):
-        """--modified sorts by dateModified."""
+        """`--modified` 改为按 dateModified 排序。"""
         result = _invoke(["zotero", "recent", "--modified", "--days", "9999"], json_output=True)
         assert result.exit_code == 0
         data = json.loads(result.output)["data"]
@@ -60,7 +60,7 @@ class TestRecent:
         assert "No items" in result.output
 
     def test_reader_get_recent_items(self):
-        reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite")
+        reader = ZoteroReader(SAMPLE_DATA_DIR / "zotero.sqlite")
         try:
             items = reader.get_recent_items(since="2000-01-01", limit=50)
             assert len(items) >= 3

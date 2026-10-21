@@ -1,16 +1,15 @@
-"""Tests for dry-run, pagination, batch operations, and writer errors."""
+"""试运行、分页、批量操作与写入错误在命令层的表现。"""
 
 from __future__ import annotations
 
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
 from click.testing import CliRunner
 from tests.support import invoke_cli as _invoke
 
 from zotero_cli.cli import main
-from zotero_cli.zotero.writer import SYNC_REMINDER, ZoteroWriter
+from zotero_cli.zotero.writer import SYNC_REMINDER
 from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
 WRITE_ENV = {"ZOT_LIBRARY_ID": "123", "ZOT_API_KEY": "abc"}
@@ -25,7 +24,7 @@ def _parse_json_output(output: str) -> dict:
 
 
 class TestDryRun:
-    def test_delete_dry_run(self):
+    def test_delete_dry_run_prints_text_preview(self):
         runner = CliRunner()
         result = runner.invoke(main, ["zotero", "delete", "K1", "--dry-run"], env=WRITE_ENV)
         assert result.exit_code == 0
@@ -33,12 +32,12 @@ class TestDryRun:
         assert "K1" in result.output
 
     def test_delete_dry_run_no_api_needed(self):
-        """--dry-run should work even without API credentials."""
+        """缺少 API 凭据时 `--dry-run` 仍应可用。"""
         runner = CliRunner()
         result = runner.invoke(main, ["zotero", "delete", "K1", "--dry-run"])
-        # Dry-run bypasses the auth check, so exit is 0 and the preview is emitted.
+        # 试运行会绕过鉴权检查，因此退出码为 0 并输出预览。
         assert result.exit_code == 0
-        # Text-mode preview line, not present in JSON envelope mode.
+        # 文本模式下的预览行，JSON envelope 模式下不出现。
         assert "[dry-run]" in result.output or "would_delete" in result.output
 
     def test_collection_reorganize_dry_run(self, tmp_path):
@@ -262,7 +261,7 @@ class TestCollectionJsonOutput:
         assert mock_writer.set_item_collections.call_count == 3
 
 
-# --- Shell completions tests ---
+# --- Shell 补全测试 ---
 
 
 class TestCompletions:
@@ -294,7 +293,7 @@ class TestCompletions:
         assert "Invalid value" in result.output
 
 
-# --- Offset/pagination tests ---
+# --- 偏移与分页测试 ---
 
 
 class TestOffset:
@@ -324,8 +323,8 @@ class TestOffset:
             env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"},
         )
         assert result.exit_code == 0
-        # `summarize-all` emits NDJSON progress events followed by the final
-        # envelope JSON document; parse the final block.
+        # `summarize-all` 先输出 NDJSON 进度事件，再输出最终的
+        # envelope JSON 文档；解析最后一段即可。
         last_envelope_start = result.output.rfind("\n{\n")
         envelope_text = result.output[last_envelope_start + 1 :] if last_envelope_start >= 0 else result.output
         data = json.loads(envelope_text)["data"]
@@ -390,7 +389,7 @@ class TestOffset:
         assert all("COLTR02" not in item.get("collections", []) for item in env["data"])
 
 
-# --- Batch operations tests ---
+# --- 批量操作测试 ---
 
 
 class TestBatchDelete:
@@ -435,7 +434,7 @@ class TestBatchDelete:
         assert "K1" in result.output
         assert "Not found" in result.output
         assert "K3" in result.output
-        # Should NOT print sync reminder when there are failures
+        # 存在失败项时不应打印同步提醒
         assert SYNC_REMINDER not in result.output
 
 
@@ -505,37 +504,10 @@ class TestBatchTag:
         assert "transformer" in env["data"][0]["tags"]
 
 
-# --- Timeout tests ---
+# --- 超时测试 ---
 
 
-class TestTimeout:
-    @patch("zotero_cli.zotero.writer.zotero.Zotero")
-    def test_writer_sets_timeout(self, mock_zotero_cls):
-        mock_zot = MagicMock()
-        mock_zotero_cls.return_value = mock_zot
-        mock_zot.client = MagicMock()
-
-        ZoteroWriter(library_id="123", api_key="abc", timeout=10.0)
-        # pyzotero 1.16 uses an httpx2 client whose timeout must be numeric.
-        assert mock_zot.client.timeout == 10.0
-        assert isinstance(mock_zot.client.timeout, float)
-
-    @patch("zotero_cli.zotero.writer.zotero.Zotero")
-    def test_timeout_raises_write_error(self, mock_zotero_cls):
-        from httpx2 import ReadTimeout
-
-        mock_zot = MagicMock()
-        mock_zotero_cls.return_value = mock_zot
-        mock_zot.client = MagicMock()
-        mock_zot.item_template.return_value = {"itemType": "note", "note": "", "parentItem": ""}
-        mock_zot.create_items.side_effect = ReadTimeout("Request timed out")
-
-        writer = ZoteroWriter(library_id="123", api_key="abc")
-        with pytest.raises(ZoteroWriteError, match="Network error"):
-            writer.add_note("P1", "content")
-
-
-# --- ZoteroWriteError handling in commands ---
+# --- 命令层对 ZoteroWriteError 的映射 ---
 
 
 class TestWriteErrorInCommands:

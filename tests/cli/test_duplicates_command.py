@@ -1,4 +1,4 @@
-"""Tests for duplicate detection."""
+"""重复条目检测测试。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import sqlite3
 from pathlib import Path
 from unittest.mock import patch
 
-from tests.support import FIXTURES_DIR
+from tests.support import SAMPLE_DATA_DIR
 from tests.support import invoke_cli as _invoke
 
 from zotero_cli.zotero.reader import ZoteroReader
@@ -16,7 +16,7 @@ from zotero_cli.zotero.reader import ZoteroReader
 
 class TestDuplicateReader:
     def test_find_duplicates_doi(self):
-        reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite")
+        reader = ZoteroReader(SAMPLE_DATA_DIR / "zotero.sqlite")
         try:
             groups = reader.find_duplicates(strategy="doi")
             assert len(groups) >= 1
@@ -29,10 +29,10 @@ class TestDuplicateReader:
             reader.close()
 
     def test_find_duplicates_title(self):
-        reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite")
+        reader = ZoteroReader(SAMPLE_DATA_DIR / "zotero.sqlite")
         try:
             groups = reader.find_duplicates(strategy="title", threshold=0.7)
-            # ATTN001 and DUPE008 have very similar titles
+            # ATTN001 与 DUPE008 的标题非常相似
             found = False
             for g in groups:
                 keys = {i.key for i in g.items}
@@ -45,7 +45,7 @@ class TestDuplicateReader:
             reader.close()
 
     def test_find_duplicates_both(self):
-        reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite")
+        reader = ZoteroReader(SAMPLE_DATA_DIR / "zotero.sqlite")
         try:
             groups = reader.find_duplicates(strategy="both")
             assert len(groups) >= 1
@@ -53,7 +53,7 @@ class TestDuplicateReader:
             reader.close()
 
     def test_find_duplicates_no_matches(self):
-        reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite")
+        reader = ZoteroReader(SAMPLE_DATA_DIR / "zotero.sqlite")
         try:
             groups = reader.find_duplicates(strategy="doi", limit=0)
             assert len(groups) == 0
@@ -61,7 +61,7 @@ class TestDuplicateReader:
             reader.close()
 
     def test_find_duplicates_respects_limit(self):
-        reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite")
+        reader = ZoteroReader(SAMPLE_DATA_DIR / "zotero.sqlite")
         try:
             groups = reader.find_duplicates(strategy="both", limit=1)
             assert len(groups) <= 1
@@ -69,9 +69,9 @@ class TestDuplicateReader:
             reader.close()
 
     def test_title_matches_with_conflicting_dois_are_not_duplicates(self, tmp_path):
-        """Different DOI records with similar titles must not be auto-cleaned."""
+        """标题相似但 DOI 不同的记录不得被自动清理。"""
         db_path = tmp_path / "zotero.sqlite"
-        shutil.copy2(FIXTURES_DIR / "zotero.sqlite", db_path)
+        shutil.copy2(SAMPLE_DATA_DIR / "zotero.sqlite", db_path)
         with sqlite3.connect(db_path) as conn:
             different_doi_value_id = conn.execute(
                 "SELECT id.valueID FROM itemData id "
@@ -93,7 +93,7 @@ class TestDuplicateReader:
             reader.close()
 
     def test_find_duplicates_stops_after_doi_limit(self):
-        reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite")
+        reader = ZoteroReader(SAMPLE_DATA_DIR / "zotero.sqlite")
         try:
             with patch("zotero_cli.zotero.reader.SequenceMatcher") as matcher:
                 groups = reader.find_duplicates(strategy="both", limit=1)
@@ -118,22 +118,21 @@ class TestDuplicatesCLI:
         assert "ATTN001" in result.output or "DUPE008" in result.output
 
     def test_duplicates_by_title(self):
-        # Default 0.85 threshold may not match; lower it for this fixture.
+        # 默认 0.85 阈值可能匹配不到，这里针对该夹具调低阈值。
         result = _invoke(["zotero", "duplicates", "--by", "title", "--threshold", "0.7"], json_output=True)
         assert result.exit_code != 0
 
 
-# --- H-10: duplicate detection scoping and complexity (reader-level) ---
+# --- 重复检测的范围与复杂度（读取器层） ---
 
 
 def test_find_duplicates_may_include_trashed_items(tmp_path: Path) -> None:
-    """M-01: find_duplicates keeps the documented mixed trash scoping.
+    """find_duplicates 保持文档约定的混合回收站范围。
 
-    Trashed items are not filtered out of the duplicate candidate set, so a
-    trashed copy can still appear in a duplicate group.
+    回收站中的条目不会被排除在重复候选集之外，因此已删除的副本仍可能出现在重复分组里。
     """
     db_path = tmp_path / "zotero.sqlite"
-    shutil.copy2(FIXTURES_DIR / "zotero.sqlite", db_path)
+    shutil.copy2(SAMPLE_DATA_DIR / "zotero.sqlite", db_path)
     with sqlite3.connect(db_path) as conn:
         conn.execute("INSERT INTO deletedItems (itemID) VALUES (8)")  # DUPE008
     with ZoteroReader(db_path) as reader:
@@ -146,20 +145,20 @@ def test_find_duplicates_may_include_trashed_items(tmp_path: Path) -> None:
 
 
 def test_find_duplicates_scoped_to_requested_library() -> None:
-    """Group-library rows must not create duplicates in the default library view."""
-    with ZoteroReader(FIXTURES_DIR / "zotero.sqlite") as reader:
+    """群组文库的行不得在默认文库视图中产生重复。"""
+    with ZoteroReader(SAMPLE_DATA_DIR / "zotero.sqlite") as reader:
         groups = reader.find_duplicates(strategy="both")
         assert all("GRPITM09" not in {item.key for item in group.items} for group in groups)
-    with ZoteroReader(FIXTURES_DIR / "zotero.sqlite", library_id=2) as reader:
+    with ZoteroReader(SAMPLE_DATA_DIR / "zotero.sqlite", library_id=2) as reader:
         assert reader.find_duplicates(strategy="both") == []
 
 
 def test_find_duplicates_uses_blocking_instead_of_full_scan(tmp_path: Path, monkeypatch) -> None:
-    """Blocking keeps SequenceMatcher calls far below the quadratic baseline."""
+    """分块策略把 SequenceMatcher 调用次数压到远低于二次方基线。"""
     from zotero_cli.zotero import reader as reader_module
 
     db_path = tmp_path / "zotero.sqlite"
-    shutil.copy2(FIXTURES_DIR / "zotero.sqlite", db_path)
+    shutil.copy2(SAMPLE_DATA_DIR / "zotero.sqlite", db_path)
     with sqlite3.connect(db_path) as conn:
         for table in ("itemData", "itemDataValues", "items"):
             conn.execute(f"DELETE FROM {table}")
@@ -171,7 +170,7 @@ def test_find_duplicates_uses_blocking_instead_of_full_scan(tmp_path: Path, monk
             rows.append((item_id, 2, 1, f"SYN{index:07d}", "2024-01-01", "2024-01-02"))
             values.append((100000 + index, f"Unique research topic number {index}"))
             data.append((item_id, 4, 100000 + index))
-        # One genuine near-duplicate pair.
+        # 一对真实的近似重复记录。
         rows.append((3000, 2, 1, "SYNPAIR1", "2024-01-01", "2024-01-02"))
         rows.append((3001, 2, 1, "SYNPAIR2", "2024-01-01", "2024-01-02"))
         values.append((200000, "Deep learning methods for battery materials"))

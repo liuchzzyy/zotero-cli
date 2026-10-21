@@ -1,4 +1,4 @@
-"""Regression guards for RAG input alignment and bounded chunking."""
+"""RAG 输入对齐与分块上限的回归防护。"""
 
 from __future__ import annotations
 
@@ -185,7 +185,7 @@ def test_reranker_still_accepts_fully_unindexed_scores() -> None:
 
 @pytest.mark.parametrize("overlap", [8, 9])
 def test_cascade_chunk_rejects_nonprogressing_overlap_before_character_split(overlap: int) -> None:
-    # Guard the dangerous boundary so a regression cannot hang the pytest process.
+    # 守住危险边界，避免回归时把 pytest 进程挂死。
     with patch(
         "zotero_cli.workspace.rag.chunking._chunk_by_char", side_effect=AssertionError("unsafe character split")
     ):

@@ -1,9 +1,8 @@
-"""Offline pyzotero-1.16 boundary contract tests for ZoteroWriter.
+"""ZoteroWriter 对 pyzotero 1.16 的离线边界契约测试。
 
-The pyzotero upgrade changes the client transport (httpx2), the timeout type,
-the create/upload response shapes, and the item-template behavior. These tests
-pin the ZoteroWriter side of that boundary with mocks only - no network, no
-Zotero library access.
+pyzotero 升级改变了客户端传输层（httpx2）、超时类型、创建与上传的响应结构，
+以及条目模板行为。这些测试只用 mock 固定该边界在 ZoteroWriter 一侧的表现——
+不发起网络请求，也不访问真实 Zotero 文库。
 """
 
 from __future__ import annotations
@@ -35,11 +34,11 @@ def writer(mock_zotero: MagicMock) -> ZoteroWriter:
     return ZoteroWriter("123", "secret")
 
 
-# --- client timeout (pyzotero 1.16 / httpx2) --------------------------------
+# --- 客户端超时（pyzotero 1.16 / httpx2） --------------------------------
 
 
 def test_writer_sets_numeric_timeout_on_httpx2_client(writer: ZoteroWriter, mock_zotero: MagicMock) -> None:
-    """pyzotero 1.16's httpx2 client rejects httpx.Timeout objects; use a float."""
+    """pyzotero 1.16 的 httpx2 客户端不接受 httpx.Timeout 对象，须传 float。"""
     assert mock_zotero.client.timeout == API_TIMEOUT
     assert isinstance(mock_zotero.client.timeout, float)
 
@@ -56,7 +55,7 @@ def test_writer_tolerates_missing_client(mock_zotero: MagicMock) -> None:
     assert writer._zot is mock_zotero
 
 
-# --- create_items response shapes -------------------------------------------
+# --- create_items 的响应结构 ----------------------------------------------
 
 
 def test_add_note_reads_key_from_successful_map(writer: ZoteroWriter, mock_zotero: MagicMock) -> None:
@@ -117,7 +116,7 @@ def test_add_note_missing_parent_is_typed_not_found(writer: ZoteroWriter, mock_z
     assert exc_info.value.committed is False
 
 
-# --- attachment upload response shapes (pyzotero 1.16 Zupload result) -------
+# --- 附件上传响应结构（pyzotero 1.16 的 Zupload 结果） --------------------
 
 
 def _attachment_file(tmp_path: Path) -> Path:
@@ -193,7 +192,7 @@ def test_upload_attachment_missing_file_is_validation_error(writer: ZoteroWriter
     assert exc_info.value.committed is False
 
 
-# --- permanent delete vs trash restore (raw API boundary) -------------------
+# --- 永久删除与回收站恢复（原始 API 边界） -------------------------------
 
 
 def test_delete_item_uses_pyzotero_delete_endpoint(writer: ZoteroWriter, mock_zotero: MagicMock) -> None:

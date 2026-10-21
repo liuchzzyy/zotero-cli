@@ -1,10 +1,10 @@
-"""Tests for Tier 1 search enhancements: type filter."""
+"""`zotero search` 的类型过滤增强测试。"""
 
 from __future__ import annotations
 
 import json
 
-from tests.support import FIXTURES_DIR
+from tests.support import SAMPLE_DATA_DIR
 from tests.support import invoke_cli as _invoke
 
 from zotero_cli.zotero.reader import ZoteroReader
@@ -36,7 +36,7 @@ class TestItemTypeFilter:
         assert all(i["item_type"] == "book" for i in data)
 
     def test_reader_search_item_type(self):
-        reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite")
+        reader = ZoteroReader(SAMPLE_DATA_DIR / "zotero.sqlite")
         try:
             result = reader.search("", item_type="book")
             assert all(i.item_type == "book" for i in result.items)
@@ -89,7 +89,7 @@ class TestSortOrder:
         assert dates == sorted(dates, reverse=True)
 
     def test_reader_search_sort(self):
-        reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite")
+        reader = ZoteroReader(SAMPLE_DATA_DIR / "zotero.sqlite")
         try:
             result = reader.search("", sort="dateAdded", direction="desc")
             dates = [i.date_added for i in result.items]

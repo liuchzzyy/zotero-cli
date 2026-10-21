@@ -1,4 +1,4 @@
-"""Tests for update-status command and Semantic Scholar client."""
+"""`update-status` 子命令与 Semantic Scholar 客户端测试。"""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ class TestUpdateStatusCli:
 
 
 class TestExtractArxivIds:
-    """arXiv ID forms that update-status must recognise as preprints."""
+    """update-status 必须识别为预印本的 arXiv ID 形式。"""
 
     def test_pdf_url(self) -> None:
         info = extract_preprint_info(url="https://arxiv.org/pdf/2301.08745")
@@ -106,7 +106,7 @@ class TestExtractPreprintInfo:
         assert extract_preprint_info() is None
 
     def test_arxiv_takes_priority_over_biorxiv(self) -> None:
-        """If both arXiv and bioRxiv patterns exist, arXiv wins (checked first)."""
+        """arXiv 与 bioRxiv 形式同时存在时以 arXiv 为准（先检查）。"""
         info = extract_preprint_info(url="https://arxiv.org/abs/2301.08745", doi="10.1101/2023.01.01.000001")
         assert info is not None
         assert info.source == "arxiv"
@@ -149,7 +149,7 @@ class TestPublicationStatus:
         assert s.journal_name == "Nature Methods"
 
 
-# --- M-07 / L-04: explicit --dry-run and surfaced Semantic Scholar failures ---
+# --- 显式 --dry-run 与 Semantic Scholar 失败上报 ---
 
 
 class _FailingClient:

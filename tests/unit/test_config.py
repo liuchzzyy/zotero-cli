@@ -106,7 +106,7 @@ def test_project_root_defaults_to_source_repo(monkeypatch, tmp_path):
     assert config_file_path() == project_root() / ".zot" / "config.toml"
 
 
-# --- Multi-profile tests ---
+# --- 多配置档测试 ---
 
 
 def test_load_config_with_profile(tmp_path):
@@ -193,7 +193,7 @@ library_id = "222"
 
 
 def test_save_and_load_config_with_backslashes(tmp_path):
-    """Ensure Windows-style paths with backslashes survive save/load round-trip."""
+    """确保含反斜杠的 Windows 风格路径能在保存/读取往返中保持原样。"""
     config_path = tmp_path / "config.toml"
     windows_path = r"C:\Users\testuser\Zotero"
     config = AppConfig(data_dir=windows_path, library_id="123", api_key="abc")
@@ -218,7 +218,7 @@ def test_save_and_load_config_escapes_toml_strings(tmp_path):
     assert loaded.api_key == config.api_key
 
 
-# --- Embedding config (Gitee API only) ---
+# --- 向量化配置（仅 Gitee API） ---
 
 
 def test_load_embedding_config_from_toml(tmp_path):
@@ -296,7 +296,7 @@ def test_embedding_config_is_configured():
     assert EmbeddingConfig(url="", api_key="k", model="m").is_configured is False
 
 
-# --- Rerank config (Gitee API only) ---
+# --- 重排配置（仅 Gitee API） ---
 
 
 def test_load_rerank_config_from_toml(tmp_path):
@@ -365,7 +365,7 @@ def test_rerank_config_defaults():
     assert config.batch_size == 16
 
 
-# --- Vector store + semantic search config ---
+# --- 向量库与语义检索配置 ---
 
 
 def test_load_vector_store_config(tmp_path):
@@ -488,7 +488,7 @@ def test_ai_note_config_timing_defaults():
 
 
 def test_load_ai_note_config_env_overrides_without_config_file(tmp_path, monkeypatch):
-    """The overrides must work when no `[ai_notes]` block exists at all."""
+    """完全不存在 `[ai_notes]` 段时，环境变量覆盖仍须生效。"""
     monkeypatch.setenv("ZOT_AI_API_KEY", "env-key")
     monkeypatch.setenv("ZOT_AI_MODEL", "env-model")
 
@@ -517,7 +517,7 @@ def test_load_pdf_config_is_mineru_only(tmp_path):
     assert config.mineru_model_version == "vlm"
 
 
-# --- H-04: merge-preserving atomic saves -------------------------------------
+# --- 保留既有内容的原子保存 ----------------------------------------------
 
 RICH_CONFIG = """
 [default]
@@ -575,7 +575,7 @@ def test_save_config_preserves_all_sections_and_active_profile(tmp_path):
     assert loaded.library_id == "999"
     assert loaded.api_key == "new-key"
     assert loaded.data_dir == "/new/data"
-    # Scalar defaults must not clobber values the caller did not touch.
+    # 标量默认值不得覆盖调用方未触碰的值。
     assert loaded.default_format == "json"
     assert loaded.default_limit == 25
 
@@ -615,7 +615,7 @@ def test_save_config_private_permissions_and_atomic_write(tmp_path):
 
     save_config(AppConfig(library_id="2", api_key="secret2"), config)
     assert (config_dir / "config.toml.bak").exists()
-    # No temp files left behind by the atomic write.
+    # 原子写入不残留临时文件。
     assert sorted(path.name for path in config_dir.iterdir()) == ["config.toml", "config.toml.bak"]
 
 
@@ -643,7 +643,7 @@ def test_save_config_can_create_explicit_profile(tmp_path):
     assert data["zotero"]["library_id"] == "1"
 
 
-# --- M-14: typed config errors ----------------------------------------------
+# --- 带类型的配置错误 ----------------------------------------------------
 
 
 def test_malformed_toml_raises_configuration_error(tmp_path):
@@ -711,7 +711,7 @@ def test_save_config_activates_explicit_profile_without_default(tmp_path):
     assert load_config(config).library_id == "22"
 
 
-# --- M-02: typed group-library resolution errors -----------------------------
+# --- 群组文库解析的带类型错误 --------------------------------------------
 
 
 def test_resolve_library_id_missing_group_raises_typed_error(monkeypatch, tmp_path):
@@ -741,7 +741,7 @@ def test_resolve_library_id_user_library_does_not_open_the_db(monkeypatch, tmp_p
     assert resolve_library_id(tmp_path / "missing.sqlite", {"library_type": "user"}) == 1
 
 
-# --- M-14: env path expansion ------------------------------------------------
+# --- 环境变量路径展开 ----------------------------------------------------
 
 
 def test_zot_data_dir_env_is_expanded(monkeypatch, tmp_path):
@@ -762,7 +762,7 @@ def test_zot_prefs_js_path_env_is_expanded(monkeypatch, tmp_path):
     assert get_prefs_js_path(AppConfig()) == prefs
 
 
-# --- task-31: pre-existing foreign/sticky parent directories ----------------
+# --- 已存在的外部或带粘滞位父目录 ----------------------------------------
 
 
 def test_save_config_accepts_preexisting_sticky_parent_without_chmod(tmp_path):
@@ -774,7 +774,7 @@ def test_save_config_accepts_preexisting_sticky_parent_without_chmod(tmp_path):
     config = sticky / "config.toml"
     save_config(AppConfig(library_id="42", api_key="secret-abc"), config)
 
-    # The pre-existing parent keeps its (sticky) mode: it is not ours to chmod.
+    # 已存在的父目录保持原有（粘滞位）权限：它不属于我们该 chmod 的范围。
     assert stat.S_IMODE(sticky.stat().st_mode) == before
     assert stat.S_IMODE(config.stat().st_mode) == 0o600
 
@@ -801,7 +801,7 @@ def test_save_config_ignores_chmod_permission_error_on_existing_parent(tmp_path,
     config = parent / "config.toml"
     save_config(AppConfig(library_id="42", api_key="secret-abc"), config)
 
-    # A foreign/sticky parent must never be chmod-ed (that is what failed in /tmp).
+    # 外部或带粘滞位的父目录绝不能 chmod（这正是 /tmp 上出错的原因）。
     assert parent not in calls
     assert stat.S_IMODE(config.stat().st_mode) == 0o600
     assert load_config(config).library_id == "42"
@@ -813,7 +813,7 @@ def test_save_config_creates_new_parent_dirs_with_0700(tmp_path):
     assert stat.S_IMODE(created_dir.stat().st_mode) == 0o700
 
 
-# --- H-07: invalid/blank default profile fails closed ------------------------
+# --- 默认配置档无效或为空时失败关闭 --------------------------------------
 
 MIXED_TYPO_CONFIG = """
 [default]
@@ -837,7 +837,7 @@ def test_invalid_default_profile_fails_closed_on_write(tmp_path):
     path.write_text(MIXED_TYPO_CONFIG, encoding="utf-8")
     with pytest.raises(ConfigError, match="Unknown config profile 'typo'"):
         save_config(AppConfig(library_id="42"), path)
-    # The blocking write must leave the file untouched.
+    # 被阻止的写入必须保持文件原样。
     assert read_config_data(path)["zotero"]["library_id"] == "legacy-999"
 
 
@@ -876,7 +876,7 @@ def test_blank_explicit_profile_uses_configured_default(tmp_path):
     assert load_config(path, profile="   ").library_id == "222"
 
 
-# --- M-19: TOML writer supports valid TOML value types -----------------------
+# --- TOML 写入器支持合法的 TOML 值类型 -----------------------------------
 
 EXTENDED_TYPES_CONFIG = """
 [profile.main]
@@ -917,7 +917,7 @@ def test_toml_writer_round_trips_extended_toml_types(tmp_path):
     assert main["entries"] == before["profile"]["main"]["entries"]
     assert main["inline"] == before["profile"]["main"]["inline"]
 
-    # The writer is deterministic: an unchanged save keeps the same bytes.
+    # 写入器是确定性的：内容未变时保存后的字节完全相同。
     first_bytes = path.read_bytes()
     save_config(AppConfig(library_id="2"), path, profile="main")
     assert path.read_bytes() == first_bytes
@@ -930,7 +930,7 @@ def test_toml_writer_reports_unsupported_values_actionably(tmp_path):
     assert not path.exists()
 
 
-# --- M-20: invalid UTF-8 config is a configuration error ---------------------
+# --- 非 UTF-8 的配置属于配置错误 ------------------------------------------
 
 
 def test_invalid_utf8_config_raises_configuration_error(tmp_path):
@@ -940,7 +940,7 @@ def test_invalid_utf8_config_raises_configuration_error(tmp_path):
         load_config(path)
 
 
-# --- M-24/M-18: no-op saves and symlinked config paths -----------------------
+# --- 空操作保存与符号链接配置路径 ----------------------------------------
 
 
 def test_write_config_data_returns_backup_and_skips_identical_content(tmp_path):
@@ -976,7 +976,7 @@ def test_save_config_writes_through_symlink_target(tmp_path):
     assert 'library_id = "orig"' in backup.read_text(encoding="utf-8")
 
 
-# --- TOOL-01: profile-aware section loaders ----------------------------------
+# --- 感知配置档的分段加载器 ---------------------------------------------
 
 PROFILE_SECTIONS_CONFIG = """
 [embedding]

@@ -1,4 +1,4 @@
-"""Tests for RAG engine, FTS5 term index, and Gitee embedding."""
+"""RAG 引擎、FTS5 词项索引与 Gitee 向量化测试。"""
 
 from __future__ import annotations
 

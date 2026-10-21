@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-from tests.support import FIXTURES_DIR
+from tests.support import SAMPLE_DATA_DIR
 
 from zotero_cli.zotero.models import Item
 from zotero_cli.zotero.reader import ZoteroReader
@@ -82,7 +82,7 @@ def test_missing_collection_and_related_item(test_db_path: Path) -> None:
 def test_large_collection_is_hydrated_in_batches(
     test_db_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A collection larger than the batch size is hydrated through multiple queries."""
+    """超过单批大小的集合会通过多次查询分批填充。"""
     db_path = tmp_path / "zotero.sqlite"
     shutil.copy2(test_db_path, db_path)
     with sqlite3.connect(db_path) as conn:
@@ -94,14 +94,14 @@ def test_large_collection_is_hydrated_in_batches(
             "INSERT INTO collectionItems (collectionID, itemID) VALUES (3, ?)",
             [(i,) for i in range(100, 120)],
         )
-    # Force the multi-query path without depending on the Python 3.11+ sqlite3 API.
+    # 在不依赖 Python 3.11+ sqlite3 API 的前提下强制走多查询路径。
     monkeypatch.setattr("zotero_cli.zotero.reader._ITEM_BATCH_SIZE", 7)
     with ZoteroReader(db_path, library_id=2) as reader:
         items = reader.get_collection_items("GRPCOL03")
         assert [item.key for item in items] == ["GRPITM09", *[f"BATCH{i}" for i in range(100, 120)]]
 
 
-# --- M-06: every IN (...) query is batched under the legacy variable limit ---
+# --- 每个 IN (...) 查询都在旧版变量上限内分批 ---
 
 
 def _seed_large_user_library(db_path: Path, count: int = 1000) -> None:
@@ -121,12 +121,12 @@ def _seed_large_user_library(db_path: Path, count: int = 1000) -> None:
 
 
 def test_search_filter_and_sort_respect_legacy_parameter_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # Force the multi-query path on every Python version (no sqlite3 setlimit dependency).
+    # 在所有 Python 版本上都强制走多查询路径（不依赖 sqlite3 setlimit）。
     from zotero_cli.zotero import reader as reader_module
 
     monkeypatch.setattr(reader_module, "_ITEM_BATCH_SIZE", 100)
     db_path = tmp_path / "zotero.sqlite"
-    shutil.copy2(FIXTURES_DIR / "zotero.sqlite", db_path)
+    shutil.copy2(SAMPLE_DATA_DIR / "zotero.sqlite", db_path)
     _seed_large_user_library(db_path)
     with ZoteroReader(db_path) as reader:
         typed = reader.search("", item_type="journalArticle", limit=5)
@@ -146,7 +146,7 @@ def test_batched_sort_keeps_requested_order(tmp_path: Path, monkeypatch: pytest.
 
     monkeypatch.setattr(reader_module, "_ITEM_BATCH_SIZE", 100)
     db_path = tmp_path / "zotero.sqlite"
-    shutil.copy2(FIXTURES_DIR / "zotero.sqlite", db_path)
+    shutil.copy2(SAMPLE_DATA_DIR / "zotero.sqlite", db_path)
     _seed_large_user_library(db_path, count=950)
     with ZoteroReader(db_path) as reader:
         titles = [item.title for item in reader.search("", sort="title", direction="asc", limit=6).items]

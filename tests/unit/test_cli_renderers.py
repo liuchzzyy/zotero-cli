@@ -1,19 +1,27 @@
+"""终端渲染器测试：JSON 契约、表格输出与外部元数据的字面呈现。"""
+
+from __future__ import annotations
+
 import json
+from dataclasses import replace
 
 import pytest
 
 from zotero_cli.cli.renderers import (
     ErrorInfo,
     format_collections,
+    format_duplicates,
     format_error,
     format_item_detail,
     format_items,
     format_notes,
     format_pdf_text,
+    format_workspace_list,
     format_workspace_query,
     sanitize_text,
 )
-from zotero_cli.zotero.models import Collection, Creator, Item, Note
+from zotero_cli.workspace.store import Workspace
+from zotero_cli.zotero.models import Collection, Creator, DuplicateGroup, Item, Note
 
 
 def _make_item(key="K1", title="Test") -> Item:
@@ -162,10 +170,10 @@ def test_format_item_detail_full():
 def test_sanitize_text_strips_ansi_and_control_characters():
     assert sanitize_text("a\x1b[31mred\x1b[0m") == "ared"
     assert sanitize_text("a\x00b\x07c") == "abc"
-    # A lone carriage return can overwrite the current terminal line: strip it.
+    # 单个回车符会覆盖当前终端行，因此要剔除。
     assert sanitize_text("safe\rEVIL") == "safeEVIL"
     assert sanitize_text("a\r\x1b[31mb") == "ab"
-    # Layout characters survive so multi-paragraph notes keep their shape.
+    # 保留排版字符，使多段笔记维持原有结构。
     assert sanitize_text("line1\nline2\tend") == "line1\nline2\tend"
     assert sanitize_text(None) == ""
     assert sanitize_text(42) == "42"
@@ -181,7 +189,7 @@ def test_format_notes_text_strips_terminal_escapes():
 def test_format_notes_text_keeps_rich_markup_literal():
     notes = [Note(key="N1", parent_key="P1", content="[bold red]not markup[/bold red]", tags=[])]
     result = format_notes(notes, output_json=False)
-    # Rich Text objects are used for untrusted content, so bracket markup is literal.
+    # 不可信内容统一用 Rich Text 承载，因此方括号标记按字面显示。
     assert "[bold red]not markup[/bold red]" in result
 
 
@@ -224,3 +232,52 @@ def test_format_workspace_query_text_does_not_collapse_small_scores():
     assert "0.00" not in result
     assert "1.2e-06" in result
     assert "\n" not in result.splitlines()[0] or "chunk a" in result
+
+
+@pytest.mark.parametrize("renderer", ["items", "duplicates", "workspaces"])
+@pytest.mark.parametrize("literal", ["[/b]", "[b]X"])
+def test_rich_table_cells_render_external_metadata_literally(renderer: str, literal: str) -> None:
+    if renderer == "items":
+        item = replace(
+            _make_item(),
+            key=literal,
+            title=literal,
+            creators=[Creator("", literal, "author")],
+            date=literal,
+            item_type=literal,
+        )
+        output = format_items([item])
+        assert output.count(literal) == 5
+    elif renderer == "duplicates":
+        group = DuplicateGroup([replace(_make_item(), key=literal, title=literal)], literal, 1.0)
+        output = format_duplicates([group])
+        assert output.count(literal) == 3
+    else:
+        workspace = Workspace(name=literal, created=literal, description=literal)
+        output = format_workspace_list([workspace])
+        assert output.count(literal) == 3
+
+
+@pytest.mark.parametrize("field", ["title", "creators", "abstract", "tags", "doi", "url", "extra", "notes"])
+def test_item_detail_renders_external_metadata_literally(field: str) -> None:
+    literal = "[/b] [bold]literal[/bold] [link=https://example.test]link[/link]"
+    item = _make_item()
+    notes: list[Note] = []
+    if field == "creators":
+        item.creators = [Creator("", literal, "author")]
+    elif field == "tags":
+        item.tags = [literal]
+    elif field == "extra":
+        item.extra = {"publicationTitle": literal, "custom[/b]": literal}
+    elif field == "notes":
+        notes = [Note("NOTE0001", item.key, literal)]
+    else:
+        setattr(item, field, literal)
+
+    output = format_item_detail(item, notes, detail="full")
+
+    assert literal in output
+    if field == "extra":
+        assert "custom[/b]: " in output
+        assert "Metadata:" in output
+    assert "[bold cyan]" not in output

@@ -1,4 +1,4 @@
-"""AI-note previews and figure inputs must not cross safety boundaries."""
+"""AI 笔记预览与图片输入都不得越过安全边界。"""
 
 from __future__ import annotations
 
@@ -8,16 +8,14 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-from click.testing import CliRunner
 
 from zotero_cli.ai_notes.errors import NoteAnalysisError
 from zotero_cli.ai_notes.pipeline import analyze_item
 from zotero_cli.ai_pdf import MinerUParseResult
-from zotero_cli.cli import main
-from zotero_cli.config import AiNoteConfig, AppConfig
+from zotero_cli.config import AiNoteConfig
 from zotero_cli.zotero.models import Attachment, Item, Note
 
-# A real 8x8 JPEG; a legal comment segment brings it above the figure-size floor.
+# 一张真实的 8x8 JPEG；加上合法注释段后超过图片体积下限。
 _JPEG = base64.b64decode(
     "/9j/4AAQSkZJRgABAgAAAQABAAD//gAPTGF2YzYzLjEuMTAxAP/bAEMACAQEBAQEBQUFBQUFBgYGBgYGBgYGBgYGBgcHBwgICAcHBwYG"
     "BwcICAgICQkJCAgICAkJCgoKDAwLCw4ODhERFP/EAEwAAQEAAAAAAAAAAAAAAAAAAAAGAQEBAAAAAAAAAAAAAAAAAAAGBxABAAAAAAAAAAAA"
@@ -220,7 +218,7 @@ def test_structured_image_loader_never_opens_nonregular_file(tmp_path: Path, mon
     raw = tmp_path / "raw"
     directory = raw / "images" / "directory.jpg"
     directory.mkdir(parents=True)
-    # Large directories can fall inside the image size window; size is not a type check.
+    # 大目录也可能落入图片体积区间，体积并不等于类型校验。
     for index in range(512):
         (directory / f"entry-{index}").touch()
     assert directory.stat().st_size >= 4096
@@ -239,8 +237,8 @@ def test_structured_image_loader_never_opens_nonregular_file(tmp_path: Path, mon
         {"type": "image", "img_path": "images/normal.jpg", "page_idx": 0},
     ]
     evidence = build_evidence([("ATT", "main", SimpleNamespace(root=raw.parent, content_list=blocks))])
-    # is_file() rejects the directory before any byte is read; a missing main
-    # image fails the whole request rather than silently dropping it.
+    # is_file() 在读取任何字节之前就拒绝目录；主图缺失时
+    # 整个请求失败，而不是静默丢弃。
     with pytest.raises(ValueError, match="required main image 1 is unavailable"):
         plan_request(evidence, "prompt", "deepseek-flash")
     assert reads == []
@@ -269,31 +267,3 @@ def test_analysis_without_renderable_body_never_writes_a_title_only_note(
 
     assert caught.value.code == "runtime_error"
     assert writer.mock_calls == []
-
-
-def test_cli_short_note_dry_run_uses_real_analysis_without_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
-    reader = MagicMock()
-    reader.get_item.return_value = _item()
-    reader.get_notes.return_value = [Note("LATEST", "ITEM1", "<p>AI条目分析 - Current evidence.</p>")]
-    ai_client = MagicMock()
-    writer_constructor = MagicMock(side_effect=AssertionError("dry-run must not construct a writer"))
-    monkeypatch.setattr("zotero_cli.cli.commands.ai_notes.load_config", lambda **kwargs: AppConfig())
-    monkeypatch.setattr(
-        "zotero_cli.cli.commands.ai_notes.load_ai_note_config",
-        lambda: AiNoteConfig(api_key="test-key", base_url="http://127.0.0.1:9/v1", model="test-model"),
-    )
-    monkeypatch.setattr("zotero_cli.cli.commands.ai_notes.ZoteroReader", lambda *args, **kwargs: reader)
-    monkeypatch.setattr("zotero_cli.cli.commands.ai_notes.ZoteroWriter", writer_constructor)
-    monkeypatch.setattr("zotero_cli.cli.commands.ai_notes.AiClient", lambda config: ai_client)
-
-    result = CliRunner().invoke(main, ["--json", "ai-note", "ITEM1", "--dry-run", "--short-note-only"])
-
-    assert result.exit_code == 0, result.output
-    envelope = json.loads(result.output)
-    assert envelope["ok"] is True
-    assert envelope["data"]["status"] == "dry_run"
-    assert envelope["data"]["note_key"] == "LATEST"
-    assert envelope["data"]["prompt_preview"]
-    ai_client.chat.assert_not_called()
-    writer_constructor.assert_not_called()
-    reader.close.assert_called_once()

@@ -1,4 +1,4 @@
-"""Offline HTTP and clock-driven tests for Semantic Scholar publication checks."""
+"""Semantic Scholar 出版状态核查的离线 HTTP 与可控时钟测试。"""
 
 from __future__ import annotations
 
@@ -55,7 +55,7 @@ ResponseFactory = Callable[
 
 @pytest.fixture
 def make_client(monkeypatch: pytest.MonkeyPatch, clock: OfflineClock) -> Iterator[ResponseFactory]:
-    """Keep the real HTTP client; supply only an offline transport and clock."""
+    """保留真实 HTTP 客户端，只提供离线传输层与可控时钟。"""
     real_client = httpx.Client
     clients: list[httpx.Client] = []
 

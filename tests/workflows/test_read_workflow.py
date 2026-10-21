@@ -1,4 +1,4 @@
-"""End-to-end integration tests using the fixture DB."""
+"""基于夹具数据库的端到端集成测试。"""
 
 import json
 
@@ -14,11 +14,11 @@ def _run(args, test_db_path, json_out=False):
 
 
 def test_full_read_workflow(test_db_path):
-    """Search -> read -> notes -> export -> summarize -> relate."""
+    """检索 → 阅读 → 笔记 → 导出 → 摘要 → 相关条目。"""
     # Search
     r = _run(["zotero", "search", "transformer"], test_db_path, json_out=True)
     assert r.exit_code == 0
-    # `search` returns the agent envelope: {"ok": True, "data": [...]}.
+    # `search` 返回代理 envelope：{"ok": True, "data": [...]}。
     items = json.loads(r.output)["data"]
     assert len(items) >= 1
     key = items[0]["key"]
@@ -49,7 +49,7 @@ def test_full_read_workflow(test_db_path):
 
 
 def test_collection_workflow(test_db_path):
-    """List collections -> list items in collection."""
+    """先列出集合，再列出该集合内的条目。"""
     r = _run(["zotero", "collection", "list"], test_db_path, json_out=True)
     assert r.exit_code == 0
     colls = json.loads(r.output)

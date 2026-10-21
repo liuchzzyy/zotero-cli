@@ -6,7 +6,7 @@ from zotero_cli.zotero.attachments import AttachmentResolver
 
 class TestAttachmentResolver:
     def test_resolve_storage_path(self, tmp_path):
-        """'storage:file.pdf' resolves to <storage_dir>/<key>/file.pdf."""
+        """`storage:file.pdf` 解析为 `<storage_dir>/<key>/file.pdf`。"""
         storage = tmp_path / "storage"
         storage.mkdir()
         (storage / "ABC123").mkdir()
@@ -18,7 +18,7 @@ class TestAttachmentResolver:
         assert result == storage / "ABC123" / "paper.pdf"
 
     def test_resolve_storage_with_subdir(self, tmp_path):
-        """'storage:key/subdir/file.pdf' resolves correctly."""
+        """`storage:key/subdir/file.pdf` 能正确解析。"""
         storage = tmp_path / "storage"
         storage.mkdir()
         (storage / "ABC123").mkdir()
@@ -30,7 +30,7 @@ class TestAttachmentResolver:
         assert result == storage / "ABC123" / "subdir" / "paper.pdf"
 
     def test_resolve_file_url_unix(self, tmp_path):
-        """'file:///path/to/file.pdf' resolves to /path/to/file.pdf."""
+        """`file:///path/to/file.pdf` 解析为 `/path/to/file.pdf`。"""
         db_path = tmp_path / "zotero.sqlite"
         db_path.touch()
 
@@ -39,7 +39,7 @@ class TestAttachmentResolver:
         assert result == Path("/home/user/papers/file.pdf")
 
     def test_resolve_file_url_encoded_spaces(self, tmp_path):
-        """'file:///path/to/my%20file.pdf' resolves to path with spaces."""
+        """`file:///path/to/my%20file.pdf` 解析为含空格的路径。"""
         db_path = tmp_path / "zotero.sqlite"
         db_path.touch()
 
@@ -48,13 +48,13 @@ class TestAttachmentResolver:
         assert result == Path("/home/user/my file.pdf")
 
     def test_resolve_file_url_windows_drive(self, tmp_path):
-        """'file:///C:/Users/test/file.pdf' resolves to C:/Users/test/file.pdf."""
+        """`file:///C:/Users/test/file.pdf` 解析为 `C:/Users/test/file.pdf`。"""
         db_path = tmp_path / "zotero.sqlite"
         db_path.touch()
 
         resolver = AttachmentResolver(db_path)
-        # Patch the platform boundary and Path factory so this also runs on Python 3.10
-        # (3.10 pathlib raises when os.name is patched to nt on a POSIX host).
+        # 同时替换平台边界与 Path 工厂，使该用例也能在 Python 3.10 上运行
+        # （在 POSIX 主机上把 os.name 改成 nt 时，3.10 的 pathlib 会抛错）。
         with (
             patch("zotero_cli.zotero.attachments.os.name", "nt"),
             patch("zotero_cli.zotero.attachments.Path", PureWindowsPath),
@@ -64,7 +64,7 @@ class TestAttachmentResolver:
         assert result is not None
         resolved = str(result).replace("\\", "/")
         assert resolved == "C:/Users/test/file.pdf"
-        # The leading slash of the file URL must be stripped before the drive letter.
+        # 盘符之前必须去掉文件 URL 的前导斜杠。
         assert not resolved.startswith("/C:")
 
         with (
@@ -74,11 +74,11 @@ class TestAttachmentResolver:
         ):
             wsl_result = resolver.resolve("ABC123", "file:///C:/Users/test/file.pdf")
         assert wsl_result is not None
-        # Under WSL the drive-letter path is translated to its /mnt/<drive> mount.
+        # 在 WSL 下把盘符路径转换为 /mnt/<盘符> 挂载点。
         assert str(wsl_result).replace("\\", "/") == "/mnt/c/Users/test/file.pdf"
 
     def test_resolve_absolute_path_unix(self, tmp_path):
-        """'/absolute/path/to/file.pdf' used as-is."""
+        """`/absolute/path/to/file.pdf` 按原样使用。"""
         db_path = tmp_path / "zotero.sqlite"
         db_path.touch()
 
@@ -87,7 +87,7 @@ class TestAttachmentResolver:
         assert result == Path("/home/user/papers/file.pdf")
 
     def test_resolve_attachments_with_prefs(self, tmp_path):
-        """'attachments:relative/path.pdf' resolved against prefs.js base path."""
+        """`attachments:relative/path.pdf` 相对 prefs.js 基准路径解析。"""
         storage = tmp_path / "storage"
         storage.mkdir()
         db_path = tmp_path / "zotero.sqlite"
@@ -133,7 +133,7 @@ class TestAttachmentResolver:
         assert result == tmp_path / "papers" / "file.pdf"
 
     def test_resolve_empty_path(self, tmp_path):
-        """Empty path returns None."""
+        """空路径返回 None。"""
         db_path = tmp_path / "zotero.sqlite"
         db_path.touch()
 
@@ -142,7 +142,7 @@ class TestAttachmentResolver:
         assert result is None
 
     def test_resolve_unknown_prefix(self, tmp_path):
-        """Unknown prefix returns None."""
+        """未知前缀返回 None。"""
         db_path = tmp_path / "zotero.sqlite"
         db_path.touch()
 
@@ -151,7 +151,7 @@ class TestAttachmentResolver:
         assert result is None
 
     def test_storage_dir_property(self, tmp_path):
-        """storage_dir is db_path.parent / 'storage'."""
+        """`storage_dir` 等于 `db_path.parent / 'storage'`。"""
         db_path = tmp_path / "zotero.sqlite"
         db_path.touch()
 
@@ -159,11 +159,11 @@ class TestAttachmentResolver:
         assert resolver.storage_dir == tmp_path / "storage"
 
 
-# --- L-04: Windows/WSL/UNC path forms ---
+# --- Windows/WSL/UNC 路径形式 ---
 
 
 def test_resolve_wsl_plain_windows_drive_path(tmp_path):
-    """A verbatim C:\\... path stored by Windows Zotero resolves on WSL."""
+    """Windows Zotero 保存的原始 `C:\\...` 路径在 WSL 上可解析。"""
     db_path = tmp_path / "zotero.sqlite"
     db_path.touch()
     resolver = AttachmentResolver(db_path)
@@ -174,7 +174,7 @@ def test_resolve_wsl_plain_windows_drive_path(tmp_path):
 
 
 def test_resolve_wsl_file_url_drive_without_nt_patch(tmp_path):
-    """file:///C:/... converts to /mnt/c/... on a POSIX WSL host."""
+    """在 POSIX WSL 主机上 `file:///C:/...` 转换为 `/mnt/c/...`。"""
     db_path = tmp_path / "zotero.sqlite"
     db_path.touch()
     resolver = AttachmentResolver(db_path)

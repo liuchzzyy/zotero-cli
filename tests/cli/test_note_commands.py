@@ -2,7 +2,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
-from tests.support import FIXTURES_DIR
+from tests.support import SAMPLE_DATA_DIR
 
 from zotero_cli.cli import main
 
@@ -85,7 +85,7 @@ def test_note_existing_item_without_notes_reports_no_notes():
         result = runner.invoke(
             main,
             ["--json", "zotero", "note", "ITEM1"],
-            env={"ZOT_DATA_DIR": str(FIXTURES_DIR), "ZOT_FORMAT": "table"},
+            env={"ZOT_DATA_DIR": str(SAMPLE_DATA_DIR), "ZOT_FORMAT": "table"},
         )
     assert result.exit_code == 4
     error = json.loads(result.output)["error"]

@@ -1,8 +1,7 @@
-"""PDF kind heuristics: the failure modes this file must keep out.
+"""PDF 类型启发式：本文件必须挡住的失效模式。
 
-Every rule here is a string cue over the first few thousand characters plus the
-attachment filename; there is no structural or layout evidence involved, so each
-case below is a documented real misclassification, not a hypothetical one.
+这里每条规则都只依据前几千个字符与附件文件名中的字符串线索，不涉及结构或版式证据；
+因此下列每个用例都是有记录的真实误判，而非假想情形。
 """
 
 import pytest
@@ -65,11 +64,11 @@ def test_cite_this_cover_overrides_supplementary_filename_cue():
     assert infer_pdf_kind(text, "paper_SI.pdf") == "main"
 
 
-# --- A publisher DOI stamp must not outvote an SI cover ---------------------
-# Real case (item CQUZFVHV, att QGTE5WK8, file sciadv.aea1401_sm.pdf): the cover
-# reads "Supplementary Materials for <title>", the DOI appears at char 247, and
-# the old rule order returned "main" — so every SI figure was treated as required
-# main-text evidence.
+# --- 出版方 DOI 印记不得压过补充材料封面 --------------------------------
+# 真实案例（条目 CQUZFVHV，附件 QGTE5WK8，文件 sciadv.aea1401_sm.pdf）：封面
+# 写着 "Supplementary Materials for <标题>"，DOI 出现在第 247 个字符，
+# 而旧的规则顺序返回 "main"——导致每张补充材料图片都被当作必需的
+# 正文证据。
 
 
 @pytest.mark.parametrize(
@@ -90,7 +89,7 @@ def test_doi_without_a_cover_still_reads_as_a_main_article():
     assert infer_pdf_kind(text, "paper.pdf") == "main"
 
 
-# --- Cover lines are matched as prefixes, not as whole lines ---------------
+# --- 封面行按前缀匹配，而非整行匹配 --------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -115,12 +114,12 @@ def test_cover_line_prefix_variants_are_supplementary(cover: str):
     ],
 )
 def test_prose_that_starts_with_the_cover_phrase_is_not_a_cover_line(line: str):
-    # Front matter of a real article, with the sentence appearing in the body.
+    # 真实论文的前置内容，其中该句子出现在正文里。
     text = "# A Study of Manganese Oxides\nAuthor One\nDOI: 10.1021/example\n" + "Body text. " * 200 + f"\n{line}"
     assert infer_pdf_kind(text, "paper.pdf") == "main"
 
 
 def test_an_unrecognised_si_cover_outranks_a_doi_stamp_within_the_first_page():
-    # A cover variant the line rules do not parse, plus the parent article's DOI.
+    # 整行规则无法解析的另一种封面写法，并附带母论文的 DOI。
     text = "FULL PAPER\nSupplementary figures, tables and methods\nDOI: 10.1039/example\nFigure S1. XRD patterns."
     assert infer_pdf_kind(text, "paper.pdf") == "supplementary"

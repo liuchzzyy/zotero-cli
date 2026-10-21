@@ -281,7 +281,7 @@ For logged MacBook workflows, use the external PaperRAG helpers maintained outsi
 
 - **Explicit profile forwarding:** When targeting a specific Zotero profile, pass `--profile NAME` to the external workspace wrapper; it forwards the profile to both its inventory helper and downstream `zot` subcommands, avoiding fallback to default library credentials.
 - **Defensive vector store inspection during inventory:** Wrap Qdrant collection count in try-except. If the vector collection does not exist yet or experiences concurrent lock contention, log a warning and fall back to `vector_count = 0` rather than crashing the preflight inventory.
-- **Log cleanup lifecycle:** Successful workflow runs remove their temporary directory under `log/` automatically (and prune `log/` itself when empty). Always pass `--keep-log` or `--keep-inventory` when running automated checks that assert on `inventory.json` or run outputs.
+- **Log cleanup lifecycle:** Successful workflow runs remove their temporary directory under `.zot/log/` automatically (and prune `.zot/log/` itself when empty). Always pass `--keep-log` or `--keep-inventory` when running automated checks that assert on `inventory.json` or run outputs.
 
 ### Collection renames in repository workflows
 
@@ -311,7 +311,7 @@ falsely report the file missing.
   recurring error.
 - A surface change must also reach `AGENTS.md`, `README.md`, the repo-bundled
   `skill/zotero-cli/SKILL.md`, and this profile's copy.
-- CI is checked in at `.github/workflows/ci.yml`: lint, format check, mypy, the
+- CI is checked in at `.github/workflows/ci.yml`: lint, format check, `ty check`, the
   full test suite, and wheel/sdist build on Python 3.12 only, plus a
   weekly/manual best-effort `pip-audit` (network-dependent, non-blocking). Do not
   claim "no CI" or document dependency audit as a PR gate. The project supports

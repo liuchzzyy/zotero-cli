@@ -1,4 +1,4 @@
-"""Integration coverage for the MinerU-only shared PDF pipeline."""
+"""仅走 MinerU 的共享 PDF 流水线集成测试。"""
 
 from __future__ import annotations
 

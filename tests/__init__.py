@@ -1,1 +1,1 @@
-"""Test suite for zotero-cli."""
+"""zotero-cli 测试套件。"""

@@ -64,7 +64,7 @@ def test_delete_item(mock_zotero_cls):
     mock_zot.delete_item.assert_called_once()
 
 
-# --- Error-path tests ---
+# --- 错误分支测试 ---
 
 
 @patch("zotero_cli.zotero.writer.zotero.Zotero")
@@ -123,7 +123,7 @@ def test_delete_item_not_found(mock_zotero_cls):
         writer.delete_item("NONEXIST")
 
 
-# --- Collection management tests ---
+# --- 集合管理测试 ---
 
 
 @patch("zotero_cli.zotero.writer.zotero.Zotero")
@@ -161,7 +161,7 @@ def test_rename_collection(mock_zotero_cls):
     writer.rename_collection("COL1", "New Name")
     mock_zot.collection.assert_called_once_with("COL1")
     mock_zot.update_collection.assert_called_once()
-    # Verify the name was updated in the payload
+    # 确认名称已在载荷中更新
     call_args = mock_zot.update_collection.call_args[0][0]
     assert call_args["data"]["name"] == "New Name"
 

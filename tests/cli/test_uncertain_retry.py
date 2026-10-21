@@ -1,4 +1,4 @@
-"""Exercise note retry safety through real pyzotero and an HTTP-only fake server."""
+"""通过真实 pyzotero 与纯 HTTP 假服务验证笔记重试的安全性。"""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ NOTE_ARGS = ["zotero", "note", "ATTN001", "--add", "A finding", "--idempotency-k
 
 
 class NoteService:
-    """Model a committed write whose response can be lost after creation."""
+    """模拟一次已提交、但响应可能在创建后丢失的写入。"""
 
     def __init__(self) -> None:
         self.created: list[dict] = []
@@ -69,7 +69,7 @@ class NoteService:
 
 @pytest.fixture
 def note_service(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[NoteService]:
-    # Never load the checkout's credentials or write its persistent state.
+    # 绝不加载检出目录中的凭据，也不写入其持久状态。
     monkeypatch.setattr(config.paths, "config_file_path", lambda: tmp_path / "no-live-config.toml")
     monkeypatch.setattr(idempotency, "state_dir", lambda: tmp_path / "state")
     service = NoteService()

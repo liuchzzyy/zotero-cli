@@ -286,14 +286,14 @@ uv run zot --json workspace query \
 uv sync --dev
 uv run ruff check .
 uv run ruff format --check .   # ruff 0.17 也会格式化 Markdown 代码块
-uv run python -m mypy src/zotero_cli --exclude '(^|/)test_[^/]*\.py$'
+uv run ty check
 uv run pytest -q -rf
 uv build
 ```
 
 文档里的 Python 代码块也要通过 `uv run ruff format --check .`；改文档后对相关 Markdown 运行 `uv run ruff format <path>`。
 
-完整测试套件预期全绿：0 failed、0 skipped（没有 skip 标记）。CI（`.github/workflows/ci.yml`）只在 Python 3.12 上运行 lint、format、mypy、完整测试和 wheel/sdist 构建；另有每周/手动触发、best-effort 的 `pip-audit` 依赖审计（网络依赖，不阻塞 PR）。依赖已升级到当前最新兼容版本（`pyzotero>=1.16,<2`、新版 `mypy`/`ruff`/`rich`/`openai` 等）。
+完整测试套件预期全绿：0 failed、0 skipped（没有 skip 标记）。CI（`.github/workflows/ci.yml`）只在 Python 3.12 上运行 lint、format、`ty check`、完整测试和 wheel/sdist 构建；另有每周/手动触发、best-effort 的 `pip-audit` 依赖审计（网络依赖，不阻塞 PR）。依赖已升级到当前最新兼容版本（`typer>=0.27.3`、`pyzotero>=1.16,<2`、新版 `ruff`/`rich`/`openai` 等），类型检查使用 `ty`（`[tool.ty.src] include = ["src"]`）。
 
 源码布局：
 

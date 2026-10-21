@@ -1,4 +1,4 @@
-"""Tests for Qdrant local vector store and hybrid FTS5 + vector retrieval."""
+"""Qdrant 本地向量库与 FTS5 + 向量混合检索测试。"""
 
 from __future__ import annotations
 

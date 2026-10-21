@@ -1,4 +1,4 @@
-"""Tests for the agent-native CLI interface: envelope, TTY detect, exit codes, schema."""
+"""代理调用契约：envelope 形状、退出码、stderr 路由与错误边界。"""
 
 from __future__ import annotations
 
@@ -26,12 +26,11 @@ from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
 
 def _ai_config() -> AiNoteConfig:
-    """A complete `[ai_notes]` block, so these tests never read the repo config.
+    """完整的 `[ai_notes]` 配置块，使这些测试永不读取仓库配置。
 
-    `ai-note` loads `[ai_notes]` from `.zot/config.toml`, which is
-    Git-ignored. Without this stub the exit code depends on whether the
-    developer happens to have a local API key: a clean checkout stops at
-    `configuration_error` (exit 3) and never reaches the credential branch.
+    `ai-note` 从被 Git 忽略的 `.zot/config.toml` 读取 `[ai_notes]`。若不打这个桩，
+    退出码会取决于开发者本地是否恰好有 API 密钥：干净检出会停在
+    `configuration_error`（退出码 3），根本到不了凭据分支。
     """
     return AiNoteConfig(api_key="test-key", base_url="http://127.0.0.1:9/v1", model="test-model")
 
@@ -54,7 +53,7 @@ class TestEnvelopeShape:
 
     def test_envelope_partial_shape(self):
         env = envelope_partial([{"key": "A"}], [{"key": "B", "error": {"code": "x", "message": "y"}}])
-        # ok is documented as a tri-state value: True / False / "partial".
+        # ok 是文档约定的三态值：True / False / "partial"。
         assert env["ok"] == "partial"
         assert env["ok"] is not True
         assert env["ok"] is not False
@@ -67,7 +66,7 @@ class TestEnvelopeShape:
         assert env["next"] == ["zot read X"]
         assert env["dry_run"] is True
         assert set(env) == {"ok", "data", "next", "dry_run", "meta"}
-        # Empty hint lists are omitted rather than emitting an empty next list.
+        # 提示列表为空时整体省略，而不是输出一个空的 next 列表。
         assert "next" not in envelope_ok({"x": 1}, next=[])
 
     def test_envelope_ok_rejects_undocumented_extras_and_bad_next(self):
@@ -110,9 +109,9 @@ class TestTTYAutoDetect:
     def test_zot_format_table_forces_human_output(self):
         result = _run(["zotero", "search", "attention"], env={"ZOT_FORMAT": "table"})
         assert result.exit_code == EXIT_OK
-        # Rich table output includes column headers
+        # Rich 表格输出包含列标题
         assert "Key" in result.output or "Title" in result.output
-        # Should not be parseable JSON
+        # 不应被解析为 JSON
         try:
             json.loads(result.output)
             is_json = True
@@ -226,9 +225,9 @@ class TestExitCodes:
 
 class TestStderrRouting:
     def test_auth_error_envelope_on_stdout(self):
-        # JSON envelope goes to stdout; prose goes to stderr when ZOT_FORMAT=table
+        # ZOT_FORMAT=table 时 JSON envelope 走 stdout，散文输出走 stderr
         result = _run(["zotero", "add", "--doi", "10.1/x"], env={"ZOT_LIBRARY_ID": "", "ZOT_API_KEY": ""})
-        # default (non-TTY): JSON envelope on stdout
+        # 默认（非 TTY）：JSON envelope 输出到 stdout
         assert result.output.strip().startswith("{")
         env = json.loads(result.output)
         assert env["ok"] is False
@@ -238,7 +237,7 @@ class TestStderrRouting:
             ["zotero", "add", "--doi", "10.1/x"],
             env={"ZOT_LIBRARY_ID": "", "ZOT_API_KEY": "", "ZOT_FORMAT": "table"},
         )
-        # Human mode: prose on stderr, stdout empty
+        # 人类可读模式：散文走 stderr，stdout 为空
         assert "credentials" in (result.stderr or "").lower()
 
 
@@ -257,7 +256,7 @@ class TestSchemaCommand:
     def test_schema_root_name_is_cli_binary(self):
         result = _run(["schema"])
         env = json.loads(result.output)
-        # The root node names the CLI binary, not the Python function ("main").
+        # 根节点名称是 CLI 可执行文件名，而不是 Python 函数名（"main"）。
         assert env["data"]["name"] == "zot"
         assert env["data"]["safety_tier"] == "read"
 
@@ -326,7 +325,7 @@ class TestSchemaDiff:
 
     def test_diff_detects_added_and_removed_commands(self, tmp_path):
         current = json.loads(_run(["schema"]).output)
-        # Build a fake "old" tree with one command removed and a fake one added.
+        # 构造一棵假的"旧"命令树：删掉一个命令，再加一个假命令。
         old_tree = json.loads(json.dumps(current["data"]))  # deep copy
         old_tree["subcommands"]["ghost-cmd"] = {"name": "ghost-cmd", "params": [], "subcommands": {}}
         del old_tree["subcommands"]["zotero"]["subcommands"]["search"]
@@ -340,7 +339,7 @@ class TestSchemaDiff:
     def test_diff_detects_param_changes(self, tmp_path):
         current = json.loads(_run(["schema"]).output)
         old_tree = json.loads(json.dumps(current["data"]))
-        # Drop the last param of `zotero export` so the current schema appears to have added it.
+        # 去掉 `zotero export` 的最后一个参数，使当前 schema 看起来新增了它。
         old_tree["subcommands"]["zotero"]["subcommands"]["export"]["params"].pop()
         cached_path = self._write(tmp_path, old_tree)
         result = _run(["schema", "--diff", cached_path])
@@ -420,7 +419,7 @@ class TestDryRun:
 
 class TestConfirmationRequiredOnNonTTY:
     def test_delete_without_yes_on_noninteractive_returns_validation(self):
-        # CliRunner stdin is non-TTY; no --yes, no --dry-run, no --no-interaction
+        # CliRunner 的 stdin 不是 TTY，且没有 --yes、--dry-run、--no-interaction
         result = _run(["zotero", "delete", "K1"], env={"ZOT_LIBRARY_ID": "abc", "ZOT_API_KEY": "xyz"})
         assert result.exit_code == EXIT_VALIDATION
         env = json.loads(result.output)
@@ -428,7 +427,7 @@ class TestConfirmationRequiredOnNonTTY:
 
 
 class TestGlobalFlagHoisting:
-    """`--json` / `--no-json` must work no matter where they appear in argv."""
+    """`--json` / `--no-json` 必须能出现在 argv 的任意位置。"""
 
     def test_json_after_subcommand_parses(self):
         result = _run(["zotero", "search", "x", "--json", "--limit", "1"])
@@ -439,17 +438,17 @@ class TestGlobalFlagHoisting:
     def test_no_json_after_subcommand_parses(self):
         result = _run(["zotero", "search", "x", "--no-json", "--limit", "1"])
         assert result.exit_code == EXIT_OK
-        # --no-json forces table; output must not be JSON.
+        # --no-json 强制表格输出，结果不得是 JSON。
         assert not result.output.lstrip().startswith("{")
 
     def test_double_dash_stops_hoisting(self):
-        # After `--`, `--json` is a positional value, not the global flag.
-        # The schema subcommand accepts an optional COMMAND positional, so
-        # this exercises the boundary without needing a command that takes
-        # arbitrary positionals.
+        # `--` 之后的 `--json` 是位置参数值，而不是全局标志。
+        # `schema` 子命令接受可选的 COMMAND 位置参数，因此
+        # 这样无需找一个接受任意位置参数的命令
+        # 就能覆盖该边界情形。
         result = _run(["--", "schema"])
-        # Either it parses `schema` as the positional (any non-error exit is OK),
-        # or it errors — what matters is that we didn't crash on the hoist.
+        # 要么把 `schema` 当作位置参数解析（任何非错误退出都可接受），
+        # 要么直接报错——关键在于上提逻辑不会崩溃。
         assert result.exit_code in (EXIT_OK, EXIT_VALIDATION, EXIT_NOT_FOUND)
 
     def test_detail_after_subcommand_is_hoisted(self):
@@ -498,8 +497,8 @@ class TestGlobalFlagHoisting:
         ]
 
     def test_missing_detail_value_does_not_swallow_following_tokens(self):
-        # No valid value follows: hoist an explicit empty value so Click reports a
-        # validation error for --detail instead of eating --json or the subcommand.
+        # 后面没有合法值：上提一个显式空值，使 Click 针对 --detail
+        # 报出校验错误，而不是吞掉 --json 或子命令。
         assert _hoist_global_flags(["zotero", "list", "--detail", "--json"], main) == [
             "--detail=",
             "--json",
@@ -508,7 +507,7 @@ class TestGlobalFlagHoisting:
         ]
         assert _hoist_global_flags(["zotero", "list", "--detail"], main) == ["--detail=", "zotero", "list"]
         assert _hoist_global_flags(["--detail", "--json", "list"], main) == ["--detail=", "--json", "list"]
-        # A non-choice value is still forwarded so Click reports it precisely.
+        # 非枚举值同样会被转发，以便 Click 精确报错。
         assert _hoist_global_flags(["zotero", "list", "--detail", "bogus"], main) == [
             "--detail",
             "bogus",
@@ -526,7 +525,7 @@ class TestGlobalFlagHoisting:
 
 
 class TestHelpSchemaDrift:
-    """Every option `schema` advertises must appear in the matching `--help` text."""
+    """`schema` 声明的每个选项都必须出现在对应 `--help` 文本中。"""
 
     def test_help_advertises_all_schema_options(self):
         schema_result = _run(["schema"])
@@ -549,7 +548,7 @@ class TestHelpSchemaDrift:
 
 
 def _malformed_toml_error() -> Exception:
-    """Build a real TOMLDecodeError using the project's tomllib compatibility import."""
+    """用项目采用的 tomllib 导入路径构造真实的 TOMLDecodeError。"""
     from zotero_cli.config.loaders import tomllib
 
     try:
@@ -560,7 +559,7 @@ def _malformed_toml_error() -> Exception:
 
 
 class TestUsageErrorContract:
-    """Click usage/parameter errors are enveloped as validation_error with exit 3."""
+    """参数与用法错误统一封装为 validation_error，退出码为 3。"""
 
     def test_unknown_command_json_returns_validation_envelope(self):
         result = _run(["--json", "no-such-command"])
@@ -596,7 +595,7 @@ class TestUsageErrorContract:
 
 
 class TestTopLevelErrorBoundary:
-    """No traceback may leak; transport errors map to typed codes."""
+    """不得泄漏 traceback；传输错误映射为带类型的错误码。"""
 
     def test_missing_database_returns_configuration_error_envelope(self, tmp_path):
         result = _run(["--json", "zotero", "list"], env={"ZOT_DATA_DIR": str(tmp_path / "missing-db")})
@@ -637,7 +636,7 @@ class TestTopLevelErrorBoundary:
         with patch("zotero_cli.cli.commands.zotero.reading.load_config", side_effect=RuntimeError("boom")):
             result = _run(["--verbose", "--json", "zotero", "stats"])
         assert result.exit_code == 1
-        # stdout stays a single parseable envelope; diagnostics go to stderr.
+        # stdout 始终只有一个可解析的 envelope，诊断信息走 stderr。
         env = json.loads(result.stdout)
         assert env["error"]["code"] == "internal_error"
         assert "Traceback" in result.stderr
@@ -674,7 +673,7 @@ class TestTopLevelErrorBoundary:
         assert "RuntimeError: boom" in result.stderr
 
     def test_option_value_looking_like_verbose_does_not_enable_tracebacks(self):
-        # Diagnostics come from the parsed flag / ZOT_DEBUG, never raw argv text.
+        # 诊断开关取自解析后的标志或 ZOT_DEBUG，绝不使用原始 argv 文本。
         with patch("zotero_cli.cli.commands.zotero.reading.load_config", side_effect=RuntimeError("boom")):
             result = _run(["--json", "zotero", "stats"])
         assert result.exit_code == 1

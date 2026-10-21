@@ -1,4 +1,4 @@
-"""Protect user state from the test harness itself."""
+"""防止测试框架自身污染用户状态。"""
 
 from __future__ import annotations
 

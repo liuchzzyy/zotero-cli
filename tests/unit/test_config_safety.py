@@ -1,4 +1,4 @@
-"""Profile selection must never silently redirect a requested library."""
+"""配置档选择绝不能静默改写用户请求的文库。"""
 
 from __future__ import annotations
 

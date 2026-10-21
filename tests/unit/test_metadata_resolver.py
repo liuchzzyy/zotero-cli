@@ -1,4 +1,4 @@
-"""Tests for the Crossref DOI metadata resolver."""
+"""Crossref DOI 元数据解析测试。"""
 
 from __future__ import annotations
 
@@ -87,7 +87,7 @@ class TestMapCrossrefToZotero:
         assert creators == [{"creatorType": "author", "name": "The Consortium"}]
 
     def test_omits_missing_fields(self) -> None:
-        # Only title — nothing else should leak into the output.
+        # 只有标题——其他字段都不应泄漏到输出中。
         message = {"title": ["only this"]}
         fields = map_crossref_to_zotero(message)
         assert fields == {"title": "only this"}
@@ -117,7 +117,7 @@ class TestResolveDoi:
         assert fields["title"] == "A paper"
         assert fields["publicationTitle"] == "Journal X"
         assert fields["date"] == "2024"
-        # Verify the URL and user-agent header are sane.
+        # 校验 URL 与 User-Agent 头是否合理。
         called_url = mock_get.call_args[0][0]
         assert called_url == "https://api.crossref.org/works/10.1/x"
         headers = mock_get.call_args.kwargs["headers"]
@@ -171,7 +171,7 @@ class TestResolveDoi:
         assert "mailto:test@example.com" in ua
 
 
-# --- L-04: Crossref retries and surfaced failures ---
+# --- Crossref 重试与失败上报 ---
 
 SAMPLE_MESSAGE = {
     "message": {

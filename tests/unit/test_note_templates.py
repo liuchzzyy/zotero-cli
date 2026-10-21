@@ -1,4 +1,4 @@
-"""Tests for AI note templates and HTML rendering."""
+"""AI 笔记模板与 HTML 渲染测试。"""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ class TestNoteTemplates:
         assert template_path("book").name == "book.md"
 
     def test_package_data_dir_is_a_fallback(self):
-        """Prompt templates resolve from the package directory."""
+        """提示词模板从包目录解析。"""
         from zotero_cli.ai_notes import templates as note_templates
 
         package_data = Path(note_templates.__file__).resolve().parent / "templates"

@@ -1,4 +1,4 @@
-"""Do not repair ambiguous scientific values or recursively substitute user metadata."""
+"""不得擅自修正如实含义不明的科学数值，也不得递归替换用户元数据。"""
 
 from __future__ import annotations
 
