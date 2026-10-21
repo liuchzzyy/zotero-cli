@@ -51,3 +51,7 @@ config/*
 # 批处理断点与幂等缓存（防止误提交到仓库根目录）
 batch_ainote_*.json
 .ainote_state*.json
+# 辅助脚本运行产生的本地临时断点与清单文件
+tool/**/state.json
+tool/**/*.lock
+tool/**/inventory.json
