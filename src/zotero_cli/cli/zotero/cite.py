@@ -1,4 +1,4 @@
-"""zot cite: format an item citation and copy it to the clipboard."""
+"""zot zotero cite: format an item citation and copy it to the clipboard."""
 
 from __future__ import annotations
 
@@ -204,11 +204,11 @@ def cite(
 
     \b
     Examples:
-      zot cite ABC123                    APA style (default, copies)
-      zot cite ABC123 --style nature     Nature style
-      zot cite ABC123 --style vancouver  Vancouver style
-      zot cite ABC123 --no-copy          Print without copying
-      zot --json cite ABC123             Envelope only, no clipboard write
+      zot zotero cite ABC123                    APA style (default, copies)
+      zot zotero cite ABC123 --style nature     Nature style
+      zot zotero cite ABC123 --style vancouver  Vancouver style
+      zot zotero cite ABC123 --no-copy          Print without copying
+      zot --json zotero cite ABC123             Envelope only, no clipboard write
     """
     if style not in STYLES:
         raise typer.BadParameter("style 必须是 apa、nature 或 vancouver")

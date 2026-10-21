@@ -1,4 +1,4 @@
-"""zot relate: find items related by explicit relations, collections, or tags."""
+"""zot zotero relate: find items related by explicit relations, collections, or tags."""
 
 from __future__ import annotations
 
@@ -24,8 +24,8 @@ def relate(
 
     \b
     Examples:
-      zot relate ABC123
-      zot --json relate ABC123
+      zot zotero relate ABC123
+      zot --json zotero relate ABC123
     """
     cfg = load_config(profile=ctx.obj.get("profile"))
     json_out = ctx.obj.get("json", False)

@@ -1,4 +1,4 @@
-"""zot duplicates: find likely duplicate items by DOI or title similarity."""
+"""zot zotero duplicates: find likely duplicate items by DOI or title similarity."""
 
 from __future__ import annotations
 
@@ -25,10 +25,10 @@ def duplicates(
 
     \b
     Examples:
-      zot duplicates
-      zot duplicates --by doi
-      zot duplicates --by title --threshold 0.9
-      zot --json duplicates
+      zot zotero duplicates
+      zot zotero duplicates --by doi
+      zot zotero duplicates --by title --threshold 0.9
+      zot --json zotero duplicates
     """
     if strategy not in {"doi", "title", "both"}:
         raise typer.BadParameter("by 必须是 doi、title 或 both")
@@ -50,5 +50,5 @@ def duplicates(
     finally:
         reader.close()
     # Signal "duplicates detected" via typed exit code so agents/scripts can
-    # branch on `if zot duplicates ...; then ...; else act_on_duplicates; fi`.
+    # branch on `if zot zotero duplicates ...; then ...; else act_on_duplicates; fi`.
     ctx.exit(EXIT_CONFLICT)

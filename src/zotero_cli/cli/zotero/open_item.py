@@ -1,4 +1,4 @@
-"""zot open: open an item's PDF/URL or a web URL in the default application."""
+"""zot zotero open: open an item's PDF/URL or a web URL in the default application."""
 
 from __future__ import annotations
 
@@ -56,20 +56,20 @@ def open_item(
     """Open the PDF or URL of a Zotero item in the default app.
 
     KEY may also be an http(s) URL, which is opened directly
-    (e.g. zot open --url https://example.com). This command launches the system
+    (e.g. zot zotero open --url https://example.com). This command launches the system
     default application, i.e. it has a GUI side effect; JSON mode returns one
     envelope {target, kind, gui} describing what was opened.
 
     \b
     Examples:
-      zot open ABC123                    Open PDF in default viewer
-      zot open ABC123 --url              Open DOI/URL in browser
-      zot open --url https://example.com Open a web URL directly
-      zot --json open ABC123             Envelope + open (GUI side effect)
+      zot zotero open ABC123                    Open PDF in default viewer
+      zot zotero open ABC123 --url              Open DOI/URL in browser
+      zot zotero open --url https://example.com Open a web URL directly
+      zot --json zotero open ABC123             Envelope + open (GUI side effect)
     """
     json_out = ctx.obj.get("json", False)
 
-    # Direct web URL support: "zot open --url https://example.com" used to treat
+    # Direct web URL support: "zot zotero open --url https://example.com" used to treat
     # the URL as an item key. Only http(s) is accepted here.
     if _HTTP_URL_RE.match(key):
         _emit_and_open(key, kind="url", output_json=json_out)
@@ -79,7 +79,7 @@ def open_item(
             "validation_error",
             f"Unsupported URL scheme in '{key}'; only http(s) URLs are supported",
             output_json=json_out,
-            hint="Use 'zot open <item-key>' for library items",
+            hint="Use 'zot zotero open <item-key>' for library items",
             context="open",
         )
     if _DOI_RE.match(key):

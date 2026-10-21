@@ -1,8 +1,7 @@
 """DOI → Zotero metadata resolution via Crossref.
 
 The Zotero Web API's `create_items` endpoint does not auto-resolve DOIs into
-full metadata (that is done by Zotero desktop's translator). When `zot add
---doi` posts a bare item, the result is an empty entry with only the DOI
+full metadata (that is done by Zotero desktop's translator). When `zot zotero add --doi` posts a bare item, the result is an empty entry with only the DOI
 field set. This module fills that gap by fetching the Crossref record for a
 DOI and mapping it into the Zotero `journalArticle` field set, so the item
 created by the API already has title/creators/journal/etc. populated.

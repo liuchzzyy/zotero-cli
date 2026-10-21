@@ -90,9 +90,9 @@ evidence of the wrong repository — do not "restore" a docs tree.
   document "no CI" or a hard dependency-audit gate. The project supports only
   CPython 3.12 (`>=3.12,<3.13`) with upgraded dependencies (`pyzotero>=1.16,<2`);
   never write 3.10/3.13 matrix or downgrade claims.
-- **Delete is permanent; trash restore is different.** `zot delete` is a
-  permanent Web API deletion, never a move to the trash; `zot trash list` reads
-  the local synced `deletedItems`, and `zot trash restore` restores an
+- **Delete is permanent; trash restore is different.** `zot zotero delete` is a
+  permanent Web API deletion, never a move to the trash; `zot zotero trash list` reads
+  the local synced `deletedItems`, and `zot zotero trash restore` restores an
   already-trashed item through a raw `PATCH {"deleted": 0}`. There is no
   `trash empty` command. Docs must say permanent for delete and must not imply
   trash/restore as its consequence or promise immediate local visibility after

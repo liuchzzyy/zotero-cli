@@ -1,4 +1,4 @@
-"""zot export: export citations as BibTeX, CSL-JSON, RIS, or JSON."""
+"""zot zotero export: export citations as BibTeX, CSL-JSON, RIS, or JSON."""
 
 from __future__ import annotations
 
@@ -25,10 +25,10 @@ def export(
 
     \b
     Examples:
-      zot export ABC123                    BibTeX (default)
-      zot export ABC123 --format csl-json  CSL-JSON
-      zot export ABC123 --format ris       RIS
-      zot export ABC123 --format json      Raw JSON metadata
+      zot zotero export ABC123                    BibTeX (default)
+      zot zotero export ABC123 --format csl-json  CSL-JSON
+      zot zotero export ABC123 --format ris       RIS
+      zot zotero export ABC123 --format json      Raw JSON metadata
     """
     if fmt not in {"bibtex", "csl-json", "ris", "json"}:
         raise typer.BadParameter("format 必须是 bibtex、csl-json、ris 或 json")
