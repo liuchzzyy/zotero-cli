@@ -16,7 +16,8 @@ import traceback
 from dataclasses import dataclass
 from typing import NoReturn
 
-import click
+import typer
+import typer._click as typer_click
 
 from zotero_cli.output.envelope import envelope_error
 
@@ -100,15 +101,15 @@ def report_error(
             context=context,
             **(extra or {}),
         )
-        click.echo(json.dumps(env, indent=2, ensure_ascii=False))
+        typer.echo(json.dumps(env, indent=2, ensure_ascii=False))
     else:
-        click.echo(f"Error: {message}", err=True)
+        typer.echo(f"Error: {message}", err=True)
         if hint:
-            click.echo(f"Hint: {hint}", err=True)
+            typer.echo(f"Hint: {hint}", err=True)
         if context:
-            click.echo(f"Context: {context}", err=True)
+            typer.echo(f"Context: {context}", err=True)
         if committed:
-            click.echo("Committed: the write may have reached the server; reconcile before retrying.", err=True)
+            typer.echo("Committed: the write may have reached the server; reconcile before retrying.", err=True)
 
 
 def emit_error(
@@ -274,7 +275,7 @@ def classify_exception(exc: BaseException, *, context: str = "cli") -> ErrorSpec
     )
 
 
-def emit_usage_error(exc: click.ClickException, *, output_json: bool) -> NoReturn:
+def emit_usage_error(exc: typer_click.ClickException, *, output_json: bool) -> NoReturn:
     """将 Click 用法/参数错误作为 validation_error 输出并退出码 3。
 
     用法错误是代理契约的一部分：JSON 模式仍须产生可解析的 envelope，

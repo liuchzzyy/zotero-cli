@@ -236,7 +236,7 @@ class MinerUClient:
             response = _retry(
                 lambda: self._session.get(
                     zip_url,
-                    headers=headers,  # type: ignore[arg-type]  # None 会移除继承的请求头
+                    headers=headers,  # ty: ignore[invalid-argument-type]  # None 会移除继承的请求头
                     auth=lambda request: request,
                     timeout=300,
                     allow_redirects=False,
@@ -261,7 +261,7 @@ class MinerUClient:
                 retried = _retry(
                     lambda: self._session.get(
                         zip_url,
-                        headers=headers,  # type: ignore[arg-type]  # None 会移除继承的请求头
+                        headers=headers,  # ty: ignore[invalid-argument-type]  # None 会移除继承的请求头
                         auth=lambda request: request,
                         timeout=300,
                         allow_redirects=False,

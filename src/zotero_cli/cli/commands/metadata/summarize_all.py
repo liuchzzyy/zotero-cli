@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict
 
-import click
+import typer
 
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id
 from zotero_cli.output.envelope import envelope_ok
@@ -50,7 +50,7 @@ def _summarize_item(item: Item, detail: str) -> dict:
 
 
 def summarize_all(
-    ctx: click.Context,
+    ctx: typer.Context,
     offset: int,
     limit: int | None,
     exclude_tags: tuple[str, ...],
@@ -106,7 +106,7 @@ def summarize_all(
         emit_progress("complete", phase="summarize_all", done=page_total, total=page_total, filtered_total=total)
         json_out = ctx.obj.get("json", False)
         if json_out:
-            click.echo(
+            typer.echo(
                 json.dumps(
                     envelope_ok(
                         items,
@@ -123,6 +123,6 @@ def summarize_all(
                 )
             )
         else:
-            click.echo(json.dumps(items, indent=2, ensure_ascii=False))
+            typer.echo(json.dumps(items, indent=2, ensure_ascii=False))
     finally:
         reader.close()

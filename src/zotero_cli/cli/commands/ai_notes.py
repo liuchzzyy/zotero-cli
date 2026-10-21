@@ -6,7 +6,6 @@ import json
 import sqlite3
 import sys
 
-import click
 import typer
 
 from zotero_cli.ai_notes.client import AiClient
@@ -132,9 +131,9 @@ def ai_note(
         if cached is not None:
             reader.close()
             if json_out:
-                click.echo(json.dumps(cached, indent=2, ensure_ascii=False))
+                typer.echo(json.dumps(cached, indent=2, ensure_ascii=False))
             else:
-                click.echo(f"条目 {key} 已有成功结果（cached）：{cached.get('data', {}).get('status', '?')}")
+                typer.echo(f"条目 {key} 已有成功结果（cached）：{cached.get('data', {}).get('status', '?')}")
             return
 
     def progress(event: str, message: str) -> None:
@@ -142,7 +141,7 @@ def ai_note(
             return
         line = f"  [{event}] {message}"
         if progress_lines or not _stderr_is_tty():
-            click.echo(line, err=True)
+            typer.echo(line, err=True)
         else:
             sys.stderr.write(f"\r{line}\r")
             sys.stderr.flush()
@@ -196,7 +195,7 @@ def ai_note(
                 context="ai-note",
             )
     if json_out:
-        click.echo(json.dumps(env, indent=2, ensure_ascii=False))
+        typer.echo(json.dumps(env, indent=2, ensure_ascii=False))
     else:
         _print_human(result)
 
@@ -212,34 +211,34 @@ def _print_human(result: dict) -> None:
     status = result.get("status")
     key = result.get("item_key", "")
     if status == "already_analyzed":
-        click.echo(f"条目 {key} 已分析过（tag ai/noted）。用 --force 重跑。")
+        typer.echo(f"条目 {key} 已分析过（tag ai/noted）。用 --force 重跑。")
     elif status == "uncertain":
-        click.echo(f"条目 {key} 类型无法判定，已打 tag ai/uncertain 并跳过。")
+        typer.echo(f"条目 {key} 类型无法判定，已打 tag ai/uncertain 并跳过。")
     elif status == "dry_run":
-        click.echo(f"[dry-run] 条目 {key}")
-        click.echo(f"  类型：{result.get('paper_type')}")
-        click.echo(f"  模板：{result.get('template')}")
-        click.echo(f"  PDF：{result.get('pdf_count')} 个，正文 {result.get('chars')} 字符")
-        click.echo("  --- 将发给 AI 的输入预览 ---")
-        click.echo(result.get("prompt_preview", ""))
+        typer.echo(f"[dry-run] 条目 {key}")
+        typer.echo(f"  类型：{result.get('paper_type')}")
+        typer.echo(f"  模板：{result.get('template')}")
+        typer.echo(f"  PDF：{result.get('pdf_count')} 个，正文 {result.get('chars')} 字符")
+        typer.echo("  --- 将发给 AI 的输入预览 ---")
+        typer.echo(result.get("prompt_preview", ""))
     elif status == "ok":
-        click.echo(
+        typer.echo(
             f"已生成 note {result.get('note_key')}：类型 {result.get('paper_type')}，"
             f"{result.get('sections')} 个 section"
         )
         _print_short_note(result)
     elif status == "short_note_only":
-        click.echo(f"已基于 note {result.get('note_key')} 生成简记")
+        typer.echo(f"已基于 note {result.get('note_key')} 生成简记")
         _print_short_note(result)
     else:
-        click.echo(f"完成：{result}")
+        typer.echo(f"完成：{result}")
 
 
 def _print_short_note(result: dict) -> None:
     status = result.get("short_note", "skipped")
     if status == "ok":
-        click.echo("  简记（short-note）：已写入 Extra，tag ai/keywords")
+        typer.echo("  简记（short-note）：已写入 Extra，tag ai/keywords")
     elif status == "failed":
-        click.echo(f"  简记（short-note）：失败，tag ai/no_keywords（{result.get('short_note_error', '')}）")
+        typer.echo(f"  简记（short-note）：失败，tag ai/no_keywords（{result.get('short_note_error', '')}）")
     else:
-        click.echo("  简记（short-note）：跳过")
+        typer.echo("  简记（short-note）：跳过")

@@ -6,7 +6,7 @@ import json
 import os
 import shutil
 import time
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -60,7 +60,7 @@ def _lock_path(store_path: Path) -> Path:
 
 
 @contextmanager
-def store_lock(store_path: Path, *, timeout: float = _LOCK_TIMEOUT) -> Iterator[bool]:
+def store_lock(store_path: Path, *, timeout: float = _LOCK_TIMEOUT) -> Generator[bool]:
     """保护 store 创建、清理与 collection 删除的尽力而为的咨询锁。
 
     锁文件位于 store 旁边（workspace 根目录内），这样删除 store 不会使锁文件本身失效。
@@ -288,7 +288,9 @@ class QdrantVectorStore:
     def delete(self, ids: list[int]) -> None:
         if not ids or not self._client.collection_exists(self._collection):
             return
-        self._client.delete(collection_name=self._collection, points_selector=ids, wait=True)  # type: ignore[arg-type]
+        # qdrant 运行期接受整数 ID 列表，但其类型注解要求更宽的联合类型。
+        points_selector = ids
+        self._client.delete(collection_name=self._collection, points_selector=points_selector, wait=True)  # ty: ignore[invalid-argument-type]
 
     def delete_all(self) -> None:
         if self._client.collection_exists(self._collection):

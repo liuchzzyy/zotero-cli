@@ -23,7 +23,7 @@ from __future__ import annotations
 import contextvars
 import time
 import uuid
-from collections.abc import Iterator, Sequence
+from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from typing import Any
 
@@ -39,7 +39,7 @@ _request_start: contextvars.ContextVar[float | None] = contextvars.ContextVar("_
 
 
 @contextmanager
-def request_scope() -> Iterator[str]:
+def request_scope() -> Generator[str]:
     """将 request_id 与起始时间绑定到当前上下文。
 
     在此作用域内输出的 envelope 会自动在 meta 中带上 request_id 与

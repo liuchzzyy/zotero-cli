@@ -1,21 +1,21 @@
-"""按安全层级分组渲染命令列表的 Click Group。
+"""按安全层级分组渲染命令列表，并承载 CLI 顶层错误边界。
 
-zot --help 先列出读取类命令，再把写入类和破坏性命令列在明确的
+`zot --help` 先列出读取类命令，再把写入类和破坏性命令列在明确的
 "MUTATES LIBRARY" 标题下，使浏览帮助的代理程序不会把改动库的命令误认为
-无害命令。层级归属来自 zotero_cli.cli.app.safety。
+无害命令。层级归属来自 `zotero_cli.cli.app.safety`。
 
-该 Group 同时负责 CLI 的顶层错误边界：未捕获异常与 Click 用法错误会被转换为
-文档约定的 JSON envelope / 人类可读错误格式以及带类型的退出码，而不泄漏
-回溯信息。
+错误边界通过包装 Typer 生成的根命令实现：未捕获异常与用法错误会被转换为
+文档约定的 JSON envelope / 人类可读错误格式以及带类型的退出码，而不泄漏回溯。
 """
 
 from __future__ import annotations
 
 import errno
 import sys
+from collections.abc import Sequence
 from typing import Any
 
-import click
+import typer
 import typer._click as typer_click
 from typer.core import TyperGroup
 
@@ -32,54 +32,27 @@ from zotero_cli.output.exit_codes import (
 )
 
 
-class TieredGroup(TyperGroup):
-    """按安全层级分组渲染命令列表的 Click Group。"""
+def install_error_boundary(command: typer_click.Command) -> typer_click.Command:
+    """给 Typer 生成的根命令安装统一错误边界。
 
-    def main(  # type: ignore[override]
-        self,
-        args: list[str] | None = None,
-        prog_name: str | None = None,
-        complete_var: str | None = None,
-        standalone_mode: bool = True,
-        windows_expand_args: bool = True,
-        **extra: Any,
-    ) -> Any:
-        if args is None:
-            args = sys.argv[1:]
-        args = _hoist_global_flags(list(args), self)
-        # 每次调用都重新初始化；根回调记录解析出的 --verbose 选项，
-        # ZOT_DEBUG 由 verbose_enabled() 按需读取。
+    只包装最终根命令，子组保持纯 Typer 行为。
+    """
+    original_main = command.main
+
+    def guarded_main(args: Sequence[str] | None = None, *main_args: Any, **main_kwargs: Any) -> Any:
+        argv = list(sys.argv[1:] if args is None else args)
+        hoisted = _hoist_global_flags(argv, command)
         set_verbose(False)
-
-        if not standalone_mode:
-            return super().main(
-                args=args,
-                prog_name=prog_name,
-                complete_var=complete_var,
-                standalone_mode=False,
-                windows_expand_args=windows_expand_args,
-                **extra,
-            )
-
-        json_output = detect_json_output(args)
+        json_output = detect_json_output(hoisted)
+        standalone = main_kwargs.get("standalone_mode", True)
+        main_kwargs["standalone_mode"] = False
         try:
-            result = super().main(
-                args=args,
-                prog_name=prog_name,
-                complete_var=complete_var,
-                standalone_mode=False,
-                windows_expand_args=windows_expand_args,
-                **extra,
-            )
+            result = original_main(hoisted, *main_args, **main_kwargs)
         except SystemExit:
-            # 显式退出（版本等）保留原始退出码。
+            # 显式退出（帮助、版本、schema 错误）保留原始退出码。
             raise
-        except click.exceptions.Exit as exc:
-            # Typer 在 standalone_mode=False 时保留 Click 的 Exit 异常；
-            # 统一转换为 SystemExit，维持现有 CLI 与测试观察到的退出码。
-            raise SystemExit(exc.exit_code) from None
-        except (click.ClickException, typer_click.ClickException) as exc:
-            if isinstance(exc, (click.UsageError, typer_click.exceptions.UsageError)):
+        except typer_click.ClickException as exc:
+            if isinstance(exc, typer_click.exceptions.UsageError):
                 if json_output:
                     emit_usage_error(exc, output_json=True)
                 exc.show()
@@ -94,12 +67,12 @@ class TieredGroup(TyperGroup):
                 )
             exc.show()
             raise SystemExit(exc.exit_code) from None
-        except click.Abort:
-            click.echo("Aborted!", err=True)
+        except typer.Abort:
+            typer.echo("Aborted!", err=True)
             raise SystemExit(EXIT_RUNTIME) from None
         except (EOFError, KeyboardInterrupt) as exc:
-            click.echo(file=sys.stderr)
-            click.echo("Aborted!", err=True)
+            typer.echo(file=sys.stderr)
+            typer.echo("Aborted!", err=True)
             raise SystemExit(EXIT_RUNTIME) from exc
         except OSError as exc:
             if getattr(exc, "errno", None) == errno.EPIPE:
@@ -110,10 +83,19 @@ class TieredGroup(TyperGroup):
 
         if isinstance(result, int):
             raise SystemExit(result)
+        if standalone:
+            return None
         return result
 
-    def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
-        commands: list[tuple[str, click.Command]] = []
+    command.main = guarded_main  # ty: ignore[invalid-assignment]
+    return command
+
+
+class TieredGroup(TyperGroup):
+    """按安全层级分组渲染命令列表的 Typer 命令组。"""
+
+    def format_commands(self, ctx: typer_click.Context, formatter: typer_click.HelpFormatter) -> None:
+        commands: list[tuple[str, typer_click.Command]] = []
         for name in self.list_commands(ctx):
             cmd = self.get_command(ctx, name)
             if cmd is None or getattr(cmd, "hidden", False):
@@ -144,3 +126,6 @@ class TieredGroup(TyperGroup):
                 continue
             with formatter.section(title):
                 formatter.write_dl(rows)
+
+
+__all__ = ["TieredGroup", "install_error_boundary"]

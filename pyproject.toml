@@ -50,6 +50,7 @@ dev = [
     "pytest-cov>=7.1",
     "ruff>=0.17",
     "mypy>=2.4",
+    "ty>=0.0.90",
 ]
 
 [tool.ruff]
@@ -71,3 +72,13 @@ warn_unused_configs = true
 disallow_untyped_defs = true
 ignore_missing_imports = true
 
+[tool.ty.rules]
+# 只保留对源码有效的规则；本仓库以 pytest 行为为契约。
+unused-ignore-comment = "warn"
+
+[tool.ty.src]
+# 源码严格检查；测试大量使用 MagicMock 与动态夹具，静态类型噪声不计入门禁。
+include = ["src"]
+
+[tool.ty.terminal]
+output-format = "full"

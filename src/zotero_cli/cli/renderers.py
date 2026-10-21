@@ -314,16 +314,17 @@ def print_error(error: str | ErrorInfo, output_json: bool = False) -> None:
 
     不会退出。若需要退出，请使用 zotero_cli.output.exit_codes.emit_error。
     """
-    import sys as _sys
+    import sys
 
-    import click
+    import typer
 
     rendered = format_error(error, output_json=output_json)
     if output_json:
-        click.echo(rendered)
+        typer.echo(rendered)
+        sys.stdout.flush()
     else:
-        click.echo(rendered, err=True)
-    _sys.stdout.flush() if output_json else _sys.stderr.flush()
+        typer.echo(rendered, err=True)
+        sys.stderr.flush()
 
 
 def format_success(data: Any, output_json: bool = False, human_text: str = "", meta: dict | None = None) -> str:

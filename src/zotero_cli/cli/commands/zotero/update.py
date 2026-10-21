@@ -36,7 +36,7 @@ def update_cmd(
     config = load_config(profile=ctx.obj.get("profile"))
     json_out = ctx.obj.get("json", False)
     try:
-        fields = _parse_inline_fields(title=title, date=date, field=field)
+        fields = _parse_inline_fields(title=title, date=date, field=tuple(field))
     except UpdateInputError as error:
         emit_error(
             "validation_error",

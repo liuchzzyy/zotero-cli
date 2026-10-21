@@ -18,7 +18,7 @@ import tempfile
 import time
 import uuid
 import zipfile
-from collections.abc import Iterator, Sequence
+from collections.abc import Generator, Sequence
 from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -72,7 +72,7 @@ def _process_is_alive(pid: int) -> bool | None:
 
 
 @contextmanager
-def _exclusive_lock(lock_path: Path, *, timeout: float, poll: float, stale: float) -> Iterator[None]:
+def _exclusive_lock(lock_path: Path, *, timeout: float, poll: float, stale: float) -> Generator[None]:
     """创建排他锁文件；等待存活的持有者，并回收已死/过期的锁。"""
     deadline = time.monotonic() + timeout
     notified = False
@@ -269,7 +269,7 @@ class MinerUParseCache:
         return removed
 
     @contextmanager
-    def _fingerprint_locks(self, fingerprints: Sequence[str]) -> Iterator[None]:
+    def _fingerprint_locks(self, fingerprints: Sequence[str]) -> Generator[None]:
         lock_dir = self.root / _LOCK_DIRNAME
         lock_dir.mkdir(parents=True, exist_ok=True)
         with ExitStack() as stack:

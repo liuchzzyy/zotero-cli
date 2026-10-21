@@ -5,12 +5,11 @@ from __future__ import annotations
 import os
 import sys
 
-import click
 import typer
 from typer.main import get_command
 
 from zotero_cli import __version__
-from zotero_cli.cli.app.group import TieredGroup
+from zotero_cli.cli.app.group import TieredGroup, install_error_boundary
 from zotero_cli.cli.commands.ai_notes import ai_note
 from zotero_cli.cli.commands.ai_pdf import ai_pdf
 from zotero_cli.cli.commands.completions import completions_cmd
@@ -22,6 +21,22 @@ from zotero_cli.cli.commands.zotero.reading import app as zotero_reading_app
 from zotero_cli.output.envelope import request_scope
 from zotero_cli.output.exit_codes import set_verbose
 
+
+def _after_command(_result: object, **options: object) -> None:
+    """仅在交互模式下显示更新提示。"""
+    if options.get("output_json") or options.get("no_interaction") or not sys.stderr.isatty():
+        return
+    from zotero_cli.cli.app.version_check import check_for_update, update_check_disabled, upgrade_command
+
+    if update_check_disabled():
+        return
+    latest = check_for_update(__version__)
+    if latest:
+        typer.echo(
+            typer.style(f"\n 可更新：v{__version__} → v{latest}。运行：{upgrade_command()}", fg="yellow"), err=True
+        )
+
+
 app = typer.Typer(
     cls=TieredGroup,
     add_completion=False,
@@ -29,6 +44,7 @@ app = typer.Typer(
     no_args_is_help=False,
     context_settings={"help_option_names": ["--help"]},
     rich_markup_mode=None,
+    result_callback=_after_command,
 )
 app.add_typer(zotero_reading_app, name="zotero", help="管理和读取 Zotero 基础数据。")
 app.add_typer(config_app, name="config", help="管理 zot 配置。")
@@ -40,7 +56,7 @@ app.command(name="completions", help="生成 shell 补全脚本。")(completions
 app.command(name="schema", help="输出机器可读命令 schema。")(schema_cmd)
 
 
-def _version_callback(ctx: click.Context, _param: click.Parameter, value: bool) -> None:
+def _version_callback(ctx: typer.Context, _param: typer.CallbackParam, value: bool) -> None:
     """在执行常规参数解析前输出版本。"""
     if value and not ctx.resilient_parsing:
         typer.echo(f"zot, version {__version__}")
@@ -101,20 +117,4 @@ def root(
         typer.echo(ctx.get_help())
 
 
-def _after_command(_result: object, **options: object) -> None:
-    """仅在交互模式下显示更新提示。"""
-    if options.get("output_json") or options.get("no_interaction") or not sys.stderr.isatty():
-        return
-    from zotero_cli.cli.app.version_check import check_for_update, update_check_disabled, upgrade_command
-
-    if update_check_disabled():
-        return
-    latest = check_for_update(__version__)
-    if latest:
-        click.echo(
-            click.style(f"\n 可更新：v{__version__} → v{latest}。运行：{upgrade_command()}", fg="yellow"), err=True
-        )
-
-
-main = get_command(app)
-main._result_callback = _after_command
+main = install_error_boundary(get_command(app))

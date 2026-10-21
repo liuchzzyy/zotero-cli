@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-import click
+import typer
 
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id
 from zotero_cli.output.envelope import envelope_ok
@@ -13,7 +13,7 @@ from zotero_cli.output.sanitize import sanitize_text
 from zotero_cli.zotero.reader import ZoteroReader
 
 
-def summarize(ctx: click.Context, key: str) -> None:
+def summarize(ctx: typer.Context, key: str) -> None:
     """输出供 AI 代理程序使用的结构化摘要。
 
     \b
@@ -51,18 +51,18 @@ def summarize(ctx: click.Context, key: str) -> None:
                 data["abstract"] = item.abstract
                 data["tags"] = item.tags
                 data["notes"] = [n.content[:500] for n in notes]
-            click.echo(json.dumps(envelope_ok(data, meta={"detail": detail}), indent=2, ensure_ascii=False))
+            typer.echo(json.dumps(envelope_ok(data, meta={"detail": detail}), indent=2, ensure_ascii=False))
         else:
-            click.echo(f"Title: {sanitize_text(item.title)}")
-            click.echo(f"Authors: {', '.join(sanitize_text(c.full_name) for c in item.creators)}")
-            click.echo(f"Year: {sanitize_text(item.date or 'N/A')}")
+            typer.echo(f"Title: {sanitize_text(item.title)}")
+            typer.echo(f"Authors: {', '.join(sanitize_text(c.full_name) for c in item.creators)}")
+            typer.echo(f"Year: {sanitize_text(item.date or 'N/A')}")
             if item.doi:
-                click.echo(f"DOI: {sanitize_text(item.doi)}")
+                typer.echo(f"DOI: {sanitize_text(item.doi)}")
             if item.url:
-                click.echo(f"URL: {sanitize_text(item.url)}")
+                typer.echo(f"URL: {sanitize_text(item.url)}")
             if detail != "minimal":
                 if item.tags:
-                    click.echo(f"Tags: {', '.join(sanitize_text(t) for t in item.tags)}")
+                    typer.echo(f"Tags: {', '.join(sanitize_text(t) for t in item.tags)}")
                 if item.extra:
                     journal = sanitize_text(item.extra.get("publicationTitle"))
                     volume = sanitize_text(item.extra.get("volume", ""))
@@ -79,12 +79,12 @@ def summarize(ctx: click.Context, key: str) -> None:
                         if p
                     ]
                     if parts:
-                        click.echo(f"Source: {' '.join(parts)}")
+                        typer.echo(f"Source: {' '.join(parts)}")
                 if item.abstract:
-                    click.echo(f"\nAbstract:\n{sanitize_text(item.abstract)}")
+                    typer.echo(f"\nAbstract:\n{sanitize_text(item.abstract)}")
                 if notes:
-                    click.echo(f"\nNotes ({len(notes)}):")
+                    typer.echo(f"\nNotes ({len(notes)}):")
                     for n in notes:
-                        click.echo(f"  {sanitize_text(n.content[:500])}")
+                        typer.echo(f"  {sanitize_text(n.content[:500])}")
     finally:
         reader.close()

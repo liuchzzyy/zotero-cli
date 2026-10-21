@@ -16,8 +16,9 @@ from __future__ import annotations
 import os
 import sys
 from collections.abc import Sequence
+from typing import Any
 
-import click
+import typer._click as typer_click
 
 # 可从 argv 任意位置安全上提的布尔根选项。
 _HOISTED_FLAGS = frozenset({"--json", "--no-json", "--no-interaction", "--verbose"})
@@ -46,7 +47,7 @@ def detect_json_output(args: Sequence[str]) -> bool:
     return not sys.stdout.isatty()
 
 
-def _hoist_global_flags(args: list[str], command: click.Command) -> list[str]:
+def _hoist_global_flags(args: list[str], command: typer_click.Command) -> list[str]:
     """将独立的全局选项移到根位置，同时保留 Click 选项的取值。
 
     在把词元解释为全局选项之前，先遵循当前命令的选项参数个数。特别是，
@@ -54,7 +55,7 @@ def _hoist_global_flags(args: list[str], command: click.Command) -> list[str]:
     未被消耗的 -- 会终止上提，正如它终止选项解析一样。
     """
 
-    def options_for(cmd: click.Command) -> dict[str, click.Option]:
+    def options_for(cmd: typer_click.Command) -> dict[str, Any]:
         return {
             flag: param
             for param in cmd.params
@@ -114,8 +115,10 @@ def _hoist_global_flags(args: list[str], command: click.Command) -> list[str]:
                     break
         if option is not None and not option.is_flag and not option.count:
             values_left = max(0, option.nargs - int(attached_value))
-        elif tok in getattr(command, "commands", {}):
-            command = command.commands[tok]
-            options = options_for(command)
+        else:
+            subcommands = getattr(command, "commands", None)
+            if isinstance(subcommands, dict) and tok in subcommands:
+                command = subcommands[tok]
+                options = options_for(command)
         index += 1
     return flags + rest

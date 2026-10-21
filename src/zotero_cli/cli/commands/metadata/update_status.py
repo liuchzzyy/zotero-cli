@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-import click
+import typer
 
 from zotero_cli.config import (
     get_data_dir,
@@ -38,7 +38,7 @@ def _write_failure_exit_code(failure_codes: list[str]) -> int:
 
 
 def update_status(
-    ctx: click.Context,
+    ctx: typer.Context,
     key: str | None,
     apply: bool,
     dry_run: bool,
@@ -83,7 +83,7 @@ def update_status(
     if not api_key:
         rate_msg = "No API key — rate limited to ~1 request/3s. Set semantic_scholar_api_key in .zot/config.toml."
         if not json_out:
-            click.echo(rate_msg, err=True)
+            typer.echo(rate_msg, err=True)
 
     # 从本地数据库读取条目
     data_dir = get_data_dir(config)
@@ -120,11 +120,11 @@ def update_status(
     if not items:
         if json_out:
             data = {"results": [], "published": 0, "checked": 0, "updated": 0, "sync_required": False}
-            click.echo(
+            typer.echo(
                 json.dumps(envelope_ok(data, meta={"count": 0}, dry_run=not apply), indent=2, ensure_ascii=False)
             )
         else:
-            click.echo("No preprints found.")
+            typer.echo("No preprints found.")
         return
 
     # 提取预印本标识（arXiv、bioRxiv、medRxiv）
@@ -141,11 +141,11 @@ def update_status(
     if not preprint_items:
         if json_out:
             data = {"results": [], "published": 0, "checked": 0, "updated": 0, "sync_required": False}
-            click.echo(
+            typer.echo(
                 json.dumps(envelope_ok(data, meta={"count": 0}, dry_run=not apply), indent=2, ensure_ascii=False)
             )
         else:
-            click.echo("No items with preprint IDs found.")
+            typer.echo("No items with preprint IDs found.")
         return
 
     # 按来源统计
@@ -158,11 +158,11 @@ def update_status(
             parts.append(f"{arxiv_count} arXiv")
         if biorxiv_count:
             parts.append(f"{biorxiv_count} bioRxiv/medRxiv")
-        click.echo(f"Checking {' + '.join(parts)} preprint(s)...")
+        typer.echo(f"Checking {' + '.join(parts)} preprint(s)...")
         if not api_key:
             est_time = len(preprint_items) * 3
-            click.echo(f"Estimated time: ~{est_time}s (use API key to speed up)")
-        click.echo()
+            typer.echo(f"Estimated time: ~{est_time}s (use API key to speed up)")
+        typer.echo()
 
     # 查询 Semantic Scholar
     client = SemanticScholarClient(api_key=api_key or None)
@@ -175,7 +175,7 @@ def update_status(
                 label = f"[{i + 1}/{len(preprint_items)}]"
                 safe_title = sanitize_text(title)
                 short_title = safe_title[:60] + ("..." if len(safe_title) > 60 else "")
-                click.echo(f"{label} {short_title}", nl=False)
+                typer.echo(f"{label} {short_title}", nl=False)
 
             try:
                 status = client.check_publication(info)
@@ -205,7 +205,7 @@ def update_status(
                 results.append(result)
                 if not json_out:
                     venue = status.venue or status.journal_name or "Unknown venue"
-                    click.echo(f" → Published in {sanitize_text(venue)}")
+                    typer.echo(f" → Published in {sanitize_text(venue)}")
             else:
                 result = {
                     "key": item_key,
@@ -217,9 +217,9 @@ def update_status(
                 results.append(result)
                 if not json_out:
                     if status is None:
-                        click.echo(" → Not found on Semantic Scholar")
+                        typer.echo(" → Not found on Semantic Scholar")
                     else:
-                        click.echo(" → Not yet published")
+                        typer.echo(" → Not yet published")
     finally:
         client.close()
 
@@ -227,8 +227,8 @@ def update_status(
     update_failed: list[dict[str, Any]] = []
 
     if not json_out:
-        click.echo()
-        click.echo(f"Found {published_count}/{len(preprint_items)} published paper(s).")
+        typer.echo()
+        typer.echo(f"Found {published_count}/{len(preprint_items)} published paper(s).")
 
     if apply and published_count > 0:
         # 通过 Zotero Web API 应用更新
@@ -265,14 +265,14 @@ def update_status(
                 r["updated"] = True
                 updated += 1
                 if not json_out:
-                    click.echo(f"  Updated {r['key']}: {sanitize_text(r['title'])[:50]}...")
+                    typer.echo(f"  Updated {r['key']}: {sanitize_text(r['title'])[:50]}...")
             except ZoteroWriteError as error:
                 failure = {"code": error.code, "message": str(error), "retryable": error.retryable}
                 r["updated"] = False
                 r["update_error"] = failure
                 update_failed.append({"key": r["key"], "error": failure})
                 if not json_out:
-                    click.echo(f"  Failed {r['key']}: {error}", err=True)
+                    typer.echo(f"  Failed {r['key']}: {error}", err=True)
 
     data = {
         "results": results,
@@ -289,7 +289,7 @@ def update_status(
             env = envelope_partial_data(data, meta={"count": len(results)})
         else:
             env = envelope_ok(data, meta={"count": len(results)}, dry_run=not apply)
-        click.echo(json.dumps(env, indent=2, ensure_ascii=False))
+        typer.echo(json.dumps(env, indent=2, ensure_ascii=False))
         if apply and update_failed:
             raise SystemExit(_write_failure_exit_code(failure_codes))
         return
@@ -298,12 +298,12 @@ def update_status(
         return
 
     if not apply:
-        click.echo("\nDry-run mode. Use --apply to update Zotero metadata.")
+        typer.echo("\nDry-run mode. Use --apply to update Zotero metadata.")
         return
 
-    click.echo(f"\nUpdated {updated} item(s).")
+    typer.echo(f"\nUpdated {updated} item(s).")
     if updated > 0:
-        click.echo(SYNC_REMINDER)
+        typer.echo(SYNC_REMINDER)
     if update_failed:
-        click.echo(f"{len(update_failed)} item(s) failed to update.", err=True)
+        typer.echo(f"{len(update_failed)} item(s) failed to update.", err=True)
         raise SystemExit(_write_failure_exit_code(failure_codes))

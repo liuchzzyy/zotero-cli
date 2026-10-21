@@ -8,44 +8,49 @@ from __future__ import annotations
 import json
 from typing import Any, NoReturn
 
-import click
 import typer
-from typer.core import TyperArgument
+import typer._click as typer_click
+import typer._click.types as typer_click_types
+from typer._types import TyperChoice
+from typer.core import TyperArgument, TyperOption
+from typer.models import TyperPath
 
 from zotero_cli import __version__
 from zotero_cli.output.envelope import SCHEMA_VERSION, envelope_error, envelope_ok
 
 
-def _param_type_name(param: click.Parameter) -> str:
-    t = param.type
-    name = getattr(t, "name", None) or type(t).__name__.lower()
-    if isinstance(t, click.Choice):
+def _param_type_name(param: typer_click.Parameter) -> str:
+    """按 Typer 的实际参数类型给出 schema 中的类型名。"""
+    param_type = param.type
+    if isinstance(param_type, TyperChoice):
         return "choice"
-    if isinstance(t, click.Path):
+    if isinstance(param_type, TyperPath):
         return "path"
-    if isinstance(t, click.IntRange):
+    if isinstance(param_type, typer_click_types.IntRange):
         return "integer"
-    if name in ("integer", "int"):
+    type_name = getattr(param_type, "name", None) or type(param_type).__name__.lower()
+    if type_name in ("integer", "int"):
         return "integer"
-    if name in ("boolean", "bool"):
+    if type_name in ("boolean", "bool"):
         return "boolean"
-    if name == "float":
+    if type_name == "float":
         return "number"
     return "string"
 
 
-def _param_to_dict(param: click.Parameter) -> dict:
+def _param_to_dict(param: typer_click.Parameter) -> dict:
     d: dict[str, Any] = {
         "name": param.name,
-        "kind": "argument" if isinstance(param, (click.Argument, TyperArgument)) else "option",
+        "kind": "argument" if isinstance(param, TyperArgument) else "option",
         "type": _param_type_name(param),
         "required": bool(param.required),
     }
     if hasattr(param, "opts"):
         d["flags"] = list(param.opts) + list(param.secondary_opts)
         d["is_flag"] = bool(getattr(param, "is_flag", False))
-        if param.help:
-            d["help"] = param.help
+        help_text = getattr(param, "help", None)
+        if help_text:
+            d["help"] = help_text
     default = param.default
     if callable(default):
         try:
@@ -58,14 +63,14 @@ def _param_to_dict(param: click.Parameter) -> dict:
             d["default"] = default
         except TypeError:
             d["default"] = str(default)
-    if isinstance(param.type, click.Choice):
+    if isinstance(param.type, TyperChoice):
         d["choices"] = list(param.type.choices)
     if param.nargs and param.nargs != 1:
         d["nargs"] = param.nargs
     return d
 
 
-def _command_to_dict(cmd: click.Command, path: list[str]) -> dict:
+def _command_to_dict(cmd: Any, path: list[str]) -> dict:
     # 惰性导入：cli 入口会导入命令树，而本模块属于该命令树的一部分，
     # 模块级导入会造成循环导入。
     from zotero_cli.cli.app.safety import safety_tier_for_path
@@ -79,18 +84,19 @@ def _command_to_dict(cmd: click.Command, path: list[str]) -> dict:
         "since": "0.3.0",
         "deprecated": False,
     }
-    params = [p for p in cmd.params if not (isinstance(p, click.Option) and p.name == "help")]
+    params = [p for p in cmd.params if not (isinstance(p, TyperOption) and p.name == "help")]
     data["params"] = [_param_to_dict(p) for p in params]
-    if hasattr(cmd, "commands"):
+    subcommands = getattr(cmd, "commands", None)
+    if isinstance(subcommands, dict):
         subs = {}
-        for sub_name, sub_cmd in sorted(cmd.commands.items()):
+        for sub_name, sub_cmd in sorted(subcommands.items()):
             subs[sub_name] = _command_to_dict(sub_cmd, path + [sub_name])
         data["subcommands"] = subs
     return data
 
 
-def _resolve_command(root: click.Command, path: list[str]) -> click.Command | None:
-    current: click.Command = root
+def _resolve_command(root: Any, path: list[str]) -> Any | None:
+    current: Any = root
     for part in path:
         commands = getattr(current, "commands", None)
         if not isinstance(commands, dict):
@@ -222,7 +228,7 @@ def schema_cmd(
       zot schema collection add        # 嵌套子命令
       zot schema --diff prev.json      # 与缓存 schema 的结构 diff
     """
-    command_path = tuple(command_path or ())
+    command_path = list(command_path or ())
     root = ctx.find_root().command
     if command_path and diff_path is not None:
         _emit_schema_error(
