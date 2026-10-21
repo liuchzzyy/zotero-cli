@@ -135,6 +135,7 @@ def test_missing_main_image_raises_error(tmp_path):
 def test_fallback_budget_accepts_exact_image_boundary_but_not_overflow():
     prompt = "x" * (500_000 - 32_768 - 50_000 - 4_096)
     assert model_supports_request("deepseek-flash", prompt, 1)
+    assert model_supports_request("group/daily", prompt, 1)
     assert not model_supports_request("deepseek-flash", prompt, 2)
     assert not model_supports_request("unverified-model", prompt, 1)
 

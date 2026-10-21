@@ -17,6 +17,15 @@ _ROUTE_LIMITS = {
     "deepseek-flash": (1_000_000, 4_096),
     "gemini-3.8-flash-high": (1_048_576, 4_096),
     "gpt-5.6-sol": (1_000_000, 4_096),
+    # Magpie 本地代理模型及路由组
+    "group/daily": (1_048_576, 4_096),
+    "group/advanced": (1_048_576, 4_096),
+    "antigravity/gemini-3.8-flash": (1_048_576, 4_096),
+    "workbuddy-ai/deepseek-v4.1-flash": (1_000_000, 4_096),
+    "auto/gpt-6-sol": (1_000_000, 4_096),
+    "auto/gpt-5.6-terra": (1_000_000, 4_096),
+    "antigravity/claude-sonnet-4-6": (250_000, 4_096),
+    "antigravity/claude-opus-4-6-thinking": (250_000, 4_096),
 }
 REQUEST_CEILING = 500_000
 OUTPUT_RESERVE = 32_768
