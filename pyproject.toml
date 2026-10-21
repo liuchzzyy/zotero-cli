@@ -1,6 +1,6 @@
 [project]
 name = "zotero-cli"
-version = "2.1.0"
+version = "2.2.0"
 description = "Zotero CLI for AI agents — SQLite reads + Web API writes"
 license = "MIT"
 requires-python = ">=3.12,<3.13"
