@@ -8,13 +8,13 @@ from typing import Any
 
 import typer
 
+from zotero_cli.cli.context import open_reader
 from zotero_cli.cli.tiered_group import TieredGroup
-from zotero_cli.config import get_data_dir, load_config, resolve_library_id, resolve_write_credentials
+from zotero_cli.config import load_config, resolve_write_credentials
 from zotero_cli.models import Collection
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.output.renderers import format_collections, format_items, format_success
-from zotero_cli.zotero.reader import ZoteroReader
 from zotero_cli.zotero.writer import SYNC_REMINDER, ZoteroWriter
 from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
@@ -74,11 +74,7 @@ def _flatten_collection_keys(collections: list[Collection]) -> set[str]:
 
 
 def _load_collections(ctx: typer.Context) -> list[Collection]:
-    cfg = load_config(profile=ctx.obj.get("profile"))
-    data_dir = get_data_dir(cfg)
-    db_path = data_dir / "zotero.sqlite"
-    library_id = resolve_library_id(db_path, ctx.obj)
-    reader = ZoteroReader(db_path, library_id=library_id)
+    reader = open_reader(ctx)
     try:
         return reader.get_collections()
     finally:
@@ -142,11 +138,7 @@ def collection_list(ctx: typer.Context) -> None:
 def collection_items(ctx: typer.Context, key: str) -> None:
     """列出集合内的条目。"""
     _validate_collection_key(ctx, key, context="collection items")
-    cfg = load_config(profile=ctx.obj.get("profile"))
-    data_dir = get_data_dir(cfg)
-    db_path = data_dir / "zotero.sqlite"
-    library_id = resolve_library_id(db_path, ctx.obj)
-    reader = ZoteroReader(db_path, library_id=library_id)
+    reader = open_reader(ctx)
     try:
         items = reader.get_collection_items(key)
         typer.echo(format_items(items, output_json=ctx.obj.get("json", False)))

@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import click
+import typer
 
-from zotero_cli.commands.system.config.commands import _emit_config_error, _json_out
+from zotero_cli.cli.system.config_commands import _emit_config_error, _json_out
 from zotero_cli.config import (
     ConfigError,
     get_default_profile,
@@ -20,19 +20,20 @@ from zotero_cli.config import (
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
 
+app = typer.Typer(help="管理配置 profile。", invoke_without_command=True, rich_markup_mode=None)
 
-@click.group("profile", invoke_without_command=True)
-@click.pass_context
-def profile_group(ctx: click.Context) -> None:
-    """Manage configuration profiles."""
+
+@app.callback()
+def profile_root(ctx: typer.Context) -> None:
     if ctx.invoked_subcommand is None:
-        click.echo(ctx.get_help())
+        typer.echo(ctx.get_help())
 
 
-@profile_group.command("list")
-@click.option("--config-path", type=click.Path(), default=None)
-@click.pass_context
-def profile_list(ctx: click.Context, config_path: str | None) -> None:
+@app.command("list")
+def profile_list(
+    ctx: typer.Context,
+    config_path: str | None = typer.Option(None, "--config-path", help="配置文件路径。"),
+) -> None:
     """List all profiles."""
     json_out = _json_out(ctx)
     try:
@@ -44,7 +45,7 @@ def profile_list(ctx: click.Context, config_path: str | None) -> None:
         return
 
     if json_out:
-        click.echo(
+        typer.echo(
             json.dumps(
                 envelope_ok({"profiles": profiles, "default": default}, meta={"count": len(profiles)}),
                 indent=2,
@@ -53,19 +54,20 @@ def profile_list(ctx: click.Context, config_path: str | None) -> None:
         )
         return
     if not profiles:
-        click.echo("No profiles configured.")
+        typer.echo("No profiles configured.")
         return
     for name in profiles:
         marker = " (default)" if name == default else ""
-        click.echo(f"  {name}{marker}")
+        typer.echo(f"  {name}{marker}")
 
 
-@profile_group.command("set")
-@click.argument("name")
-@click.option("--config-path", type=click.Path(), default=None)
-@click.option("--dry-run", is_flag=True, help="Preview the change without writing")
-@click.pass_context
-def profile_set(ctx: click.Context, name: str, config_path: str | None, dry_run: bool) -> None:
+@app.command("set")
+def profile_set(
+    ctx: typer.Context,
+    name: str = typer.Argument(help="profile 名称。"),
+    config_path: str | None = typer.Option(None, "--config-path", help="配置文件路径。"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="仅预览，不写入。"),
+) -> None:
     """Set the default profile, keeping every other config section intact."""
     json_out = _json_out(ctx)
     try:
@@ -98,9 +100,9 @@ def profile_set(ctx: click.Context, name: str, config_path: str | None, dry_run:
     payload = {"profile": name, "config_path": str(path), "backup_path": str(backup) if backup else ""}
     if json_out:
         extra = {"dry_run": True} if dry_run else None
-        click.echo(json.dumps(envelope_ok(payload, extra=extra), indent=2, ensure_ascii=False))
+        typer.echo(json.dumps(envelope_ok(payload, extra=extra), indent=2, ensure_ascii=False))
         return
     if dry_run:
-        click.echo(f"Would set default profile to '{name}'.")
+        typer.echo(f"Would set default profile to '{name}'.")
     else:
-        click.echo(f"Default profile set to '{name}'.")
+        typer.echo(f"Default profile set to '{name}'.")

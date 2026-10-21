@@ -13,7 +13,9 @@ from zotero_cli import __version__
 from zotero_cli.cli.ai_notes import ai_note
 from zotero_cli.cli.ai_pdf import ai_pdf
 from zotero_cli.cli.metadata import metadata_app
-from zotero_cli.cli.registry import register_commands
+from zotero_cli.cli.system.completions import completions_cmd
+from zotero_cli.cli.system.config import app as config_app
+from zotero_cli.cli.system.schema import schema_cmd
 from zotero_cli.cli.tiered_group import TieredGroup
 from zotero_cli.cli.workspace.typer_commands import workspace_app
 from zotero_cli.cli.zotero.reading import app as zotero_reading_app
@@ -29,10 +31,13 @@ app = typer.Typer(
     rich_markup_mode=None,
 )
 app.add_typer(zotero_reading_app, name="zotero", help="管理和读取 Zotero 基础数据。")
+app.add_typer(config_app, name="config", help="管理 zot 配置。")
 app.add_typer(workspace_app, name="workspace", help="管理本地工作区及其检索索引。")
 app.add_typer(metadata_app, name="metadata", help="读取和更新 Zotero 元数据。")
 app.command(name="ai-pdf", help="通过 MinerU 解析 Zotero PDF。")(ai_pdf)
 app.command(name="ai-note", help="生成并写回 AI 分析笔记。")(ai_note)
+app.command(name="completions", help="生成 shell 补全脚本。")(completions_cmd)
+app.command(name="schema", help="输出机器可读命令 schema。")(schema_cmd)
 
 
 def _version_callback(ctx: click.Context, _param: click.Parameter, value: bool) -> None:
@@ -113,4 +118,3 @@ def _after_command(_result: object, **options: object) -> None:
 
 main = get_command(app)
 main._result_callback = _after_command
-register_commands(main)

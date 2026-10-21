@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import click
+import typer
 
 from zotero_cli.config import (
     AppConfig,
@@ -23,16 +23,16 @@ from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
 
 
-def _json_out(ctx: click.Context) -> bool:
+def _json_out(ctx: typer.Context) -> bool:
     return bool(ctx.obj.get("json", False)) if ctx.obj else False
 
 
-def _profile(ctx: click.Context) -> str | None:
+def _profile(ctx: typer.Context) -> str | None:
     profile = ctx.obj.get("profile") if ctx.obj else None
     return str(profile) if profile else None
 
 
-def _emit_config_error(ctx: click.Context, exc: ConfigError) -> None:
+def _emit_config_error(ctx: typer.Context, exc: ConfigError) -> None:
     emit_error(
         "configuration_error",
         str(exc),
@@ -42,20 +42,13 @@ def _emit_config_error(ctx: click.Context, exc: ConfigError) -> None:
     )
 
 
-@click.command("init")
-@click.option("--config-path", type=click.Path(), default=None, help="Config file path")
-@click.option("--data-dir", "data_dir", default=None, help="Zotero data directory (auto-detected if not set)")
-@click.option("--library-id", default=None, help="Zotero library ID")
-@click.option("--api-key", default=None, help="Zotero API key")
-@click.option("--dry-run", is_flag=True, help="Preview the merged configuration without writing")
-@click.pass_context
-def config_init(
-    ctx: click.Context,
-    config_path: str | None,
-    data_dir: str | None,
-    library_id: str | None,
-    api_key: str | None,
-    dry_run: bool,
+def init_command(
+    ctx: typer.Context,
+    config_path: str | None = typer.Option(None, "--config-path", help="配置文件路径。"),
+    data_dir: str | None = typer.Option(None, "--data-dir", help="Zotero 数据目录（缺省自动检测）。"),
+    library_id: str | None = typer.Option(None, "--library-id", help="Zotero 库 ID。"),
+    api_key: str | None = typer.Option(None, "--api-key", help="Zotero API key。"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="仅预览合并结果，不写入。"),
 ) -> None:
     """Initialize or update configuration, preserving existing sections and profiles."""
     json_out = _json_out(ctx)
@@ -79,14 +72,14 @@ def config_init(
 
     if interactive:
         if library_id is None:
-            library_id = click.prompt("Zotero library ID", default=existing.library_id)
+            library_id = typer.prompt("Zotero library ID", default=existing.library_id)
         if api_key is None:
             api_key = (
-                click.prompt("Zotero API key (leave blank to keep current)", default="", hide_input=True)
+                typer.prompt("Zotero API key (leave blank to keep current)", default="", hide_input=True)
                 or existing.api_key
             )
         if data_dir is None:
-            data_dir = click.prompt("Zotero data directory", default=existing.data_dir or str(detected_dir))
+            data_dir = typer.prompt("Zotero data directory", default=existing.data_dir or str(detected_dir))
     else:
         if library_id is None:
             library_id = existing.library_id
@@ -143,22 +136,22 @@ def config_init(
     }
     if json_out:
         extra = {"dry_run": True} if dry_run else None
-        click.echo(json.dumps(envelope_ok(payload, extra=extra), indent=2, ensure_ascii=False))
+        typer.echo(json.dumps(envelope_ok(payload, extra=extra), indent=2, ensure_ascii=False))
         return
 
     prefix = "Would save" if dry_run else "Configuration saved to"
-    click.echo(f"{prefix} {path}")
+    typer.echo(f"{prefix} {path}")
     if effective_profile:
-        click.echo(f"  Profile: {effective_profile}")
-    click.echo(f"  Data directory: {cfg.data_dir or '(auto-detect)'}")
+        typer.echo(f"  Profile: {effective_profile}")
+    typer.echo(f"  Data directory: {cfg.data_dir or '(auto-detect)'}")
     for warning in warnings:
-        click.echo(click.style(f"  WARNING: {warning}", fg="yellow"))
+        typer.echo(typer.style(f"  WARNING: {warning}", fg="yellow"))
 
 
-@click.command("show")
-@click.option("--config-path", type=click.Path(), default=None, help="Config file path")
-@click.pass_context
-def config_show(ctx: click.Context, config_path: str | None) -> None:
+def show_command(
+    ctx: typer.Context,
+    config_path: str | None = typer.Option(None, "--config-path", help="配置文件路径。"),
+) -> None:
     """Show current configuration."""
     json_out = _json_out(ctx)
     profile = _profile(ctx)
@@ -189,28 +182,28 @@ def config_show(ctx: click.Context, config_path: str | None) -> None:
         "database_ok": database_ok,
     }
     if json_out:
-        click.echo(json.dumps(envelope_ok(data), indent=2, ensure_ascii=False))
+        typer.echo(json.dumps(envelope_ok(data), indent=2, ensure_ascii=False))
         return
 
-    click.echo(f"Config:     {path}")
+    typer.echo(f"Config:     {path}")
     if profile:
-        click.echo(f"Profile:    {profile}")
-    click.echo(f"Library ID: {cfg.library_id}")
+        typer.echo(f"Profile:    {profile}")
+    typer.echo(f"Library ID: {cfg.library_id}")
     if len(cfg.api_key) > 4:
         api_key_display = "***" + cfg.api_key[-4:]
     elif cfg.api_key:
         api_key_display = "***"
     else:
         api_key_display = "(not set)"
-    click.echo(f"API Key:    {api_key_display}")
-    click.echo(f"Data Dir:   {cfg.data_dir or '(auto-detect)'}")
-    click.echo(f"Format:     {cfg.default_format}")
-    click.echo(f"Limit:      {cfg.default_limit}")
-    click.echo(f"Export:     {cfg.default_export_style}")
+    typer.echo(f"API Key:    {api_key_display}")
+    typer.echo(f"Data Dir:   {cfg.data_dir or '(auto-detect)'}")
+    typer.echo(f"Format:     {cfg.default_format}")
+    typer.echo(f"Limit:      {cfg.default_limit}")
+    typer.echo(f"Export:     {cfg.default_export_style}")
 
     if not data_dir_exists:
-        click.echo(click.style(f"\nWARNING: Data directory not found: {data_dir}", fg="yellow"))
+        typer.echo(typer.style(f"\nWARNING: Data directory not found: {data_dir}", fg="yellow"))
     elif not database_ok:
-        click.echo(click.style(f"\nWARNING: zotero.sqlite not found in {data_dir}", fg="yellow"))
+        typer.echo(typer.style(f"\nWARNING: zotero.sqlite not found in {data_dir}", fg="yellow"))
     else:
-        click.echo(click.style(f"\nDatabase:   {db_file} (OK)", fg="green"))
+        typer.echo(typer.style(f"\nDatabase:   {db_file} (OK)", fg="green"))

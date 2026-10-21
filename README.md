@@ -309,7 +309,8 @@ uv build
 - `src/zotero_cli/cli/`：Typer 根入口（`root.py`）、安全分级（`safety.py`）、错误边界与命令注册。
 - `src/zotero_cli/zotero/`：Zotero 基础能力，包括只读 SQLite/WAL 读取、Web API 写入、附件、集合与引文。
 - `src/zotero_cli/ai_pdf/`、`ai_notes/`、`workspace/`、`metadata/`：区块二各派生功能实现。
-- `src/zotero_cli/cli/workspace/`：`zot workspace` 的 Typer 命令与工作区命令实现；旧 `commands/workspace` 已退役。
+- `src/zotero_cli/cli/workspace/`：`zot workspace` 的 Typer 命令与工作区命令实现。
+- `src/zotero_cli/cli/system/`：`zot config`、`zot completions`、`zot schema` 的 Typer 实现；旧 `commands/` 包已删除。
 - `src/zotero_cli/workspace/`：工作区清单存储、索引与检索实现（`workspace/rag/`）；旧 `core/rag` 与 `core/workspace_store.py` 已退役。
 - `src/zotero_cli/core/`：跨功能共享的通用逻辑，例如 `platform_paths.py`、`version_check.py`。
 - `src/zotero_cli/output/`：JSON envelope、渲染、流式输出与退出码（`envelope.py`、`renderers.py`、`streaming.py`、`exit_codes.py`）。

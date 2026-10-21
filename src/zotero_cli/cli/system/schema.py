@@ -9,6 +9,7 @@ import json
 from typing import Any, NoReturn
 
 import click
+import typer
 from typer.core import TyperArgument
 
 from zotero_cli import __version__
@@ -204,21 +205,15 @@ def _load_cached_schema(path: str) -> tuple[dict, dict[str, str]]:
 
 def _emit_schema_error(code: str, message: str, *, hint: str, exit_code: int) -> NoReturn:
     env = envelope_error(code=code, message=message, retryable=False, hint=hint)
-    click.echo(json.dumps(env, indent=2, ensure_ascii=False))
+    typer.echo(json.dumps(env, indent=2, ensure_ascii=False))
     raise SystemExit(exit_code)
 
 
-@click.command("schema")
-@click.argument("command_path", nargs=-1)
-@click.option(
-    "--diff",
-    "diff_path",
-    type=click.Path(dir_okay=False, path_type=str),
-    default=None,
-    help="Path to a previously-emitted schema. Output a structural diff against the current schema.",
-)
-@click.pass_context
-def schema_cmd(ctx: click.Context, command_path: tuple[str, ...], diff_path: str | None) -> None:
+def schema_cmd(
+    ctx: typer.Context,
+    command_path: list[str] = typer.Argument(default=None, help="命令路径；可用点号分隔。"),
+    diff_path: str | None = typer.Option(None, "--diff", help="与缓存的 schema 做结构 diff。"),
+) -> None:
     """Emit machine-readable schema for the CLI or one command.
 
     \b
@@ -228,6 +223,7 @@ def schema_cmd(ctx: click.Context, command_path: tuple[str, ...], diff_path: str
       zot schema collection add        # nested subcommand
       zot schema --diff prev.json      # structural diff vs cached schema
     """
+    command_path = tuple(command_path or ())
     root = ctx.find_root().command
     if command_path and diff_path is not None:
         _emit_schema_error(
@@ -282,4 +278,4 @@ def schema_cmd(ctx: click.Context, command_path: tuple[str, ...], diff_path: str
             "cli_version": __version__,
         },
     )
-    click.echo(json.dumps(env, indent=2, ensure_ascii=False))
+    typer.echo(json.dumps(env, indent=2, ensure_ascii=False))

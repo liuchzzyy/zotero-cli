@@ -6,7 +6,7 @@ import json
 import os
 import subprocess
 
-import click
+import typer
 
 from zotero_cli.output.envelope import envelope_ok
 
@@ -87,10 +87,10 @@ def _generate(shell: str) -> tuple[str, str | None, str | None]:
     return result.stdout, None, None
 
 
-@click.command("completions")
-@click.argument("shell", type=click.Choice(["bash", "zsh", "fish"]))
-@click.pass_context
-def completions_cmd(ctx: click.Context, shell: str) -> None:
+def completions_cmd(
+    ctx: typer.Context,
+    shell: str = typer.Argument(help="shell：bash、zsh 或 fish。"),
+) -> None:
     """Generate shell completion script.
 
     Add the output to your shell profile to enable tab completions. JSON mode
@@ -104,13 +104,15 @@ def completions_cmd(ctx: click.Context, shell: str) -> None:
       zot completions fish > ~/.config/fish/completions/zot.fish
       zot --json completions bash    # envelope {shell, script, fallback, warning}
     """
+    if shell not in SHELLS:
+        raise typer.BadParameter("shell 必须是 bash、zsh 或 fish")
     json_out = bool(ctx.obj.get("json", False)) if ctx.obj else False
     script, failure, warning = _generate(shell)
     fallback = failure is not None
     if warning:
-        click.echo(warning, err=True)
+        typer.echo(warning, err=True)
     if json_out:
         payload = {"shell": shell, "script": script, "fallback": fallback, "warning": failure}
-        click.echo(json.dumps(envelope_ok(payload), indent=2, ensure_ascii=False))
+        typer.echo(json.dumps(envelope_ok(payload), indent=2, ensure_ascii=False))
         return
-    click.echo(script)
+    typer.echo(script)
