@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from zotero_cli.workspace.rag import CaptionCounts, PdfDocument, caption_counts, resolve_pdf_kinds
+from zotero_cli.pdf_rag import CaptionCounts, PdfDocument, caption_counts, resolve_pdf_kinds
 
 # 论文前置内容：决定文档不被判为"补充材料"的依据。
 _FRONT_MATTER = "Abstract: aqueous zinc batteries. \n1. Introduction\n"

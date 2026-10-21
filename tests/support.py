@@ -70,10 +70,10 @@ def parse_json_output(output: str) -> dict[str, Any]:
     return parsed
 
 
-def _fake_mineru_result(pdf_path: Path, workspace_root: Path) -> MinerUParseResult:
+def _fake_mineru_result(pdf_path: Path, pdf_rag_root: Path) -> MinerUParseResult:
     """按内容指纹在临时目录中构造一份 MinerU 解析产物。"""
     fingerprint = sha256(pdf_path.read_bytes()).hexdigest()
-    root = workspace_root / "mineru" / fingerprint / "vlm"
+    root = pdf_rag_root / "mineru" / fingerprint / "vlm"
     root.mkdir(parents=True, exist_ok=True)
     markdown_path = root / "document.md"
     content_list_path = root / "content_list.json"
@@ -100,7 +100,7 @@ def _fake_mineru_result(pdf_path: Path, workspace_root: Path) -> MinerUParseResu
 
 
 @contextmanager
-def isolate_workspace_backend(workspace_root: Path) -> Iterator[None]:
+def isolate_pdf_rag_backend(pdf_rag_root: Path) -> Iterator[None]:
     """隔离工作区目录、向量库配置与 MinerU 缓存，让 RAG 流程完全离线。
 
     索引与查询都经由命令层进入，因此补丁必须落在命令层实际引用的名字上，
@@ -108,16 +108,16 @@ def isolate_workspace_backend(workspace_root: Path) -> Iterator[None]:
     """
 
     def fake_ensure_many(paths: Sequence[Path], _progress: object = None) -> dict:
-        return {pdf_path: _fake_mineru_result(pdf_path, workspace_root) for pdf_path in paths}
+        return {pdf_path: _fake_mineru_result(pdf_path, pdf_rag_root) for pdf_path in paths}
 
     with ExitStack() as stack:
-        stack.enter_context(patch("zotero_cli.workspace.store.workspaces_dir", return_value=workspace_root))
+        stack.enter_context(patch("zotero_cli.pdf_rag.store.pdf_rags_dir", return_value=pdf_rag_root))
         stack.enter_context(
             patch(
-                "zotero_cli.cli.commands.workspace.indexing.load_vector_store_config",
-                return_value=VectorStoreConfig(path=str(workspace_root / "_qdrant")),
+                "zotero_cli.cli.commands.pdf_rag.indexing.load_vector_store_config",
+                return_value=VectorStoreConfig(path=str(pdf_rag_root / "_qdrant")),
             )
         )
-        cache_cls = stack.enter_context(patch("zotero_cli.cli.commands.workspace.indexing.MinerUParseCache"))
+        cache_cls = stack.enter_context(patch("zotero_cli.cli.commands.pdf_rag.indexing.MinerUParseCache"))
         cache_cls.return_value.ensure_many.side_effect = fake_ensure_many
         yield

@@ -86,7 +86,7 @@ class TestSchemaMetadata:
         env = json.loads(_run(["schema", "zotero", "collection", "list"]).output)
         assert env["data"]["safety_tier"] == "read"
 
-    # 会改动本地状态的嵌套 config/workspace 命令都已完成分级。
+    # 会改动本地状态的嵌套 config/pdf_rag 命令都已完成分级。
     def test_schema_nested_config_init_is_write(self):
         env = json.loads(_run(["schema", "config", "init"]).output)
         assert env["data"]["safety_tier"] == "write"
@@ -99,18 +99,18 @@ class TestSchemaMetadata:
         env = json.loads(_run(["schema", "config", "cache", "clear"]).output)
         assert env["data"]["safety_tier"] == "destructive"
 
-    def test_schema_nested_workspace_mutations_are_write(self):
+    def test_schema_nested_pdf_rag_mutations_are_write(self):
         for subcommand in ("new", "add", "remove", "import", "index", "reindex", "embed"):
-            env = json.loads(_run(["schema", "workspace", subcommand]).output)
+            env = json.loads(_run(["schema", "pdf-rag", subcommand]).output)
             assert env["data"]["safety_tier"] == "write", subcommand
 
-    def test_schema_nested_workspace_delete_is_destructive(self):
-        env = json.loads(_run(["schema", "workspace", "delete"]).output)
+    def test_schema_nested_pdf_rag_delete_is_destructive(self):
+        env = json.loads(_run(["schema", "pdf-rag", "delete"]).output)
         assert env["data"]["safety_tier"] == "destructive"
 
-    def test_schema_nested_workspace_reads_stay_read(self):
+    def test_schema_nested_pdf_rag_reads_stay_read(self):
         for subcommand in ("list", "show", "search", "query"):
-            env = json.loads(_run(["schema", "workspace", subcommand]).output)
+            env = json.loads(_run(["schema", "pdf-rag", subcommand]).output)
             assert env["data"]["safety_tier"] == "read", subcommand
 
     def test_schema_collection_move_has_source_option(self):

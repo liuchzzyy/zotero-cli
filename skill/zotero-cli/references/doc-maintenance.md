@@ -38,8 +38,8 @@ evidence of the wrong repository — do not "restore" a docs tree.
    `READ_COMMANDS`/`WRITE_COMMANDS`/`DESTRUCTIVE_COMMANDS` are derived from it,
    and nested mutating subcommands have tuple entries. Current nesting:
    `config init`/`config profile set` = write, `config cache clear` =
-   destructive; `workspace new/add/remove/import/index/reindex/embed` = write,
-   `workspace delete` = destructive; `collection create/move/rename/reorganize`
+   destructive; `pdf_rag new/add/remove/import/index/reindex/embed` = write,
+   `pdf_rag delete` = destructive; `collection create/move/rename/reorganize`
    = write and `collection delete`/`delete` = destructive; `trash restore` =
    write. `collection` is read-tier at the top level — listing it among write
    commands is the recurring documentation error, and the tiers drive both

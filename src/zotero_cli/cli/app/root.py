@@ -15,8 +15,8 @@ from zotero_cli.cli.commands.ai_pdf import ai_pdf
 from zotero_cli.cli.commands.completions import completions_cmd
 from zotero_cli.cli.commands.config import app as config_app
 from zotero_cli.cli.commands.metadata import metadata_app
+from zotero_cli.cli.commands.pdf_rag import pdf_rag_app
 from zotero_cli.cli.commands.schema import schema_cmd
-from zotero_cli.cli.commands.workspace import workspace_app
 from zotero_cli.cli.commands.zotero.items import app as zotero_reading_app
 from zotero_cli.output.envelope import request_scope
 from zotero_cli.output.exit_codes import set_verbose
@@ -48,7 +48,7 @@ app = typer.Typer(
 )
 app.add_typer(zotero_reading_app, name="zotero", help="管理和读取 Zotero 基础数据。")
 app.add_typer(config_app, name="config", help="管理 zot 配置。")
-app.add_typer(workspace_app, name="workspace", help="管理本地工作区及其检索索引。")
+app.add_typer(pdf_rag_app, name="pdf-rag", help="管理本地工作区及其检索索引。")
 app.add_typer(metadata_app, name="metadata", help="读取和更新 Zotero 元数据。")
 app.command(name="ai-pdf", help="通过 MinerU 解析 Zotero PDF。")(ai_pdf)
 app.command(name="ai-note", help="生成并写回 AI 分析笔记。")(ai_note)

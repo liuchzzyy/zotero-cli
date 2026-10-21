@@ -1,4 +1,4 @@
-"""`workspace` 之外，`zotero collection` 的增删改、试运行与部分成功语义。"""
+"""`pdf_rag` 之外，`zotero collection` 的增删改、试运行与部分成功语义。"""
 
 import json
 from unittest.mock import patch

@@ -6,6 +6,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
+from zotero_cli.ai_notes.errors import NoteAnalysisError
+from zotero_cli.ai_pdf import MinerUError, MinerUParseCache, MinerUParseResult
+from zotero_cli.ai_pdf.parsing import PdfParsingService
+from zotero_cli.pdf_rag import PdfDocument, resolve_pdf_kinds
+from zotero_cli.zotero.access.reader import ZoteroReader
 from zotero_cli.zotero.models import Item
 
 
@@ -78,3 +86,52 @@ def _sections_to_text(sections: list[object]) -> str:
             for row in rows if isinstance(rows, list) else []:
                 lines.append("| " + " | ".join(str(c) for c in row) + " |")
     return "\n".join(lines)
+
+
+def collect_documents(
+    reader: ZoteroReader,
+    key: str,
+    progress: Callable[[str, str], None] | None = None,
+) -> list[tuple[str, str, MinerUParseResult]]:
+    """收集并解析附件，按正文和补充材料排序，再跨附件去重。"""
+    attachments = reader.get_pdf_attachments(key)
+    if not attachments:
+        raise NoteAnalysisError(f"条目 '{key}' 没有本地 PDF 附件", code="validation_error")
+
+    pdf_paths = [a.path for a in attachments if a.path is not None and a.path.exists()]
+    if not pdf_paths:
+        raise NoteAnalysisError(f"条目 '{key}' 的 PDF 附件文件不存在", code="validation_error")
+
+    if progress:
+        progress("mineru", f"解析/读取缓存：{len(pdf_paths)} PDF(s)")
+    try:
+        pdf_parses = PdfParsingService(cache=MinerUParseCache()).parse_many(pdf_paths)
+    except MinerUError as exc:
+        message = str(exc)
+        code = "configuration_error" if "token not configured" in message.lower() else "network_error"
+        raise NoteAnalysisError(message, code=code, retryable=code == "network_error") from exc
+
+    parsed_pairs: list[tuple[Any, MinerUParseResult]] = []
+    for att in attachments:
+        if att.path is None:
+            continue
+        parsed = pdf_parses.get(att.path)
+        if isinstance(parsed, MinerUParseResult):
+            parsed_pairs.append((att, parsed))
+    # 图注编号一次性决定整个条目的正文（MS）与支撑信息（SI）：SI 封面
+    # 常重复文章标题和文件名，因此只有附件之间的比较才可靠（见 `resolve_pdf_kinds`）。
+    kinds = resolve_pdf_kinds(
+        [
+            PdfDocument(att.key, att.filename or att.key, parsed.markdown, parsed.content_list)
+            for att, parsed in parsed_pairs
+        ]
+    )
+    structured_docs: list[tuple[str, str, MinerUParseResult]] = [
+        (att.key, kinds[att.key], parsed) for att, parsed in parsed_pairs
+    ]
+    structured_docs.sort(key=lambda doc: doc[1] != "main")
+    # 在整个条目范围内而不是按类别去重重复附件：同一份 PDF 可能被附加两次，
+    # 不能因为其中一份被归为支撑信息就两份都保留。保留者维持自身类别。
+    kept_indices = _kept_duplicate_indices([doc[2].markdown for doc in structured_docs])
+    structured_docs = [structured_docs[index] for index in kept_indices]
+    return structured_docs

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 
 class NoteAnalysisError(Exception):
     """面向用户的分析失败，携带稳定的错误码与重试提示。
@@ -25,3 +27,15 @@ class NoteAnalysisError(Exception):
         self.committed = committed
         # 只有确证为输入/预算类失败时，调度器才可将其挂起。
         self.parkable = parkable
+
+
+class EvidenceBudgetError(ValueError):
+    """未改动的证据无法装入该请求已核实的限制。"""
+
+
+class AiNoteExecutionError(NoteAnalysisError):
+    """执行边界的失败，携带由调用方呈现的提示类别。"""
+
+    def __init__(self, message: str, *, hint_key: str = "", **kwargs: Any) -> None:
+        super().__init__(message, **kwargs)
+        self.hint_key = hint_key

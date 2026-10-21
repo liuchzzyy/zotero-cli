@@ -1,7 +1,7 @@
 """配置与状态路径。
 
 源码检出将配置和运行时状态保存在仓库内部
-（/.zot、/.workspace）。已安装的 wheel 则按用户确定性地解析两者，
+（/.zot、/.zot/pdf_rag）。已安装的 wheel 则按用户确定性地解析两者，
 而不依赖当前工作目录：
 
 * 状态：绝对路径 `ZOT_STATE_DIR`，否则 `XDG_STATE_HOME/zotero-cli`
@@ -26,7 +26,7 @@ CONFIG_FILENAME = "config.toml"
 
 STATE_DIRNAME = "state"
 
-WORKSPACE_DIRNAME = ".workspace"
+PDF_RAG_DIRNAME = "pdf_rag"
 
 APP_DIRNAME = "zotero-cli"
 
@@ -116,12 +116,12 @@ def data_root() -> Path:
     return root if root is not None else state_root()
 
 
-def workspace_root() -> Path:
-    """工作区的根目录：检出中为 /.workspace，安装后为状态根目录。"""
+def pdf_rag_root() -> Path:
+    """工作区的根目录：检出中为 /.zot/pdf_rag，安装后为状态根目录。"""
     root = checkout_root()
     if root is not None:
-        return root / WORKSPACE_DIRNAME
-    return state_root() / WORKSPACE_DIRNAME
+        return root / SETTINGS_DIRNAME / PDF_RAG_DIRNAME
+    return state_root() / PDF_RAG_DIRNAME
 
 
 def settings_dir(start: Path | None = None) -> Path:

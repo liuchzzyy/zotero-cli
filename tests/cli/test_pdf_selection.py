@@ -35,7 +35,7 @@ def test_specific_child_pdf_is_selected_even_with_same_filename(tmp_path):
     second = Attachment("SUPP001", "PARENT", "paper.pdf", "application/pdf", second_path)
     with (
         patch("zotero_cli.cli.commands.ai_pdf.ZoteroReader") as reader_cls,
-        patch("zotero_cli.cli.commands.ai_pdf.MinerUParseCache") as cache_cls,
+        patch("zotero_cli.ai_pdf.parsing.MinerUParseCache") as cache_cls,
     ):
         reader_cls.return_value.get_pdf_attachments.return_value = [first, second]
         parsed = cache_cls.return_value.lookup.return_value[0]

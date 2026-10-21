@@ -6,7 +6,7 @@
 
 import pytest
 
-from zotero_cli.workspace.rag import infer_pdf_kind
+from zotero_cli.pdf_rag import infer_pdf_kind
 
 
 def test_supporting_information_with_doi_is_not_main():

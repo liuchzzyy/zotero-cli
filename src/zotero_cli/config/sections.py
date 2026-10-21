@@ -49,7 +49,7 @@ class RerankConfig:
 @dataclass
 class VectorStoreConfig:
     provider: str = "qdrant_local"
-    path: str = ".workspace/_qdrant"
+    path: str = ".zot/pdf_rag/_qdrant"
 
 
 @dataclass

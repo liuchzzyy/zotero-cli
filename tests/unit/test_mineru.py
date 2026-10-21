@@ -11,8 +11,8 @@ from unittest.mock import MagicMock
 import pytest
 from requests.exceptions import ConnectionError as RequestsConnectionError
 
-import zotero_cli.ai_pdf.cache as cache_module
-import zotero_cli.ai_pdf.client as client_module
+import zotero_cli.ai_pdf.access.cache as cache_module
+import zotero_cli.ai_pdf.access.client as client_module
 from zotero_cli.ai_pdf import (
     MinerUClient,
     MinerUError,
@@ -20,13 +20,14 @@ from zotero_cli.ai_pdf import (
     MinerUParseResult,
     extract_doi_from_markdown,
 )
-from zotero_cli.ai_pdf.client import (
+from zotero_cli.ai_pdf.access.client import (
     _read_archive,
     _read_limited_body,
     _RemoteParse,
     _safe_extract_zip,
 )
-from zotero_cli.ai_pdf.request_utils import _retry
+from zotero_cli.ai_pdf.access.requests import _retry
+from zotero_cli.ai_pdf.parsing import PdfParsingService
 
 
 def _archive(markdown: str = "# Paper\nBody", content: list[dict] | None = None) -> bytes:
@@ -86,6 +87,16 @@ def test_parse_cache_persists_canonical_package_and_reuses_it(tmp_path) -> None:
     assert len(first.image_paths) == 1
     assert json.loads(first.manifest_path.read_text())["mineru_model_version"] == "vlm"
     client.parse_many.assert_called_once()
+
+
+def test_parsing_service_delegates_batch_results_without_token_preflight(tmp_path) -> None:
+    pdf = tmp_path / "paper.pdf"
+    cache = MagicMock()
+    results = {pdf: MinerUError("batch failure")}
+    cache.ensure_many.return_value = results
+
+    assert PdfParsingService(cache).parse_many([pdf]) == results
+    cache.ensure_many.assert_called_once_with([pdf], None)
 
 
 def test_parse_cache_key_changes_with_pdf_content(tmp_path) -> None:
@@ -211,7 +222,7 @@ def test_download_archive_reads_body_with_cap() -> None:
 
 
 def test_retry_retries_transient_errors_only(monkeypatch) -> None:
-    monkeypatch.setattr("zotero_cli.ai_pdf.request_utils.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("zotero_cli.ai_pdf.access.requests.time.sleep", lambda _seconds: None)
     attempts = {"count": 0}
 
     def flaky() -> str:
@@ -234,7 +245,7 @@ def test_retry_retries_transient_errors_only(monkeypatch) -> None:
 
 
 def test_retry_gives_up_after_three_transient_failures(monkeypatch) -> None:
-    monkeypatch.setattr("zotero_cli.ai_pdf.request_utils.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("zotero_cli.ai_pdf.access.requests.time.sleep", lambda _seconds: None)
     attempts = {"count": 0}
 
     def down() -> str:
@@ -497,7 +508,7 @@ def test_dead_owner_lock_is_reclaimed_immediately(tmp_path) -> None:
     assert not lock_path.exists()
 
 
-def test_live_owner_lock_waits_with_a_stderr_notice(tmp_path, monkeypatch, capsys) -> None:
+def test_live_owner_lock_logs_once(tmp_path, monkeypatch, caplog) -> None:
     pdf = tmp_path / "paper.pdf"
     pdf.write_bytes(b"pdf")
     client = MagicMock()
@@ -511,10 +522,10 @@ def test_live_owner_lock_waits_with_a_stderr_notice(tmp_path, monkeypatch, capsy
     monkeypatch.setattr(cache_module, "_LOCK_TIMEOUT_SECONDS", 0.1)
     monkeypatch.setattr(cache_module, "_LOCK_POLL_SECONDS", 0.01)
 
-    with pytest.raises(MinerUError, match="Timed out waiting"):
+    with caplog.at_level("INFO", logger=cache_module.__name__), pytest.raises(MinerUError, match="Timed out waiting"):
         cache.ensure(pdf)
 
-    assert "waiting for another process" in capsys.readouterr().err
+    assert "等待另一个进程完成 PDF 解析" in caplog.text
     client.parse_many.assert_not_called()
 
 

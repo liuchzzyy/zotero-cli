@@ -11,7 +11,7 @@ main-text evidence into optional, budget-sampled evidence, silently.
 Two layers, both string heuristics over the cached `document.md`, both
 classifying one attachment at a time.
 
-`workspace/rag/metadata.py::infer_pdf_kind(text, filename)` — first matching rule
+`pdf_rag/metadata.py::infer_pdf_kind(text, filename)` — first matching rule
 wins:
 
 | # | signal | window |
@@ -33,7 +33,7 @@ between 4 and 6 for the same reason — a phrase like `supporting information`
 this early is a cover, whereas the same phrase thousands of characters in is a
 main text citing its own SI (see the guardrail below).
 
-`ai_notes/pipeline.py` then overrides: a first-2500-char span containing both
+`ai_notes/analysis.py` then overrides: a first-2500-char span containing both
 `this pdf file includes:` and `figures s1` forces `supplementary`. That override
 exists because a same-named SI can carry the article title and byline, which
 trips rule 3 — for some items it is the only thing that saves the pair.
@@ -259,7 +259,7 @@ express it); never let that copy live on as a second classifier.
 
 ## Set-level classification (implemented)
 
-`workspace/rag/metadata.py::resolve_pdf_kinds(documents)` classifies an item's
+`pdf_rag/metadata.py::resolve_pdf_kinds(documents)` classifies an item's
 attachments **together** and returns exactly one main text per item. It takes
 `PdfDocument(identifier, filename, markdown, blocks)`; `pipeline.py` builds those
 from the MinerU parse results, so `caption_counts()` reads the same

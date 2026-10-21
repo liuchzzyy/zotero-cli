@@ -14,6 +14,9 @@ htmlcov/
 # 测试与调试产生的本地凭据文件
 *.credentials.json
 *.secrets.json
+# AI 服务调用的本地调试转储可能含文档内容与凭据
+*.request-dump.json
+*.response-dump.json
 # 本地日志统一写入 .zot/log，避免误提交散落的日志
 *.log
 # Docs build output
@@ -34,7 +37,6 @@ idea/TODO/
 # 本地 Zotero 凭据、缓存、索引和导出产物不提交
 .zot/*
 !.zot/config.example.toml
-.workspace/
 # 本地运行配置、缓存与产物；仅保留说明和模板
 config/*
 !config/README.md

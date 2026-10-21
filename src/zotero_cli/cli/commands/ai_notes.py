@@ -3,33 +3,23 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 import sys
+from typing import Any
 
 import typer
 
-from zotero_cli.ai_notes.client import AiClient
-from zotero_cli.ai_notes.errors import NoteAnalysisError
-from zotero_cli.ai_notes.pipeline import analyze_item
-from zotero_cli.config import (
-    get_data_dir,
-    get_prefs_js_path,
-    load_ai_note_config,
-    load_config,
-    resolve_library_id,
-    resolve_write_credentials,
-)
+from zotero_cli.ai_notes.errors import AiNoteExecutionError, NoteAnalysisError
+from zotero_cli.ai_notes.execution import execute_ai_note, store_execution_result
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
-from zotero_cli.zotero.access.idempotency import (
-    PendingMutationError,
-    begin_mutation,
-    release_rejected_mutation,
-    request_scope,
-    store_cached,
-)
-from zotero_cli.zotero.access.reader import ZoteroReader
-from zotero_cli.zotero.access.writer import ZoteroWriter
+
+_HINTS = {
+    "ai_configuration_missing": "在 .zot/config.toml 配置 [ai_notes] 的 api_key/base_url/model",
+    "write_credentials_missing": "设置 ZOT_LIBRARY_ID / ZOT_API_KEY 或运行 zot config init",
+    "pending_mutation": "Reconcile the item's notes before proceeding; do not bypass this with a new key",
+    "reservation_failed": "Check the idempotency state directory and database",
+    "cache_persist_failed": "Reconcile this item before retrying; the pending reservation still blocks blind retries",
+}
 
 
 def ai_note(
@@ -50,92 +40,6 @@ def ai_note(
     """用 MinerU 和 AI 分析条目 PDF，生成 HTML note 并通过 Web API 写回。"""
     json_out = ctx.obj.get("json", False)
 
-    ai_cfg = load_ai_note_config()
-    ai_configured = bool(ai_cfg.api_key and ai_cfg.base_url and ai_cfg.model)
-    if not dry_run and not ai_configured:
-        emit_error(
-            "configuration_error",
-            "AI note 配置不完整",
-            output_json=json_out,
-            hint="在 .zot/config.toml 配置 [ai_notes] 的 api_key/base_url/model",
-            context="ai-note",
-        )
-
-    config = load_config(profile=ctx.obj.get("profile"))
-    data_dir = get_data_dir(config)
-    db_path = data_dir / "zotero.sqlite"
-    library_id = resolve_library_id(db_path, ctx.obj)
-    reader = ZoteroReader(db_path, library_id=library_id, prefs_js_path=get_prefs_js_path(config))
-
-    writer_library_id, writer_api_key = resolve_write_credentials(
-        config,
-        library_type=ctx.obj.get("library_type", "user"),
-        group_id=ctx.obj.get("group_id"),
-    )
-    if not dry_run and (not writer_library_id or not writer_api_key):
-        reader.close()
-        emit_error(
-            "auth_missing",
-            "写入凭证未配置",
-            output_json=json_out,
-            hint="设置 ZOT_LIBRARY_ID / ZOT_API_KEY 或运行 zot config init",
-            context="ai-note",
-        )
-
-    writer = None
-    if writer_library_id and writer_api_key:
-        writer = ZoteroWriter(
-            library_id=writer_library_id,
-            api_key=writer_api_key,
-            library_type=ctx.obj.get("library_type", "user"),
-        )
-    ai_client = AiClient(ai_cfg) if ai_configured else None
-
-    cache_scope: str | None = None
-    idem_key = idempotency_key or ""
-    if not dry_run and idempotency_key:
-        cache_scope = request_scope(
-            "ai-note",
-            ctx.obj.get("library_type", "user"),
-            str(writer_library_id),
-            {
-                "key": key,
-                "force": force,
-                "no_tag": no_tag,
-                "no_short_note": no_short_note,
-                "short_note_only": short_note_only,
-            },
-        )
-        try:
-            cached = begin_mutation(cache_scope, idem_key)
-        except PendingMutationError as exc:
-            reader.close()
-            emit_error(
-                "conflict",
-                str(exc),
-                output_json=json_out,
-                retryable=False,
-                hint="Reconcile the item's notes before proceeding; do not bypass this with a new key",
-                context="ai-note",
-            )
-        except (OSError, sqlite3.Error):
-            reader.close()
-            emit_error(
-                "configuration_error",
-                "Could not durably reserve the analysis; no write attempted",
-                output_json=json_out,
-                retryable=False,
-                hint="Check the idempotency state directory and database",
-                context="ai-note",
-            )
-        if cached is not None:
-            reader.close()
-            if json_out:
-                typer.echo(json.dumps(cached, indent=2, ensure_ascii=False))
-            else:
-                typer.echo(f"条目 {key} 已有成功结果（cached）：{cached.get('data', {}).get('status', '?')}")
-            return
-
     def progress(event: str, message: str) -> None:
         if json_out:
             return
@@ -147,57 +51,47 @@ def ai_note(
             sys.stderr.flush()
 
     try:
-        result = analyze_item(
-            reader,
-            writer,
-            ai_client,
-            key,
+        execution = execute_ai_note(
+            key=key,
+            profile=ctx.obj.get("profile"),
+            library_type=ctx.obj.get("library_type", "user"),
+            group_id=ctx.obj.get("group_id"),
+            dry_run=dry_run,
             force=force,
             no_tag=no_tag,
-            dry_run=dry_run,
             no_short_note=no_short_note,
             short_note_only=short_note_only,
+            idempotency_key=idempotency_key,
             progress=progress,
-            max_extracted_chars=ai_cfg.max_extracted_chars,
         )
-    except NoteAnalysisError as exc:
+        if execution.replayed:
+            assert execution.cached_envelope is not None
+            envelope = execution.cached_envelope
+        else:
+            envelope = envelope_ok(execution.data)
+            store_execution_result(execution, envelope)
+    except (AiNoteExecutionError, NoteAnalysisError) as exc:
         committed = bool(getattr(exc, "committed", False))
-        if cache_scope is not None and not committed:
-            try:
-                release_rejected_mutation(cache_scope, idem_key)
-            except (OSError, sqlite3.Error):
-                pass  # 持久化释放失败时保留预占。
         emit_error(
             exc.code,
             str(exc),
             output_json=json_out,
             retryable=exc.retryable and not committed,
+            hint=_HINTS.get(getattr(exc, "hint_key", ""), ""),
             context="ai-note",
+            committed=committed,
         )
-    finally:
-        reader.close()
 
     if not json_out and not progress_lines and _stderr_is_tty():
         sys.stderr.write(f"\r{' ' * 60}\r")
         sys.stderr.flush()
 
-    env = envelope_ok(result)
-    if cache_scope is not None:
-        try:
-            store_cached(cache_scope, idem_key, env)
-        except (OSError, sqlite3.Error):
-            emit_error(
-                "configuration_error",
-                "分析已完成，但重试结果无法保存",
-                output_json=json_out,
-                retryable=False,
-                hint="Reconcile this item before retrying; the pending reservation still blocks blind retries",
-                context="ai-note",
-            )
     if json_out:
-        typer.echo(json.dumps(env, indent=2, ensure_ascii=False))
+        typer.echo(json.dumps(envelope, indent=2, ensure_ascii=False))
+    elif execution.replayed:
+        typer.echo(f"条目 {key} 已有成功结果（cached）：{execution.data.get('status', '?')}")
     else:
-        _print_human(result)
+        _print_human(execution.data)
 
 
 def _stderr_is_tty() -> bool:
@@ -207,7 +101,7 @@ def _stderr_is_tty() -> bool:
         return False
 
 
-def _print_human(result: dict) -> None:
+def _print_human(result: dict[str, Any]) -> None:
     status = result.get("status")
     key = result.get("item_key", "")
     if status == "already_analyzed":

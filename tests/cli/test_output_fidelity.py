@@ -43,11 +43,11 @@ def _item() -> Item:
         (("config", "init"), "write"),
         (("config", "profile", "set"), "write"),
         (("config", "cache", "clear"), "destructive"),
-        (("workspace", "list"), "read"),
-        (("workspace", "new"), "write"),
-        (("workspace", "index"), "write"),
-        (("workspace", "embed"), "write"),
-        (("workspace", "delete"), "destructive"),
+        (("pdf-rag", "list"), "read"),
+        (("pdf-rag", "new"), "write"),
+        (("pdf-rag", "index"), "write"),
+        (("pdf-rag", "embed"), "write"),
+        (("pdf-rag", "delete"), "destructive"),
     ],
 )
 def test_schema_dotted_paths_match_spaced_paths(path: tuple[str, ...], tier: str) -> None:

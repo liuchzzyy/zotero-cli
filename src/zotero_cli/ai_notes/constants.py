@@ -12,7 +12,7 @@ MIN_SECTIONS = 10
 
 # *short-note* prompt 的硬上限（模板 + 被压缩的 AI note）。
 # 分析 prompt 改用 `[ai_notes].max_extracted_chars` 限界
-# （默认 250,000，0 表示不限），并受 `ai_notes/structured_input.py`
+# （默认 250,000，0 表示不限），并受 `ai_notes/evidence.py`
 # 中 500k token 的图片预算约束；两处限制相互独立。
 MAX_PROMPT_CHARS = 220_000
 PROMPT_RESERVE_CHARS = 2_000

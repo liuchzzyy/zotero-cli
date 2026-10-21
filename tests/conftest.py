@@ -94,13 +94,13 @@ def isolate_runtime_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     """让默认配置、重试缓存与工作区远离真实研究状态。"""
     from zotero_cli import config
     from zotero_cli.cli.app import version_check
-    from zotero_cli.workspace import store as workspace
+    from zotero_cli.pdf_rag import store as pdf_rag
     from zotero_cli.zotero.access import idempotency
 
     # ZOT_* 已在 isolate_test_environment 中清空，这里只隔离落盘位置。
     isolated_config = tmp_path / ".zot" / "config.toml"
     monkeypatch.setattr(config.paths, "config_file_path", lambda start=None: isolated_config)
     monkeypatch.setattr(idempotency, "state_dir", lambda: tmp_path / ".zot" / "state")
-    monkeypatch.setattr(workspace, "workspace_root", lambda: tmp_path / ".workspace")
-    monkeypatch.setattr(workspace, "state_dir", lambda: tmp_path / ".zot" / "state")
+    monkeypatch.setattr(pdf_rag, "pdf_rag_root", lambda: tmp_path / ".zot" / "pdf_rag")
+    monkeypatch.setattr(pdf_rag, "state_dir", lambda: tmp_path / ".zot" / "state")
     monkeypatch.setattr(version_check, "_cache_file", lambda: tmp_path / ".zot" / "state" / "version-check.json")

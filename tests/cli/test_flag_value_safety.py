@@ -11,8 +11,8 @@ import pytest
 from click.testing import CliRunner
 
 from zotero_cli.cli import _hoist_global_flags, main
-from zotero_cli.cli.commands.workspace import _output as workspace_output
-from zotero_cli.cli.commands.workspace import operations as workspace_commands
+from zotero_cli.cli.commands.pdf_rag import _output as pdf_rag_output
+from zotero_cli.cli.commands.pdf_rag import operations as pdf_rag_commands
 from zotero_cli.config import AppConfig
 
 
@@ -50,11 +50,11 @@ def test_flag_like_option_values_do_not_disable_dry_run(
 @pytest.mark.parametrize("value", ["--json", "--no-json"])
 @pytest.mark.parametrize("option", ["--description", "-d"])
 def test_nested_option_values_are_preserved(monkeypatch: pytest.MonkeyPatch, option: str, value: str) -> None:
-    monkeypatch.setattr(workspace_output, "workspace_exists", Mock(return_value=False))
+    monkeypatch.setattr(pdf_rag_output, "pdf_rag_exists", Mock(return_value=False))
     save = Mock()
-    monkeypatch.setattr(workspace_commands, "save_workspace", save)
+    monkeypatch.setattr(pdf_rag_commands, "save_pdf_rag", save)
 
-    result = CliRunner().invoke(main, ["workspace", "new", "flag-safety", option, value])
+    result = CliRunner().invoke(main, ["pdf-rag", "new", "flag-safety", option, value])
 
     assert result.exit_code == 0, result.output
     save.assert_called_once()
@@ -68,8 +68,8 @@ def test_nested_option_values_are_preserved(monkeypatch: pytest.MonkeyPatch, opt
         ["--profile", "VALUE", "schema"],
         ["zotero", "update", "ABC123", "--title", "VALUE", "--dry-run"],
         ["zotero", "note", "ABC123", "--add", "VALUE", "--dry-run"],
-        ["workspace", "new", "flag-safety", "--description", "VALUE"],
-        ["workspace", "new", "flag-safety", "-d", "VALUE"],
+        ["pdf-rag", "new", "flag-safety", "--description", "VALUE"],
+        ["pdf-rag", "new", "flag-safety", "-d", "VALUE"],
     ],
 )
 def test_option_values_do_not_hide_separate_output_flags(args: list[str], value: str) -> None:
@@ -81,12 +81,12 @@ def test_option_values_do_not_hide_separate_output_flags(args: list[str], value:
 @pytest.mark.parametrize("value", ["--json", "--no-json"])
 @pytest.mark.parametrize("prefix", ["--description=", "-d"])
 def test_attached_values_do_not_consume_separate_output_flags(prefix: str, value: str) -> None:
-    args = ["workspace", "new", "flag-safety", f"{prefix}{value}"]
+    args = ["pdf-rag", "new", "flag-safety", f"{prefix}{value}"]
     assert _hoist_global_flags([*args, "--json"], main) == ["--json", *args]
 
 
 @pytest.mark.parametrize("output_flag", ["--json", "--no-json"])
-@pytest.mark.parametrize("args", [["schema"], ["schema", "zotero", "search"], ["workspace", "--help"]])
+@pytest.mark.parametrize("args", [["schema"], ["schema", "zotero", "search"], ["pdf-rag", "--help"]])
 def test_standalone_output_flags_still_follow_subcommands(args: list[str], output_flag: str) -> None:
     result = CliRunner().invoke(main, [*args, output_flag])
     assert result.exit_code == 0, result.output
@@ -94,7 +94,7 @@ def test_standalone_output_flags_still_follow_subcommands(args: list[str], outpu
 
 
 @pytest.mark.parametrize("output_flag", ["--json", "--no-json"])
-@pytest.mark.parametrize("prefix", [[], ["schema"], ["workspace", "new", "flag-safety"]])
+@pytest.mark.parametrize("prefix", [[], ["schema"], ["pdf-rag", "new", "flag-safety"]])
 def test_double_dash_terminates_hoisting(prefix: list[str], output_flag: str) -> None:
     args = [*prefix, "--", output_flag]
     assert _hoist_global_flags(args, main) == args
@@ -112,7 +112,7 @@ def test_double_dash_leaves_flag_like_positionals_for_click(output_flag: str) ->
 
 @pytest.mark.parametrize("output_flag", ["--json", "--no-json"])
 def test_double_dash_consumed_as_value_does_not_terminate_hoisting(output_flag: str) -> None:
-    args = ["workspace", "new", "flag-safety", "--description", "--"]
+    args = ["pdf-rag", "new", "flag-safety", "--description", "--"]
     assert _hoist_global_flags([*args, output_flag], main) == [output_flag, *args]
 
 

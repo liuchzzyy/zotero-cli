@@ -26,7 +26,7 @@ uv run zot --json zotero pdf list ITEMKEY
   different papers); a high overlap means a true duplicate that will double the
   prompt.
 
-MS/SI is now decided per **item**, by `resolve_pdf_kinds()` in `workspace/rag/metadata.py`,
+MS/SI is now decided per **item**, by `resolve_pdf_kinds()` in `pdf_rag/metadata.py`,
 from the figure/table numbering inside `content_list.json` captions. The numbering is
 the most reliable signal available: an SI cover repeats the article title and even its
 filename, so no per-attachment text cue can separate the pair. The rule order, the

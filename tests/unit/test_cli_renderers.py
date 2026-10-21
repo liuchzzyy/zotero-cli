@@ -15,12 +15,12 @@ from zotero_cli.cli.renderers import (
     format_item_detail,
     format_items,
     format_notes,
+    format_pdf_rag_list,
+    format_pdf_rag_query,
     format_pdf_text,
-    format_workspace_list,
-    format_workspace_query,
     sanitize_text,
 )
-from zotero_cli.workspace.store import Workspace
+from zotero_cli.pdf_rag.store import PdfRag
 from zotero_cli.zotero.models import Collection, Creator, DuplicateGroup, Item, Note
 
 
@@ -215,26 +215,26 @@ def test_format_error_text_sanitizes_message_and_hint():
     assert "\x00" not in result
 
 
-def test_format_workspace_query_json_preserves_small_bm25_scores():
+def test_format_pdf_rag_query_json_preserves_small_bm25_scores():
     results = [
         (0, 1.2e-6, {"item_key": "A", "source": "text", "content": "chunk a"}),
         (1, 2.5e-6, {"item_key": "B", "source": "text", "content": "chunk b"}),
     ]
-    data = json.loads(format_workspace_query(results, "hybrid", output_json=True))["data"]
+    data = json.loads(format_pdf_rag_query(results, "hybrid", output_json=True))["data"]
     assert data["results"][0]["score"] == pytest.approx(1.2e-6)
     assert data["results"][1]["score"] == pytest.approx(2.5e-6)
     assert data["results"][0]["score"] > 0
 
 
-def test_format_workspace_query_text_does_not_collapse_small_scores():
+def test_format_pdf_rag_query_text_does_not_collapse_small_scores():
     results = [(0, 1.2e-6, {"item_key": "A", "source": "text", "content": "chunk a\nline two"})]
-    result = format_workspace_query(results, "hybrid", output_json=False)
+    result = format_pdf_rag_query(results, "hybrid", output_json=False)
     assert "0.00" not in result
     assert "1.2e-06" in result
     assert "\n" not in result.splitlines()[0] or "chunk a" in result
 
 
-@pytest.mark.parametrize("renderer", ["items", "duplicates", "workspaces"])
+@pytest.mark.parametrize("renderer", ["items", "duplicates", "pdf_rags"])
 @pytest.mark.parametrize("literal", ["[/b]", "[b]X"])
 def test_rich_table_cells_render_external_metadata_literally(renderer: str, literal: str) -> None:
     if renderer == "items":
@@ -253,8 +253,8 @@ def test_rich_table_cells_render_external_metadata_literally(renderer: str, lite
         output = format_duplicates([group])
         assert output.count(literal) == 3
     else:
-        workspace = Workspace(name=literal, created=literal, description=literal)
-        output = format_workspace_list([workspace])
+        pdf_rag = PdfRag(name=literal, created=literal, description=literal)
+        output = format_pdf_rag_list([pdf_rag])
         assert output.count(literal) == 3
 
 

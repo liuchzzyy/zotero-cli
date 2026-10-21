@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from zotero_cli.ai_notes.renderer import render_note
-from zotero_cli.ai_notes.short_note import normalize_short_note, validate_short_note
+from zotero_cli.ai_notes.rendering import render_note
+from zotero_cli.ai_notes.short_notes import normalize_short_note, validate_short_note
 from zotero_cli.ai_notes.templates import load_template
 from zotero_cli.ai_notes.text import prepare
 

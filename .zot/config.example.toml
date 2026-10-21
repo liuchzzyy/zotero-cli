@@ -44,7 +44,7 @@ batch_size = 16
 
 [vector_store]
 provider = "qdrant_local"
-path = ".workspace/_qdrant"
+path = ".zot/pdf_rag/_qdrant"
 
 [semantic_search]
 candidate_k = 150

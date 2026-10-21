@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from zotero_cli.ai_notes.constants import MAX_PROMPT_CHARS
-from zotero_cli.ai_notes.renderer import render_note
+from zotero_cli.ai_notes.rendering import render_note
 from zotero_cli.ai_notes.templates import fit_text_to_prompt, format_template, load_template, template_path
 
 

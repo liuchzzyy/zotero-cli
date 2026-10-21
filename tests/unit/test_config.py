@@ -373,11 +373,11 @@ def test_load_vector_store_config(tmp_path):
     config_file.write_text("""
 [vector_store]
 provider = "qdrant_local"
-path = ".workspace/_qdrant"
+path = ".zot/pdf_rag/_qdrant"
 """)
     config = load_vector_store_config(config_file)
     assert config.provider == "qdrant_local"
-    assert config.path == ".workspace/_qdrant"
+    assert config.path == ".zot/pdf_rag/_qdrant"
 
 
 def test_load_vector_store_config_defaults(tmp_path):
@@ -385,7 +385,7 @@ def test_load_vector_store_config_defaults(tmp_path):
     config_file.write_text("[zotero]\ndata_dir = '/tmp'\n")
     config = load_vector_store_config(config_file)
     assert config.provider == "qdrant_local"
-    assert config.path == ".workspace/_qdrant"
+    assert config.path == ".zot/pdf_rag/_qdrant"
 
 
 def test_load_semantic_search_config(tmp_path):

@@ -11,10 +11,10 @@ import pytest
 from qdrant_client.models import Distance, VectorParams
 
 from zotero_cli.config import RerankConfig
-from zotero_cli.workspace.rag import cascade_chunk, chunk_mineru_content, chunk_text, infer_pdf_kind
-from zotero_cli.workspace.rag.providers.gitee import GiteeEmbeddingProvider, _extract_scores
-from zotero_cli.workspace.rag.rerank import rerank_chunks
-from zotero_cli.workspace.rag.vector_store import QdrantVectorStore
+from zotero_cli.pdf_rag import cascade_chunk, chunk_mineru_content, chunk_text, infer_pdf_kind
+from zotero_cli.pdf_rag.providers.gitee import GiteeEmbeddingProvider, _extract_scores
+from zotero_cli.pdf_rag.rerank import rerank_chunks
+from zotero_cli.pdf_rag.vector_store import QdrantVectorStore
 
 
 def test_embedding_restores_input_order_with_batch_local_indices() -> None:
@@ -30,7 +30,7 @@ def test_embedding_restores_input_order_with_batch_local_indices() -> None:
         responses.append(response)
     progress = MagicMock()
     provider = GiteeEmbeddingProvider(api_key="test", batch_size=2)
-    with patch("zotero_cli.workspace.rag.providers.gitee.requests.post", side_effect=responses) as post:
+    with patch("zotero_cli.pdf_rag.providers.gitee.requests.post", side_effect=responses) as post:
         vectors = provider.embed(["alpha", "beta", "gamma", "delta"], progress)
 
     assert vectors == [[1.0], [2.0], [3.0], [4.0]]
@@ -58,7 +58,7 @@ def test_embedding_rejects_invalid_counts_or_indices(indices: list[object]) -> N
     response = MagicMock(ok=True)
     response.json.return_value = {"data": [{"index": index, "embedding": [1.0]} for index in indices]}
     progress = MagicMock()
-    with patch("zotero_cli.workspace.rag.providers.gitee.requests.post", return_value=response):
+    with patch("zotero_cli.pdf_rag.providers.gitee.requests.post", return_value=response):
         with pytest.raises(RuntimeError, match="embedding"):
             GiteeEmbeddingProvider(api_key="test").embed(["alpha", "beta"], progress)
     progress.assert_not_called()
@@ -67,7 +67,7 @@ def test_embedding_rejects_invalid_counts_or_indices(indices: list[object]) -> N
 def test_embedding_rejects_partially_missing_indices() -> None:
     response = MagicMock(ok=True)
     response.json.return_value = {"data": [{"index": 0, "embedding": [1.0]}, {"embedding": [2.0]}]}
-    with patch("zotero_cli.workspace.rag.providers.gitee.requests.post", return_value=response):
+    with patch("zotero_cli.pdf_rag.providers.gitee.requests.post", return_value=response):
         with pytest.raises(RuntimeError, match="index"):
             GiteeEmbeddingProvider(api_key="test").embed(["alpha", "beta"])
 
@@ -75,7 +75,7 @@ def test_embedding_rejects_partially_missing_indices() -> None:
 def test_embedding_accepts_complete_unindexed_legacy_response() -> None:
     response = MagicMock(ok=True)
     response.json.return_value = {"data": [{"embedding": [1.0]}, {"embedding": [2.0]}]}
-    with patch("zotero_cli.workspace.rag.providers.gitee.requests.post", return_value=response):
+    with patch("zotero_cli.pdf_rag.providers.gitee.requests.post", return_value=response):
         assert GiteeEmbeddingProvider(api_key="test").embed(["alpha", "beta"]) == [[1.0], [2.0]]
 
 
@@ -83,7 +83,7 @@ def test_embedding_accepts_complete_unindexed_legacy_response() -> None:
 def vector_store_stub(tmp_path: Path) -> tuple[QdrantVectorStore, MagicMock]:
     client = MagicMock()
     client.collection_exists.return_value = False
-    with patch("zotero_cli.workspace.rag.vector_store.QdrantClient", return_value=client):
+    with patch("zotero_cli.pdf_rag.vector_store.QdrantClient", return_value=client):
         store = QdrantVectorStore(tmp_path / "vectors", "test")
     return store, client
 
@@ -172,7 +172,7 @@ def test_invalid_indexed_reranker_keeps_retrieval_ranking(capsys: pytest.Capture
     candidates = [(1, 0.9, {"content": "alpha"}), (2, 0.8, {"content": "beta"})]
     response = MagicMock(ok=True)
     response.json.return_value = {"results": [{"index": 0, "score": 0.1}, {"index": 0, "score": 0.9}]}
-    with patch("zotero_cli.workspace.rag.providers.gitee.requests.post", return_value=response):
+    with patch("zotero_cli.pdf_rag.providers.gitee.requests.post", return_value=response):
         result = rerank_chunks("query", candidates, RerankConfig(api_key="test"))
     assert result is None
     assert [candidate[0] for candidate in candidates] == [1, 2]
@@ -186,9 +186,7 @@ def test_reranker_still_accepts_fully_unindexed_scores() -> None:
 @pytest.mark.parametrize("overlap", [8, 9])
 def test_cascade_chunk_rejects_nonprogressing_overlap_before_character_split(overlap: int) -> None:
     # 守住危险边界，避免回归时把 pytest 进程挂死。
-    with patch(
-        "zotero_cli.workspace.rag.chunking._chunk_by_char", side_effect=AssertionError("unsafe character split")
-    ):
+    with patch("zotero_cli.pdf_rag.chunking._chunk_by_char", side_effect=AssertionError("unsafe character split")):
         with pytest.raises(ValueError, match="overlap"):
             cascade_chunk("x" * 32, max_chars=8, overlap=overlap)
 
@@ -260,7 +258,7 @@ def test_standalone_supplementary_cover_remains_supplementary_with_main_hints(co
 def test_embedding_rejects_invalid_vector_values(embedding: object) -> None:
     response = MagicMock(ok=True)
     response.json.return_value = {"data": [{"embedding": embedding}]}
-    with patch("zotero_cli.workspace.rag.providers.gitee.requests.post", return_value=response):
+    with patch("zotero_cli.pdf_rag.providers.gitee.requests.post", return_value=response):
         with pytest.raises(RuntimeError, match="embedding"):
             GiteeEmbeddingProvider(api_key="test").embed(["alpha"])
 
@@ -268,7 +266,7 @@ def test_embedding_rejects_invalid_vector_values(embedding: object) -> None:
 def test_embedding_rejects_inconsistent_vector_dimensions() -> None:
     response = MagicMock(ok=True)
     response.json.return_value = {"data": [{"embedding": [1.0]}, {"embedding": [1.0, 2.0]}]}
-    with patch("zotero_cli.workspace.rag.providers.gitee.requests.post", return_value=response):
+    with patch("zotero_cli.pdf_rag.providers.gitee.requests.post", return_value=response):
         with pytest.raises(RuntimeError, match="dimension"):
             GiteeEmbeddingProvider(api_key="test").embed(["alpha", "beta"])
 
@@ -276,7 +274,7 @@ def test_embedding_rejects_inconsistent_vector_dimensions() -> None:
 def test_embedding_rejects_non_object_response_shape() -> None:
     response = MagicMock(ok=True)
     response.json.return_value = []
-    with patch("zotero_cli.workspace.rag.providers.gitee.requests.post", return_value=response):
+    with patch("zotero_cli.pdf_rag.providers.gitee.requests.post", return_value=response):
         with pytest.raises(RuntimeError, match="shape"):
             GiteeEmbeddingProvider(api_key="test").embed(["alpha"])
 

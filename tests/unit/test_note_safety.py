@@ -9,8 +9,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from zotero_cli.ai_notes.analysis import analyze_item
 from zotero_cli.ai_notes.errors import NoteAnalysisError
-from zotero_cli.ai_notes.pipeline import analyze_item
 from zotero_cli.ai_pdf import MinerUParseResult
 from zotero_cli.config import AiNoteConfig
 from zotero_cli.zotero.models import Attachment, Item, Note
@@ -70,7 +70,7 @@ def analysis_inputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Ma
     )
     cache = MagicMock()
     cache.return_value.ensure_many.return_value = {pdf: parsed}
-    monkeypatch.setattr("zotero_cli.ai_notes.pipeline.MinerUParseCache", cache)
+    monkeypatch.setattr("zotero_cli.ai_notes.documents.MinerUParseCache", cache)
     reader = MagicMock()
     reader.get_item.return_value = _item()
     reader.get_pdf_attachments.return_value = [Attachment("PDF1", "ITEM1", "paper.pdf", "application/pdf", pdf)]
@@ -161,7 +161,7 @@ def test_structured_image_paths_never_read_outside_parse_assets(
 ) -> None:
     from types import SimpleNamespace
 
-    from zotero_cli.ai_notes.structured_input import build_evidence, plan_request
+    from zotero_cli.ai_notes.evidence import build_evidence, plan_request
 
     raw = tmp_path / "parse" / "raw"
     normal = raw / "images" / "normal.jpg"
@@ -213,7 +213,7 @@ def test_structured_image_paths_never_read_outside_parse_assets(
 def test_structured_image_loader_never_opens_nonregular_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from types import SimpleNamespace
 
-    from zotero_cli.ai_notes.structured_input import build_evidence, plan_request
+    from zotero_cli.ai_notes.evidence import build_evidence, plan_request
 
     raw = tmp_path / "raw"
     directory = raw / "images" / "directory.jpg"

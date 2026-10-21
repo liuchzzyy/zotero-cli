@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from zotero_cli.ai_pdf.outline import extract_markdown_section, parse_markdown_outline
+from pathlib import Path
+
+import pytest
+
+from zotero_cli.ai_pdf.content import extract_markdown_section, parse_markdown_outline, read_pdf_content
+from zotero_cli.ai_pdf.errors import PdfSectionNotFoundError
+from zotero_cli.ai_pdf.models import MinerUParseResult
 
 MARKDOWN = """# Introduction
 
@@ -52,3 +58,22 @@ def test_extract_section_stops_at_same_or_higher_level() -> None:
 def test_extract_section_out_of_range_is_empty() -> None:
     assert extract_markdown_section(MARKDOWN, 0) == ""
     assert extract_markdown_section(MARKDOWN, 99) == ""
+
+
+def test_read_pdf_content_reports_missing_section(tmp_path: Path) -> None:
+    markdown_path = tmp_path / "document.md"
+    markdown_path.write_text(MARKDOWN, encoding="utf-8")
+    content_path = tmp_path / "content_list.json"
+    content_path.write_text("[]", encoding="utf-8")
+    parsed = MinerUParseResult(
+        source_path=tmp_path / "paper.pdf",
+        fingerprint="a" * 64,
+        model_version="vlm",
+        root=tmp_path,
+        markdown_path=markdown_path,
+        content_list_path=content_path,
+        manifest_path=tmp_path / "manifest.json",
+    )
+
+    with pytest.raises(PdfSectionNotFoundError, match="Section 99 not found"):
+        read_pdf_content(parsed, section=99)

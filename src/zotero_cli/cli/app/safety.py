@@ -1,10 +1,10 @@
 """CLI 命令安全层级的唯一权威定义。
 
-每个顶层命令——以及每个会改动持久状态（库、本地配置、workspace 或缓存）的
+每个顶层命令——以及每个会改动持久状态（库、本地配置、pdf_rag 或缓存）的
 嵌套子命令——都恰好属于一个层级：
 
 * `read`        — 可重复执行；不改动持久状态。
-* `write`       — 创建或改动持久状态（库、配置、workspace）。
+* `write`       — 创建或改动持久状态（库、配置、pdf_rag）。
 * `destructive` — 删除或不可逆地重写持久状态。
 
 有两个使用方读取本模块：`zot --help`（通过 `zotero_cli.cli.app.group`
@@ -32,7 +32,7 @@ SAFETY_TIERS: dict[tuple[str, ...], str] = {
     ("ai-pdf",): READ,
     ("ai-note",): WRITE,
     ("completions",): READ,
-    ("workspace",): READ,
+    ("pdf-rag",): READ,
     ("schema",): READ,
     ("metadata", "update-status"): WRITE,
     # Zotero 基础库写入及破坏性命令
@@ -54,15 +54,15 @@ SAFETY_TIERS: dict[tuple[str, ...], str] = {
     ("config", "init"): WRITE,
     ("config", "profile", "set"): WRITE,
     ("config", "cache", "clear"): DESTRUCTIVE,
-    # 会改动本地 workspace/索引状态的嵌套 workspace 命令
-    ("workspace", "new"): WRITE,
-    ("workspace", "add"): WRITE,
-    ("workspace", "remove"): WRITE,
-    ("workspace", "import"): WRITE,
-    ("workspace", "index"): WRITE,
-    ("workspace", "reindex"): WRITE,
-    ("workspace", "embed"): WRITE,
-    ("workspace", "delete"): DESTRUCTIVE,
+    # 会改动本地 pdf_rag/索引状态的嵌套 pdf_rag 命令
+    ("pdf-rag", "new"): WRITE,
+    ("pdf-rag", "add"): WRITE,
+    ("pdf-rag", "remove"): WRITE,
+    ("pdf-rag", "import"): WRITE,
+    ("pdf-rag", "index"): WRITE,
+    ("pdf-rag", "reindex"): WRITE,
+    ("pdf-rag", "embed"): WRITE,
+    ("pdf-rag", "delete"): DESTRUCTIVE,
 }
 
 # 由 SAFETY_TIERS 派生的命令名集合，供 `zot --help` 分节使用。

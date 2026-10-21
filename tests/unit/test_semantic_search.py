@@ -6,9 +6,9 @@ import pytest
 from qdrant_client.models import Distance, VectorParams
 
 from zotero_cli.config import VectorStoreConfig
-from zotero_cli.workspace.rag import weighted_reciprocal_rank_fusion
-from zotero_cli.workspace.rag.index import RagIndex
-from zotero_cli.workspace.rag.vector_store import (
+from zotero_cli.pdf_rag import weighted_reciprocal_rank_fusion
+from zotero_cli.pdf_rag.index import RagIndex
+from zotero_cli.pdf_rag.vector_store import (
     MANAGED_STORE_MARKER,
     QdrantVectorStore,
     drop_collection,
@@ -58,9 +58,9 @@ def test_qdrant_empty_collection_search(tmp_path):
 
 
 def test_resolve_vector_store_path_relative(tmp_path, monkeypatch):
-    monkeypatch.setattr("zotero_cli.workspace.rag.vector_store.data_root", lambda: tmp_path)
-    config = VectorStoreConfig(path=".workspace/_qdrant")
-    assert resolve_vector_store_path(config) == tmp_path / ".workspace" / "_qdrant"
+    monkeypatch.setattr("zotero_cli.pdf_rag.vector_store.data_root", lambda: tmp_path)
+    config = VectorStoreConfig(path=".zot/pdf_rag/_qdrant")
+    assert resolve_vector_store_path(config) == tmp_path / ".zot" / "pdf_rag" / "_qdrant"
 
 
 def test_resolve_vector_store_path_absolute(tmp_path):
@@ -71,7 +71,7 @@ def test_resolve_vector_store_path_absolute(tmp_path):
 
 def test_hybrid_retrieval_fts5_plus_qdrant(tmp_path):
     idx = RagIndex(tmp_path / "idx.sqlite")
-    store = QdrantVectorStore(tmp_path / "qdrant", "ws_test")
+    store = QdrantVectorStore(tmp_path / "qdrant", "pdf_rag_test")
     try:
         c1 = idx.insert_chunk("A", "pdf:main:a:f.pdf", "attention mechanism in transformers")
         c2 = idx.insert_chunk("B", "pdf:main:b:g.pdf", "zinc ion battery electrolyte")
@@ -98,7 +98,7 @@ def test_hybrid_retrieval_fts5_plus_qdrant(tmp_path):
 
 def test_drop_collection_never_creates_missing_store(tmp_path):
     store_path = tmp_path / "missing" / "_qdrant"
-    assert drop_collection(store_path, "ws_gone") is False
+    assert drop_collection(store_path, "pdf_rag_gone") is False
     assert not store_path.exists()
     assert prune_empty_store(store_path) is False
     assert not store_path.exists()
@@ -106,21 +106,21 @@ def test_drop_collection_never_creates_missing_store(tmp_path):
 
 def test_drop_collection_removes_only_requested_collection(tmp_path):
     store_path = tmp_path / "_qdrant"
-    keep = QdrantVectorStore(store_path, "ws_keep")
+    keep = QdrantVectorStore(store_path, "pdf_rag_keep")
     try:
         keep.upsert([1], [[1.0, 0.0]])
     finally:
         keep.close()
-    gone = QdrantVectorStore(store_path, "ws_gone")
+    gone = QdrantVectorStore(store_path, "pdf_rag_gone")
     try:
         gone.upsert([2], [[1.0, 0.0]])
     finally:
         gone.close()
 
-    assert drop_collection(store_path, "ws_gone") is True
-    assert drop_collection(store_path, "ws_gone") is False
+    assert drop_collection(store_path, "pdf_rag_gone") is True
+    assert drop_collection(store_path, "pdf_rag_gone") is False
 
-    check = QdrantVectorStore(store_path, "ws_keep")
+    check = QdrantVectorStore(store_path, "pdf_rag_keep")
     try:
         assert check.count() == 1
     finally:
@@ -130,13 +130,13 @@ def test_drop_collection_removes_only_requested_collection(tmp_path):
 
 def test_drop_collection_with_prune_removes_empty_store(tmp_path):
     store_path = tmp_path / "_qdrant"
-    store = QdrantVectorStore(store_path, "ws_last")
+    store = QdrantVectorStore(store_path, "pdf_rag_last")
     try:
         store.upsert([1], [[1.0]])
     finally:
         store.close()
 
-    assert drop_collection(store_path, "ws_last", prune_empty=True) is True
+    assert drop_collection(store_path, "pdf_rag_last", prune_empty=True) is True
     assert not store_path.exists()
 
 
@@ -148,20 +148,20 @@ def test_drop_collection_validates_name(tmp_path):
 
 
 def test_instance_drop_collection_deletes_named_collection(tmp_path):
-    store = QdrantVectorStore(tmp_path / "_qdrant", "ws_a")
+    store = QdrantVectorStore(tmp_path / "_qdrant", "pdf_rag_a")
     try:
         store._client.create_collection(
-            collection_name="ws_b", vectors_config=VectorParams(size=2, distance=Distance.COSINE)
+            collection_name="pdf_rag_b", vectors_config=VectorParams(size=2, distance=Distance.COSINE)
         )
-        assert store.drop_collection("ws_b") is True
-        assert store.drop_collection("ws_b") is False
+        assert store.drop_collection("pdf_rag_b") is True
+        assert store.drop_collection("pdf_rag_b") is False
     finally:
         store.close()
 
 
 def test_managed_store_writes_ownership_marker(tmp_path):
     store_path = tmp_path / "_qdrant"
-    store = QdrantVectorStore(store_path, "ws_marker")
+    store = QdrantVectorStore(store_path, "pdf_rag_marker")
     try:
         store.upsert([1], [[1.0]])
     finally:
@@ -185,7 +185,7 @@ def test_prune_empty_store_refuses_arbitrary_directory_with_user_files(tmp_path)
 
     assert is_local_vector_store(victim) is False
     assert prune_empty_store(victim) is False
-    assert drop_collection(victim, "ws_gone") is False
+    assert drop_collection(victim, "pdf_rag_gone") is False
 
     assert victim.is_dir()
     assert sorted(str(path.relative_to(victim)) for path in victim.rglob("*")) == before
@@ -199,7 +199,7 @@ def test_prune_empty_store_refuses_empty_arbitrary_directory(tmp_path):
 
     assert is_local_vector_store(victim) is False
     assert prune_empty_store(victim) is False
-    assert drop_collection(victim, "ws_gone") is False
+    assert drop_collection(victim, "pdf_rag_gone") is False
 
     assert victim.is_dir()
     assert list(victim.iterdir()) == []
@@ -208,7 +208,7 @@ def test_prune_empty_store_refuses_empty_arbitrary_directory(tmp_path):
 
 def test_store_with_foreign_entry_is_never_pruned(tmp_path):
     store_path = tmp_path / "_qdrant"
-    store = QdrantVectorStore(store_path, "ws_foreign")
+    store = QdrantVectorStore(store_path, "pdf_rag_foreign")
     try:
         store.upsert([1], [[1.0]])
     finally:
@@ -217,14 +217,14 @@ def test_store_with_foreign_entry_is_never_pruned(tmp_path):
 
     assert is_local_vector_store(store_path) is False
     assert prune_empty_store(store_path) is False
-    assert drop_collection(store_path, "ws_foreign", prune_empty=True) is False
+    assert drop_collection(store_path, "pdf_rag_foreign", prune_empty=True) is False
     assert store_path.is_dir()
     assert (store_path / "user-notes.txt").read_text() == "keep me"
 
 
 def test_managed_store_with_collections_is_not_pruned_but_drop_prunes_last(tmp_path):
     store_path = tmp_path / "_qdrant"
-    store = QdrantVectorStore(store_path, "ws_last")
+    store = QdrantVectorStore(store_path, "pdf_rag_last")
     try:
         store.upsert([1], [[1.0]])
     finally:
@@ -234,5 +234,5 @@ def test_managed_store_with_collections_is_not_pruned_but_drop_prunes_last(tmp_p
     assert prune_empty_store(store_path) is False
     assert store_path.is_dir()
 
-    assert drop_collection(store_path, "ws_last", prune_empty=True) is True
+    assert drop_collection(store_path, "pdf_rag_last", prune_empty=True) is True
     assert not store_path.exists()

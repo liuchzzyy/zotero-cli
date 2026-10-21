@@ -15,7 +15,7 @@ def test_checkout_state_paths_stay_repo_local(monkeypatch: pytest.MonkeyPatch) -
     assert paths.checkout_root() is not None
     assert paths.state_root() == paths.project_root() / ".zot" / "state"
     assert paths.state_dir() == paths.state_root()
-    assert paths.workspace_root() == paths.project_root() / ".workspace"
+    assert paths.pdf_rag_root() == paths.project_root() / ".zot" / "pdf_rag"
     assert paths.data_root() == paths.project_root()
 
 
@@ -39,7 +39,7 @@ def test_installed_state_root_uses_zot_state_dir(monkeypatch: pytest.MonkeyPatch
     assert paths.state_root() == tmp_path / "state-root"
     assert paths.state_dir() == tmp_path / "state-root"
     assert paths.data_root() == tmp_path / "state-root"
-    assert paths.workspace_root() == tmp_path / "state-root" / ".workspace"
+    assert paths.pdf_rag_root() == tmp_path / "state-root" / "pdf_rag"
 
 
 def test_installed_state_root_falls_back_to_platform_state_home(

@@ -6,18 +6,17 @@ import json
 
 import typer
 
-from zotero_cli.ai_pdf import MinerUError, MinerUParseCache
-from zotero_cli.ai_pdf.outline import extract_markdown_section, parse_markdown_outline
+from zotero_cli.ai_pdf.content import read_pdf_content
+from zotero_cli.ai_pdf.documents import PdfDocumentError, ZoteroPdfDocuments
+from zotero_cli.ai_pdf.errors import MinerUError, MinerUTokenMissingError, PdfCacheReadError, PdfSectionNotFoundError
 from zotero_cli.cli.renderers import format_pdf_text
-from zotero_cli.config import get_data_dir, get_prefs_js_path, load_config, load_pdf_config, resolve_library_id
+from zotero_cli.config import get_data_dir, get_prefs_js_path, load_config, resolve_library_id
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error, emit_exception
 from zotero_cli.zotero.access.reader import ZoteroReader
-from zotero_cli.zotero.pdf import select_pdf_attachment
 
 _NO_PDF_HINT = "Check item details with: zot zotero read KEY"
 _USAGE_HINT = 'Find item keys with: zot zotero search "<query>"'
-_CACHE_STATE_HINT = "The local MinerU cache appears corrupt; remove the affected package directory and retry"
 
 
 def ai_pdf(
@@ -46,143 +45,112 @@ def ai_pdf(
         db_path = data_dir / "zotero.sqlite"
         library_id = resolve_library_id(db_path, ctx.obj)
         reader = ZoteroReader(db_path, library_id=library_id, prefs_js_path=get_prefs_js_path(config))
-        attachments = reader.get_pdf_attachments(key)
-        if not attachments:
-            if reader.get_item(key) is None:
-                emit_error(
-                    "not_found",
-                    f"Item '{key}' not found",
-                    output_json=json_out,
-                    hint=_USAGE_HINT,
-                    context="ai-pdf",
-                )
-            emit_error(
-                "not_found",
-                f"No PDF attachment found for '{key}'",
-                output_json=json_out,
-                hint=_NO_PDF_HINT,
-                context="ai-pdf",
-            )
         try:
-            attachment = select_pdf_attachment(attachments, attachment_key)
-        except LookupError as error:
-            emit_error("not_found", str(error), output_json=json_out, context="ai-pdf")
-        except ValueError as error:
-            emit_error(
-                "validation_error",
-                str(error),
-                output_json=json_out,
-                hint=f"Run 'zot zotero pdf list {key}' to select an attachment",
-                context="ai-pdf",
-            )
-        pdf_path = attachment.path
-        if not pdf_path or not pdf_path.exists():
-            emit_error(
-                "not_found",
-                f"PDF file not found at {pdf_path or attachment.filename}",
-                output_json=json_out,
-                hint="Check the Zotero storage directory",
-                context="ai-pdf",
-            )
-
-        try:
-            cache = MinerUParseCache()
-        except MinerUError as exc:
+            documents = ZoteroPdfDocuments(reader)
+        except MinerUError as error:
             emit_error(
                 "configuration_error",
-                f"MinerU cache configuration error: {exc}",
+                f"MinerU cache configuration error: {error}",
                 output_json=json_out,
                 hint="Check [pdf].mineru_model_version in .zot/config.toml",
                 context="ai-pdf",
             )
-
         try:
-            cached, fingerprint = cache.lookup(pdf_path)
-        except MinerUError as exc:
+            parsed_document = documents.parse(key, attachment_key)
+        except PdfDocumentError as error:
+            if error.kind == "item":
+                emit_error("not_found", str(error), output_json=json_out, hint=_USAGE_HINT, context="ai-pdf")
+            if error.kind == "pdf":
+                emit_error("not_found", str(error), output_json=json_out, hint=_NO_PDF_HINT, context="ai-pdf")
+            if error.kind == "selection":
+                emit_error(
+                    "validation_error",
+                    str(error),
+                    output_json=json_out,
+                    hint=f"Run 'zot zotero pdf list {key}' to select an attachment",
+                    context="ai-pdf",
+                )
             emit_error(
-                "internal_error",
-                f"Could not read the MinerU cache: {exc}",
+                "not_found",
+                str(error),
                 output_json=json_out,
-                hint=_CACHE_STATE_HINT,
+                hint="Check the Zotero storage directory" if error.kind == "file" else "",
                 context="ai-pdf",
             )
-
-        if cached is None and not load_pdf_config().mineru_token:
+        except PdfCacheReadError as error:
+            emit_error(
+                "internal_error",
+                f"Could not read the MinerU cache: {error}",
+                output_json=json_out,
+                hint="The local MinerU cache appears corrupt; remove the affected package directory and retry",
+                context="ai-pdf",
+            )
+        except MinerUTokenMissingError as error:
             emit_error(
                 "configuration_error",
-                "MinerU API token is not configured",
+                str(error),
                 output_json=json_out,
                 hint="Set [pdf].mineru_token in .zot/config.toml",
                 context="ai-pdf",
             )
-        if cached is not None:
-            parsed = cached
-        else:
-            try:
-                parsed = cache.ensure(pdf_path, fingerprint=fingerprint)
-            except MinerUError as exc:
-                emit_error(
-                    "network_error",
-                    str(exc),
-                    output_json=json_out,
-                    retryable=True,
-                    hint="Check the MinerU token, API status, and network connection",
-                    context="ai-pdf",
-                )
+        except MinerUError as error:
+            emit_error(
+                "network_error",
+                str(error),
+                output_json=json_out,
+                retryable=True,
+                hint="Check the MinerU token, API status, and network connection",
+                context="ai-pdf",
+            )
+        document = parsed_document.document
+        parsed = parsed_document.parsed
 
         meta = {
-            "attachment_key": attachment.key,
+            "attachment_key": document.attachment.key,
             "fingerprint": parsed.fingerprint,
             "mineru_model_version": parsed.model_version,
             "cache_dir": str(parsed.root),
         }
         try:
+            content = read_pdf_content(parsed, outline=outline, section=section, structured=structured)
             if structured:
-                data = {"key": key, "content_list": parsed.content_list, **meta}
+                data = {"key": key, "content_list": content.content_list, **meta}
                 if json_out:
                     typer.echo(json.dumps(envelope_ok(data), ensure_ascii=False, indent=2))
                 else:
-                    typer.echo(json.dumps(parsed.content_list, ensure_ascii=False, indent=2))
+                    typer.echo(json.dumps(content.content_list, ensure_ascii=False, indent=2))
                 return
-
-            markdown = parsed.markdown
             if section is not None:
-                content = extract_markdown_section(markdown, section)
-                if not content:
-                    emit_error(
-                        "not_found",
-                        f"Section {section} not found",
-                        output_json=json_out,
-                        hint="Use --outline first to see available sections",
-                        context="ai-pdf",
-                    )
-                typer.echo(format_pdf_text(key, section=section, content=content, output_json=json_out))
+                typer.echo(format_pdf_text(key, section=section, content=content.markdown, output_json=json_out))
                 return
             if outline:
-                outline_data = [
-                    {"number": number, "text": text, "level": level}
-                    for number, text, level in parse_markdown_outline(markdown)
-                ]
                 if json_out:
                     typer.echo(
                         json.dumps(
-                            envelope_ok({"key": key, "outline": outline_data, **meta}),
-                            ensure_ascii=False,
-                            indent=2,
+                            envelope_ok({"key": key, "outline": content.outline, **meta}), ensure_ascii=False, indent=2
                         )
                     )
-                elif not outline_data:
+                elif not content.outline:
                     typer.echo("No headings found in document.")
                 else:
-                    typer.echo(format_pdf_text(key, outline=outline_data, output_json=False))
+                    typer.echo(format_pdf_text(key, outline=content.outline, output_json=False))
                 return
-
             if json_out:
                 typer.echo(
-                    json.dumps(envelope_ok({"key": key, "markdown": markdown, **meta}), ensure_ascii=False, indent=2)
+                    json.dumps(
+                        envelope_ok({"key": key, "markdown": content.markdown, **meta}), ensure_ascii=False, indent=2
+                    )
                 )
             else:
-                typer.echo(markdown)
+                typer.echo(content.markdown)
+        except PdfSectionNotFoundError as error:
+            emit_error(
+                "not_found",
+                str(error),
+                output_json=json_out,
+                hint="Use --outline first to see available sections",
+                context="ai-pdf",
+            )
         except SystemExit:
             raise
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:

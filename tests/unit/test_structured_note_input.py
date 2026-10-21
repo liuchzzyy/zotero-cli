@@ -9,8 +9,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from zotero_cli.ai_notes.pipeline import analyze_item
-from zotero_cli.ai_notes.structured_input import (
+from zotero_cli.ai_notes.analysis import analyze_item
+from zotero_cli.ai_notes.evidence import (
     build_evidence,
     model_supports_request,
     plan_request,
@@ -222,7 +222,7 @@ def test_parse_retry_keeps_full_image_set_until_explicit_text_only_fallback(tmp_
 
 
 def test_real_client_rejects_truncated_output(monkeypatch):
-    from zotero_cli.ai_notes.client import AiClient
+    from zotero_cli.ai_notes.access.client import AiClient
     from zotero_cli.config import AiNoteConfig
 
     config = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="deepseek-flash")
@@ -237,7 +237,7 @@ def test_real_client_rejects_truncated_output(monkeypatch):
 
 
 def test_real_client_records_usage_without_exposing_the_payload(monkeypatch):
-    from zotero_cli.ai_notes.client import AiClient
+    from zotero_cli.ai_notes.access.client import AiClient
     from zotero_cli.config import AiNoteConfig
 
     config = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="deepseek-flash")
@@ -252,8 +252,8 @@ def test_real_client_records_usage_without_exposing_the_payload(monkeypatch):
 
 
 def test_long_note_fallback_uses_only_preflighted_routes(monkeypatch):
-    from zotero_cli.ai_notes.client import AiClient
-    from zotero_cli.ai_notes.structured_input import model_supports_request
+    from zotero_cli.ai_notes.access.client import AiClient
+    from zotero_cli.ai_notes.evidence import model_supports_request
 
     config = AiNoteConfig(
         api_key="test",
@@ -281,7 +281,7 @@ def test_long_note_fallback_uses_only_preflighted_routes(monkeypatch):
 
 
 def test_image_rejection_drops_all_images_but_keeps_the_whole_text(monkeypatch):
-    from zotero_cli.ai_notes.client import AiClient
+    from zotero_cli.ai_notes.access.client import AiClient
     from zotero_cli.config import AiNoteConfig
 
     config = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="deepseek-flash", fallback_models=[])
@@ -307,7 +307,7 @@ def test_image_rejection_drops_all_images_but_keeps_the_whole_text(monkeypatch):
 
 
 def test_usage_history_records_every_call(monkeypatch):
-    from zotero_cli.ai_notes.client import AiClient
+    from zotero_cli.ai_notes.access.client import AiClient
     from zotero_cli.config import AiNoteConfig
 
     config = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="deepseek-flash", fallback_models=[])
@@ -377,7 +377,7 @@ def test_pipeline_uses_structured_blocks_and_does_not_write_on_preview(tmp_path)
     writer = MagicMock()
     ai_client = MagicMock()
     ai_client.config = AiNoteConfig(api_key="k", base_url="http://x", model="deepseek-flash")
-    with patch("zotero_cli.ai_notes.pipeline.MinerUParseCache.ensure_many", return_value={pdf: actual}):
+    with patch("zotero_cli.ai_notes.documents.MinerUParseCache.ensure_many", return_value={pdf: actual}):
         result = analyze_item(reader, writer, ai_client, "ABC123", dry_run=True)
     assert result["status"] == "dry_run"
     assert result["main_images"] == 1

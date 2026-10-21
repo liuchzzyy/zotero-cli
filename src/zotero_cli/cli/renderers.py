@@ -227,7 +227,7 @@ def format_pdf_text(
     return buf.getvalue()
 
 
-def format_workspace_list(workspaces: list, output_json: bool = False) -> str:
+def format_pdf_rag_list(pdf_rags: list, output_json: bool = False) -> str:
     if output_json:
         data = [
             {
@@ -236,9 +236,9 @@ def format_workspace_list(workspaces: list, output_json: bool = False) -> str:
                 "items": len(ws.items),
                 "created": ws.created,
             }
-            for ws in workspaces
+            for ws in pdf_rags
         ]
-        return _dump(envelope_ok(data, meta={"count": len(workspaces)}))
+        return _dump(envelope_ok(data, meta={"count": len(pdf_rags)}))
     buf = StringIO()
     console = Console(file=buf, force_terminal=False, width=120)
     table = Table(show_header=True, header_style="bold")
@@ -246,7 +246,7 @@ def format_workspace_list(workspaces: list, output_json: bool = False) -> str:
     table.add_column("Description", width=50)
     table.add_column("Items", justify="right", width=8)
     table.add_column("Created", width=20)
-    for ws in workspaces:
+    for ws in pdf_rags:
         desc = sanitize_text(ws.description)
         desc = desc[:47] + "..." if len(desc) > 50 else desc
         created = sanitize_text(ws.created)
@@ -256,7 +256,7 @@ def format_workspace_list(workspaces: list, output_json: bool = False) -> str:
     return buf.getvalue()
 
 
-def format_workspace_query(results: list, mode: str, output_json: bool = False) -> str:
+def format_pdf_rag_query(results: list, mode: str, output_json: bool = False) -> str:
     if output_json:
         data = {
             "mode": mode,

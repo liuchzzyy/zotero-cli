@@ -9,9 +9,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from zotero_cli.ai_notes import pipeline as pipeline_module
-from zotero_cli.ai_notes.classification import _chat, build_classify_prompt, extract_json_object, wrap_untrusted
-from zotero_cli.ai_notes.client import AiClient
+from zotero_cli.ai_notes.access.client import AiClient
+from zotero_cli.ai_notes.analysis import analyze_item
+from zotero_cli.ai_notes.classification import build_classify_prompt
 from zotero_cli.ai_notes.constants import (
     ANALYZED_TAG,
     KEYWORDS_TAG,
@@ -21,14 +21,15 @@ from zotero_cli.ai_notes.constants import (
 )
 from zotero_cli.ai_notes.documents import _sections_to_text
 from zotero_cli.ai_notes.errors import NoteAnalysisError
-from zotero_cli.ai_notes.pipeline import analyze_item
-from zotero_cli.ai_notes.short_note import normalize_short_note, validate_short_note
+from zotero_cli.ai_notes.generation import _chat, extract_json_object, wrap_untrusted
+from zotero_cli.ai_notes.short_notes import normalize_short_note, validate_short_note
+from zotero_cli.ai_notes.templates import format_template
 from zotero_cli.ai_pdf import MinerUParseResult
 from zotero_cli.config import AiNoteConfig
 from zotero_cli.zotero.access.writer import ZoteroWriteError, merge_short_note_into_extra
 from zotero_cli.zotero.models import Attachment, Creator, Item, Note
 
-_REAL_FORMAT_TEMPLATE = pipeline_module.format_template
+_REAL_FORMAT_TEMPLATE = format_template
 
 
 def _make_item(item_type="journalArticle", tags=None, abstract="摘要内容") -> Item:
@@ -99,7 +100,7 @@ def _parsed_result(att: Attachment, markdown: str, tmp_path, name: str = "mineru
 
 def _patch_mineru(att: Attachment, markdown: str, tmp_path):
     parsed = _parsed_result(att, markdown, tmp_path)
-    return patch("zotero_cli.ai_notes.pipeline.MinerUParseCache.ensure_many", return_value={att.path: parsed})
+    return patch("zotero_cli.ai_notes.documents.MinerUParseCache.ensure_many", return_value={att.path: parsed})
 
 
 class TestExtractJsonObject:
@@ -763,7 +764,7 @@ class TestDuplicateDocumentFigureNumbering:
         ai_client.config = _make_ai_config()
         capture = _PromptCapture()
         with (
-            patch("zotero_cli.ai_notes.pipeline.MinerUParseCache.ensure_many", return_value=parses),
+            patch("zotero_cli.ai_notes.documents.MinerUParseCache.ensure_many", return_value=parses),
             patch("zotero_cli.ai_notes.templates.format_template", side_effect=capture),
         ):
             result = analyze_item(reader, MagicMock(), ai_client, "ABC123", dry_run=True)
@@ -800,10 +801,10 @@ class TestDuplicateDocumentFigureNumbering:
         ai_client.config = _make_ai_config()
         capture = _PromptCapture()
         with (
-            patch("zotero_cli.ai_notes.pipeline.MinerUParseCache.ensure_many", return_value=parses),
+            patch("zotero_cli.ai_notes.documents.MinerUParseCache.ensure_many", return_value=parses),
             patch("zotero_cli.ai_notes.templates.format_template", side_effect=capture),
             patch(
-                "zotero_cli.ai_notes.pipeline.resolve_pdf_kinds",
+                "zotero_cli.ai_notes.documents.resolve_pdf_kinds",
                 return_value={att.key: "supplementary" for att in attachments},
             ),
         ):
@@ -840,7 +841,7 @@ class TestPromptInjectionHardening:
         capture = _PromptCapture()
         parsed = _parsed_result(att, "Introduction text. This is the main body.", tmp_path)
         with (
-            patch("zotero_cli.ai_notes.pipeline.MinerUParseCache.ensure_many", return_value={att.path: parsed}),
+            patch("zotero_cli.ai_notes.documents.MinerUParseCache.ensure_many", return_value={att.path: parsed}),
             patch("zotero_cli.ai_notes.templates.format_template", side_effect=capture),
         ):
             result = analyze_item(reader, MagicMock(), ai_client, "ABC123", dry_run=True)
@@ -908,7 +909,7 @@ class TestAiClientBounds:
             def __init__(self, **kwargs):
                 captured.update(kwargs)
 
-        monkeypatch.setattr("zotero_cli.ai_notes.client.OpenAI", FakeOpenAI)
+        monkeypatch.setattr("zotero_cli.ai_notes.access.client.OpenAI", FakeOpenAI)
         config = _make_ai_config()
         config.timeout_seconds = 45.0
         config.max_retries = 1
@@ -923,7 +924,7 @@ class TestAiClientBounds:
             def __init__(self, **kwargs):
                 captured.update(kwargs)
 
-        monkeypatch.setattr("zotero_cli.ai_notes.client.OpenAI", FakeOpenAI)
+        monkeypatch.setattr("zotero_cli.ai_notes.access.client.OpenAI", FakeOpenAI)
         AiClient(_make_ai_config())
         assert captured["timeout"] == 300.0
         assert captured["max_retries"] == 2
@@ -1085,7 +1086,7 @@ class TestFigureCapAnnotation:
             '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
             _sections_json(12),
         ]
-        with patch("zotero_cli.ai_notes.pipeline.MinerUParseCache.ensure_many", return_value={att.path: parsed}):
+        with patch("zotero_cli.ai_notes.documents.MinerUParseCache.ensure_many", return_value={att.path: parsed}):
             result = analyze_item(reader, writer, ai_client, "ABC123", no_short_note=True)
         assert result["status"] == "ok"
         assert len(ai_client.chat.call_args.kwargs["figures"]) == 20

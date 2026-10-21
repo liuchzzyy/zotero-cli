@@ -158,7 +158,7 @@ class TestExitCodes:
             ["config", "profile"],
             ["zotero", "collection", "--help"],
             ["zotero", "trash", "--help"],
-            ["workspace"],
+            ["pdf-rag"],
         ):
             result = _run(command_path)
             assert result.exit_code == EXIT_OK, command_path
@@ -172,7 +172,7 @@ class TestExitCodes:
 
     def test_ai_analyze_auth_missing_returns_exit_2(self):
         with patch(
-            "zotero_cli.cli.commands.ai_notes.load_ai_note_config",
+            "zotero_cli.ai_notes.execution.load_ai_note_config",
             return_value=_ai_config(),
         ):
             result = _run(["ai-note", "ABC123"], env={"ZOT_LIBRARY_ID": "", "ZOT_API_KEY": ""})
@@ -184,13 +184,13 @@ class TestExitCodes:
         expected = {"status": "dry_run", "item_key": "ABC123"}
         with (
             patch(
-                "zotero_cli.cli.commands.ai_notes.load_ai_note_config",
+                "zotero_cli.ai_notes.execution.load_ai_note_config",
                 return_value=_ai_config(),
             ),
-            patch("zotero_cli.cli.commands.ai_notes.analyze_item", return_value=expected) as analyze,
-            patch("zotero_cli.cli.commands.ai_notes.ZoteroReader"),
-            patch("zotero_cli.cli.commands.ai_notes.ZoteroWriter") as writer,
-            patch("zotero_cli.cli.commands.ai_notes.AiClient"),
+            patch("zotero_cli.ai_notes.execution.analyze_item", return_value=expected) as analyze,
+            patch("zotero_cli.ai_notes.execution.ZoteroReader"),
+            patch("zotero_cli.ai_notes.execution.ZoteroWriter") as writer,
+            patch("zotero_cli.ai_notes.execution.AiClient"),
         ):
             result = _run(
                 ["ai-note", "ABC123", "--dry-run"],
