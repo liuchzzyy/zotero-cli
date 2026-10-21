@@ -1,4 +1,4 @@
-"""Typed configuration sections loaded from config.toml."""
+"""从 config.toml 加载的类型化配置分节。"""
 
 from __future__ import annotations
 

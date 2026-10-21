@@ -1,7 +1,7 @@
-"""Helpers for the parsed-document payload sent to the analysis model.
+"""发送给分析模型的解析文档载荷辅助函数。
 
-Re-imported items often carry the same PDF twice, and prompts need a neutral
-author/journal context; both transformations stay independent of any AI client.
+重复导入的条目常常携带同一份 PDF 两次，而 prompt 需要中立的
+作者/期刊上下文；这两种处理都不依赖任何 AI 客户端。
 """
 
 from __future__ import annotations
@@ -18,13 +18,12 @@ def _item_journal(item: Item) -> str:
 
 
 def _kept_duplicate_indices(parts: list[str]) -> list[int]:
-    """Return the indices of parts to keep after dropping repeated copies.
+    """去除重复副本后，返回应保留的各部分下标。
 
-    A re-imported item often carries the same PDF twice, which would put the
-    paper into the prompt twice. Two parts match when at least 90% of one's long
-    lines also occur in the other; the longer part wins, the earlier one breaks
-    a tie. Surviving parts keep their original order, since main text must stay
-    ahead of any appendix.
+    重新导入的条目常携带同一份 PDF 两次，会把论文重复放进 prompt。
+    当一部分的长行中至少有 90% 也出现在另一部分时，即判定两者相同；
+    较长的一部分胜出，等长时取靠前者。保留下来的部分维持原有顺序，
+    因为正文必须始终排在附录之前。
     """
     if len(parts) < 2:
         return list(range(len(parts)))
@@ -47,15 +46,15 @@ def _kept_duplicate_indices(parts: list[str]) -> list[int]:
 
 
 def _drop_duplicate_parts(parts: list[str]) -> list[str]:
-    """Drop repeated copies of one document, keeping the longest copy."""
+    """丢弃同一文档的重复副本，保留最长的一份。"""
     return [parts[index] for index in _kept_duplicate_indices(parts)]
 
 
 def _sections_to_text(sections: list[object]) -> str:
-    """Flatten a sections-JSON payload into compact text for keyword extraction.
+    """把 sections JSON 载荷展平为紧凑文本，用于关键词提取。
 
-    Model output is untrusted, so malformed entries (null blocks, wrong field
-    types) are skipped instead of aborting keyword generation.
+    模型输出不可信，因此跳过结构异常的条目（null 块、字段类型错误），
+    而不是中止关键词生成。
     """
     lines: list[str] = []
     for block in sections or []:

@@ -1,14 +1,12 @@
-"""Human-readable and JSON payload renderers.
+"""人类可读与 JSON 载荷渲染器。
 
-Each format_* helper renders one payload either as a Rich table/tree (TTY) or
-as a JSON envelope (piped or --json). print_error routes diagnostics to the
-channel the contract requires. Envelope construction lives in
-zotero_cli.output.envelope.
+每个 format_* 辅助函数都会把同一份载荷渲染为 Rich 表格/树（TTY）或 JSON
+envelope（管道或 --json）。print_error 按约定把诊断信息输出到所需通道。
+envelope 的构造位于 zotero_cli.output.envelope。
 
-Human output treats library data as untrusted: ANSI escape sequences and
-control characters are stripped and dynamic values are rendered through Rich
-Text objects (markup parsing disabled), so a crafted title, note or PDF body
-cannot inject terminal escapes or Rich markup. JSON output is unchanged.
+人类可读输出把库数据视为不可信内容：剥离 ANSI 转义序列与控制字符，动态值
+通过 Rich Text 对象渲染（禁用标记解析），因此精心构造的标题、笔记或 PDF 正文
+无法注入终端转义序列或 Rich 标记。JSON 输出不受影响。
 """
 
 from __future__ import annotations
@@ -28,18 +26,17 @@ from zotero_cli.cli.models import ErrorInfo
 from zotero_cli.output.envelope import envelope_error, envelope_ok
 from zotero_cli.zotero.models import Collection, DuplicateGroup, Item, Note
 
-# CSI/OSC/OSC-terminated escape sequences plus single-character ESC sequences.
+# CSI/OSC/以 OSC 结尾的转义序列，以及单字符 ESC 序列。
 _ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|[@-_])")
-# C0 controls except tab/newline (so a lone CR is stripped too), DEL and C1 controls.
+# 除制表符/换行外的 C0 控制符（因此孤立的 CR 也会被剥离）、DEL 与 C1 控制符。
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 
 
 def sanitize_text(value: object) -> str:
-    """Return text safe to print to a terminal: no ANSI escapes/control chars.
+    """返回可安全打印到终端的文本：不含 ANSI 转义序列/控制字符。
 
-    Tabs and newlines are preserved so multi-paragraph notes keep their layout;
-    carriage returns are stripped (a lone CR can overwrite the current terminal
-    line). Used for human output only; JSON payloads remain unchanged.
+    保留制表符和换行，使多段笔记维持原有排版；回车符会被剥离（孤立的 CR
+    会覆盖当前终端行）。仅用于人类可读输出；JSON 载荷保持不变。
     """
     if value is None:
         return ""
@@ -47,7 +44,7 @@ def sanitize_text(value: object) -> str:
 
 
 def _text(value: object) -> Text:
-    """Render dynamic content as Rich Text (never parsed as console markup)."""
+    """把动态内容渲染为 Rich Text（绝不按控制台标记解析）。"""
     return Text(sanitize_text(value))
 
 
@@ -272,8 +269,8 @@ def format_workspace_query(results: list, mode: str, output_json: bool = False) 
             "results": [
                 {
                     "rank": i + 1,
-                    # BM25 scores are frequently ~1e-6; round far enough to keep
-                    # them distinguishable instead of collapsing hits to 0.0.
+                    # BM25 分数常常约为 1e-6；需保留足够精度使其仍可区分，
+                    # 而不是把命中全部压成 0.0。
                     "score": round(float(r[1]), 10),
                     "item_key": r[2]["item_key"],
                     "source": r[2]["source"],
@@ -316,12 +313,12 @@ def format_error(error: str | ErrorInfo, output_json: bool = False) -> str:
 
 
 def print_error(error: str | ErrorInfo, output_json: bool = False) -> None:
-    """Emit a structured error to the correct channel.
+    """把结构化错误输出到正确的通道。
 
-    JSON mode: envelope to stdout (parseable result for agents).
-    Text mode: human line(s) to stderr (human-facing diagnostic).
+    JSON 模式：envelope 写入 stdout（供代理程序解析的结果）。
+    文本模式：人类可读行写入 stderr（面向人的诊断信息）。
 
-    Does not exit. Use zotero_cli.output.exit_codes.emit_error when you want to exit.
+    不会退出。若需要退出，请使用 zotero_cli.output.exit_codes.emit_error。
     """
     import sys as _sys
 
@@ -336,7 +333,7 @@ def print_error(error: str | ErrorInfo, output_json: bool = False) -> None:
 
 
 def format_success(data: Any, output_json: bool = False, human_text: str = "", meta: dict | None = None) -> str:
-    """Format a success result. JSON mode emits envelope; text mode emits human_text."""
+    """格式化成功结果。JSON 模式输出 envelope；文本模式输出 human_text。"""
     if output_json:
         return _dump(envelope_ok(data, meta=meta))
     return human_text

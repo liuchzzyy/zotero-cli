@@ -1,10 +1,8 @@
-"""Generate, normalise and validate the compact Extra short-note keywords.
+"""生成、规范化并校验紧凑的 Extra short-note 关键词。
 
-The model answers with a pipe-separated short-note string. It is normalised
-(common punctuation and newline quirks), flattened for Zotero (super/subscripts
-and CJK/Latin spacing), and validated against the length and segment contract on
-the exact value that will be written, so inserted padding counts toward the
-documented 500-character budget.
+模型以管道分隔的 short-note 字符串作答。先做规范化（常见标点与换行异常），
+再为 Zotero 展平（上下标与中英文间距），最后针对即将写入的确切值校验长度
+与分段契约，因此补入的填充字符也计入文档所述的 500 字符预算。
 """
 
 from __future__ import annotations
@@ -23,7 +21,7 @@ _SHORT_NOTE_MIN_SEGMENTS = 3
 
 
 def normalize_short_note(text: str) -> str:
-    """Normalize common model output quirks (leading/trailing pipes, colons, newlines)."""
+    """规范化模型输出中的常见异常（首尾管道符、冒号、换行）。"""
     val = (text or "").strip()
     val = val.strip("|").strip()
     val = val.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
@@ -36,7 +34,7 @@ def normalize_short_note(text: str) -> str:
 
 
 def validate_short_note(text: str) -> str | None:
-    """Return an error message when the short-note is invalid, else None."""
+    """short-note 不合法时返回错误信息，否则返回 None。"""
     value = (text or "").strip()
     if not value:
         return "empty short_note"
@@ -77,7 +75,7 @@ def _generate_short_note(
         data = extract_json_object(_chat(ai_client, prompt + PARSE_RETRY_SUFFIX, temperature=0.1, progress=progress))
     short_note = str(data.get("short_note") or "").strip()
     normalized = normalize_short_note(short_note)
-    # Padding adds characters, so validate the exact value written to Extra.
+    # 填充会增加字符，因此校验实际写入 Extra 的确切值。
     padded = prepare(normalized)
     error = validate_short_note(padded)
     if error:

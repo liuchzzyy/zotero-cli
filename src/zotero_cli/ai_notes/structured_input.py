@@ -1,4 +1,4 @@
-"""Render MinerU blocks as source-labelled evidence for one multimodal note request."""
+"""把 MinerU 块渲染为带来源标注的证据，供一次多模态笔记请求使用。"""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-# This is a conservative preflight, not a provider tokenizer. Route limits and
-# image ceilings must be checked against the actual proxy before enabling others.
+# 这是保守的预检，不是服务商的 tokenizer。启用其他路由前，必须先
+# 对照实际代理核实其路由限制与图片上限。
 _ROUTE_LIMITS = {
     "deepseek-flash": (1_000_000, 4_096),
     "gemini-3.8-flash-high": (1_048_576, 4_096),
@@ -21,8 +21,8 @@ OUTPUT_RESERVE = 32_768
 SAFETY_RESERVE = 50_000
 MAX_SI_IMAGES = 30
 MAX_REQUEST_BYTES = 20 * 1024 * 1024
-# A real figure panel is never a few hundred bytes; MinerU does emit 1x1 spacer
-# JPEGs. Anything outside this window is skipped and announced in the prompt.
+# 真实的图表面板不可能只有几百字节；MinerU 确实会输出 1x1 的占位 JPEG。
+# 超出此范围的图像会被跳过，并在 prompt 中声明。
 MIN_IMAGE_BYTES = 1024
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 _IMAGE_TYPES = {"image", "chart"}
@@ -30,7 +30,7 @@ _SKIP_TYPES = {"header", "footer", "page_number", "page_footnote", "aside_text"}
 
 
 class EvidenceBudgetError(ValueError):
-    """The unchanged evidence cannot fit this request's verified limits."""
+    """未改动的证据无法装入该请求已核实的限制。"""
 
 
 @dataclass(frozen=True)
@@ -55,9 +55,8 @@ class RequestPlan:
     request_bytes: int
     image_tokens_reserved: int
     omitted_si: int
-    # Images MinerU produced that cannot be attached (a 1x1 spacer, or a file
-    # beyond the size ceiling). They are announced in the prompt, never dropped
-    # silently.
+    # MinerU 生成但无法附上的图像（1x1 占位图，或超出大小上限的文件）。
+    # 它们会在 prompt 中声明，绝不静默丢弃。
     skipped: list[int]
 
 
@@ -72,12 +71,12 @@ def _blocks(content: Any) -> list[dict[str, Any]]:
 
 
 def _join(value: Any) -> str:
-    """MinerU captions arrive as a list of spans, occasionally as a bare string."""
+    """MinerU 图注以 span 列表形式到达，偶尔为裸字符串。"""
     return " ".join(str(part) for part in value) if isinstance(value, list) else str(value or "")
 
 
 def build_evidence(documents: list[tuple[str, str, Any]]) -> Evidence:
-    """Preserve ordered blocks, table HTML, page and source, including unsent-image labels."""
+    """保留有序块、表格 HTML、页码与来源，包括未发送图像的标注。"""
     lines: list[str] = []
     main: list[tuple[int, Path]] = []
     si: list[tuple[int, Path]] = []
@@ -141,7 +140,7 @@ def _si_figure_number(caption: str) -> int | None:
 def _select_si(
     candidates: list[tuple[int, Path]], count: int, *, main_text: str, captions: dict[int, str]
 ) -> list[tuple[int, Path]]:
-    """Take main-text-referenced SI panels first, then spread the rest evenly."""
+    """优先选取正文引用过的 SI 图，其余均匀分散选取。"""
     if count >= len(candidates):
         return candidates
     if count <= 0:
@@ -154,8 +153,7 @@ def _select_si(
         ):
             referenced.append(index)
     chosen = set(referenced[:count])
-    # count < len(candidates) makes the leftover smaller than the remaining pool,
-    # so the stride always lands on distinct indices.
+    # count < len(candidates) 使剩余数量小于待选池，因此步进必定落在不同下标上。
     remaining = count - len(chosen)
     available = [i for i in range(len(candidates)) if i not in chosen]
     if remaining:
@@ -164,12 +162,12 @@ def _select_si(
 
 
 def plan_request(evidence: Evidence, prompt: str, model: str, *, output_reserve: int = OUTPUT_RESERVE) -> RequestPlan:
-    """Budget one complete request; fail closed for unknown routes or missing main figures."""
+    """为一个完整请求做预算；未知路由或缺少正文插图时按失败处理。"""
     if model not in _ROUTE_LIMITS:
         raise ValueError(f"unverified context/image budget for model {model}")
     context, per_image = _ROUTE_LIMITS[model]
     limit = min(context, REQUEST_CEILING)
-    # Characters are a conservative text ceiling, not an exact token count.
+    # 字符数是保守的文本上限，不是精确的 token 计数。
     text_bound = len(prompt)
     if text_bound + output_reserve + SAFETY_RESERVE >= limit:
         raise EvidenceBudgetError("required text exceeds the model budget; do not truncate evidence")
@@ -194,13 +192,13 @@ def plan_request(evidence: Evidence, prompt: str, model: str, *, output_reserve:
         if not path.is_file() or path.suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp"}:
             if (number, path) in required:
                 raise ValueError(f"required main image {number} is unavailable")
-            # SI image is optional/supplementary; skip rather than failing the whole request
+            # SI 图像是可选/补充材料；跳过而不是让整个请求失败
             skipped.append(number)
             continue
         data = path.read_bytes()
         if not MIN_IMAGE_BYTES <= len(data) <= MAX_IMAGE_BYTES:
-            # MinerU emits degenerate spacers (a 151 px panel is already ~4 kB);
-            # a real panel is never a few hundred bytes. Announce, do not fail.
+            # MinerU 会输出退化占位图（151 px 的面板也已有约 4 kB）；
+            # 真实面板不可能只有几百字节。声明即可，不要失败。
             skipped.append(number)
             continue
         mime = "jpeg" if path.suffix.lower() in {".jpg", ".jpeg"} else path.suffix.lower().lstrip(".")
@@ -227,7 +225,7 @@ def plan_request(evidence: Evidence, prompt: str, model: str, *, output_reserve:
 
 
 def plan_with_coverage(evidence: Evidence, prompt: str, model: str) -> tuple[RequestPlan, str, list[int]]:
-    """Replan until every unsent figure is named in the final prompt."""
+    """重新规划，直到每一张未发送的图像都在最终 prompt 中被点名。"""
     base_prompt = prompt
     requested_numbers = [number for number, _ in evidence.main_images + evidence.si_candidates]
     omitted_numbers: list[int] = []
@@ -246,7 +244,7 @@ def plan_with_coverage(evidence: Evidence, prompt: str, model: str) -> tuple[Req
 
 
 def model_supports_request(model: str, prompt: str, image_count: int) -> bool:
-    """Whether a fallback can receive the exact preflighted text and image set."""
+    """备用模型能否接收这份已预先校验的确切文本与图像集合。"""
     route = _ROUTE_LIMITS.get(model)
     if route is None:
         return False

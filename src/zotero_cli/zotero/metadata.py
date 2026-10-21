@@ -1,14 +1,14 @@
-"""DOI → Zotero metadata resolution via Crossref.
+"""通过 Crossref 将 DOI 解析为 Zotero 元数据。
 
-The Zotero Web API's `create_items` endpoint does not auto-resolve DOIs into
-full metadata (that is done by Zotero desktop's translator). When `zot zotero add --doi` posts a bare item, the result is an empty entry with only the DOI
-field set. This module fills that gap by fetching the Crossref record for a
-DOI and mapping it into the Zotero `journalArticle` field set, so the item
-created by the API already has title/creators/journal/etc. populated.
+Zotero Web API 的 `create_items` 端点不会自动把 DOI 解析成完整元数据
+（这由 Zotero 桌面端的转换器完成）。当 `zot zotero add --doi` 提交一个
+不带元数据的条目时，得到的结果是仅设置 DOI 字段的空条目。本模块填补这一空白：
+根据 DOI 获取 Crossref 记录，并映射到 Zotero 的 `journalArticle` 字段集，
+使 API 创建的条目已带有 title/creators/journal 等字段。
 
-Crossref is free, requires no key, and supports a "polite pool" for clients
-that identify themselves via the User-Agent. Set `ZOT_CROSSREF_MAILTO` in
-your environment to be routed into the polite pool.
+Crossref 免费、无需密钥，并为通过 User-Agent 表明身份的客户端提供
+"polite pool"（礼貌池）。在环境中设置 `ZOT_CROSSREF_MAILTO`
+即可被路由到该礼貌池。
 """
 
 from __future__ import annotations
@@ -31,9 +31,9 @@ RETRY_BACKOFF_SECONDS = 0.5
 
 
 class MetadataResolveError(Exception):
-    """Raised when Crossref cannot be reached or returns an unparseable response.
+    """无法访问 Crossref 或返回无法解析的响应时抛出。
 
-    A 404 (DOI unknown to Crossref) is NOT an error — callers receive None.
+    404（Crossref 不认识该 DOI）不算错误——调用方会收到 None。
     """
 
 
@@ -48,14 +48,14 @@ _JATS_TAG_RE = re.compile(r"<[^>]+>")
 
 
 def _strip_jats(text: str) -> str:
-    """Crossref abstracts often arrive as JATS XML — flatten to plain text."""
+    """Crossref 摘要常以 JATS XML 形式返回——需展平为纯文本。"""
     cleaned = _JATS_TAG_RE.sub("", text)
-    # Collapse whitespace runs introduced by stripped tags.
+    # 压缩去除标签后产生的连续空白。
     return re.sub(r"\s+", " ", cleaned).strip()
 
 
 def _format_date(date_parts: list[list[int]] | None) -> str | None:
-    """Crossref date-parts → ISO-ish string Zotero accepts (YYYY, YYYY-MM, YYYY-MM-DD)."""
+    """把 Crossref date-parts 转换为 Zotero 可接受的近似 ISO 字符串（YYYY、YYYY-MM、YYYY-MM-DD）。"""
     if not date_parts:
         return None
     parts = date_parts[0] if isinstance(date_parts[0], list) else date_parts
@@ -87,13 +87,13 @@ def _map_creators(authors: list[dict[str, Any]] | None) -> list[dict[str, str]]:
             continue
         name = (a.get("name") or "").strip()
         if name:
-            # Corporate / single-name authors (e.g. consortia).
+            # 机构作者或单名作者（例如联盟）。
             creators.append({"creatorType": "author", "name": name})
     return creators
 
 
 def _first_str(value: Any) -> str | None:
-    """Crossref string fields are typically arrays-of-one — return the first non-empty entry."""
+    """Crossref 字符串字段通常是单元素数组——返回第一个非空条目。"""
     if isinstance(value, list):
         for item in value:
             if isinstance(item, str) and item.strip():
@@ -105,11 +105,10 @@ def _first_str(value: Any) -> str | None:
 
 
 def map_crossref_to_zotero(message: dict[str, Any]) -> dict[str, Any]:
-    """Map a Crossref `message` object into a Zotero `journalArticle` field dict.
+    """把 Crossref 的 `message` 对象映射为 Zotero `journalArticle` 字段字典。
 
-    Only fields actually present in Crossref are emitted, so callers can
-    safely merge the result over a Zotero item template without overwriting
-    template defaults with empty strings.
+    只输出 Crossref 中实际存在的字段，因此调用方可以安全地把结果合并到
+    Zotero 条目模板之上，而不会用空字符串覆盖模板默认值。
     """
     fields: dict[str, Any] = {}
 
@@ -134,7 +133,7 @@ def map_crossref_to_zotero(message: dict[str, Any]) -> dict[str, Any]:
         if isinstance(val, str) and val.strip():
             fields[zotero_key] = val.strip()
 
-    # Prefer print > online > issued for the canonical publication date.
+    # 规范出版日期优先取 print，其次 online，最后 issued。
     date = None
     for date_key in ("published-print", "published-online", "issued"):
         date_data = message.get(date_key)
@@ -173,7 +172,7 @@ def map_crossref_to_zotero(message: dict[str, Any]) -> dict[str, Any]:
 
 
 def _get_with_retries(url: str, *, headers: dict[str, str], timeout: float) -> httpx.Response:
-    """GET a Crossref URL with bounded retries for transient failures."""
+    """对 Crossref URL 发起 GET 请求，并对暂时性故障进行有限次重试。"""
     last_error: str = "Crossref request failed"
     for attempt in range(MAX_ATTEMPTS):
         try:
@@ -193,16 +192,16 @@ def _get_with_retries(url: str, *, headers: dict[str, str], timeout: float) -> h
 
 
 def resolve_doi(doi: str, *, timeout: float = REQUEST_TIMEOUT) -> dict[str, Any] | None:
-    """Look up a DOI in Crossref and return Zotero-shaped metadata.
+    """在 Crossref 中查询 DOI，并返回 Zotero 形式的元数据。
 
-    Returns:
-        - dict of Zotero `journalArticle` fields (title, creators, ...) on success.
-        - None if Crossref returns 404 (DOI genuinely unknown).
+    返回：
+        - 成功时为 Zotero `journalArticle` 字段字典（title、creators 等）。
+        - Crossref 返回 404（DOI 确实不存在）时为 None。
 
-    Raises:
-        MetadataResolveError on network failure, timeout, 5xx, malformed JSON,
-        or any other unexpected response. Callers should treat this as
-        "metadata could not be fetched — fall back to a bare item".
+    异常：
+        网络故障、超时、5xx、JSON 格式错误或其他意外响应时抛出
+        MetadataResolveError。调用方应将其视为“无法获取元数据——退回到
+        不带元数据的条目”。
     """
     doi = doi.strip()
     if not doi:

@@ -1,9 +1,8 @@
-"""Classify a parsed item into the analysis template that fits it.
+"""把解析后的条目归类到最契合的分析模板。
 
-A Zotero book is identified by its item type without a model call; every other
-item is judged from its title, abstract and the opening of the parsed main text.
-This module also owns the chat wrapper and the model-output JSON extraction that
-the rest of the pipeline shares.
+Zotero 图书直接按条目类型判定，不调用模型；其余条目依据标题、摘要和
+解析后正文开头判定。本模块还负责 pipeline 其余部分共用的对话封装与
+模型输出 JSON 提取。
 """
 
 from __future__ import annotations
@@ -20,14 +19,14 @@ from zotero_cli.zotero.models import Item
 
 CLASSIFY_CHARS = 4000
 BOOK_ITEM_TYPES = {"book", "bookSection"}
-# Template selected for each classifier answer; anything else falls back to research_article.
+# 每个分类结果对应的模板；其他结果回退到 research_article。
 TEMPLATE_BY_TYPE = {
     "research_article": "research-article",
     "review_article": "review-article",
     "book": "book",
 }
 
-_FENCE = chr(96) * 3  # markdown code fence (three backticks)
+_FENCE = chr(96) * 3  # markdown 代码围栏（三个反引号）
 
 
 def extract_json_object(text: str) -> dict:
@@ -64,12 +63,12 @@ def extract_json_object(text: str) -> dict:
 
 
 def _sanitize_untrusted(text: str) -> str:
-    """Neutralize delimiter-lookalike tags so data cannot close the wrapper."""
+    """中和形似分隔符的标签，避免数据内容闭合包裹标记。"""
     return re.sub(r"</?untrusted-", lambda match: "&lt;" + match.group(0)[1:], text, flags=re.IGNORECASE)
 
 
 def wrap_untrusted(text: str, label: str) -> str:
-    """Wrap untrusted text so prompt instructions can treat it as data only."""
+    """包裹不可信文本，使 prompt 指令只能将其视为数据。"""
     return f"<untrusted-{label}>\n{_sanitize_untrusted(text)}\n</untrusted-{label}>"
 
 
@@ -78,7 +77,7 @@ def _cap_metadata(text: str, limit: int) -> str:
 
 
 def build_classify_prompt(item: Item, sample_text: str) -> str:
-    """Build the classify prompt with untrusted Zotero/PDF text delimited."""
+    """构造分类 prompt，并用分隔标记包裹不可信的 Zotero/PDF 文本。"""
     template = load_template("classify-item")
     title = _cap_metadata(item.title or "", MAX_TITLE_CHARS)
     abstract = _cap_metadata(item.abstract or "", MAX_ABSTRACT_CHARS)
@@ -96,7 +95,7 @@ def build_classify_prompt(item: Item, sample_text: str) -> str:
 
 
 def _chat_error(exc: Exception) -> NoteAnalysisError:
-    """Translate provider/transport failures into typed, retry-aware errors."""
+    """把服务商/传输失败转换为带类型的可重试错误。"""
     status = getattr(exc, "status_code", None)
     if status is None:
         status = getattr(getattr(exc, "response", None), "status_code", None)

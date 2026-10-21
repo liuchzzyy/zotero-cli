@@ -1,4 +1,4 @@
-"""zot zotero open: open an item's PDF/URL or a web URL in the default application."""
+"""zot zotero open：用默认应用打开条目的 PDF/URL 或某个网页 URL。"""
 
 from __future__ import annotations
 
@@ -23,12 +23,11 @@ _DOI_RE = re.compile(r"^doi:", re.IGNORECASE)
 
 
 def _open_path(path: str) -> None:
-    """Open a file or URL with the system default handler.
+    """用系统默认程序打开文件或 URL。
 
-    Uses one fixed, argument-only invocation per platform (no shell): on macOS
-    "open", on Linux "xdg-open", and on Windows the native os.startfile API
-    (which takes a filename, never a command string, so no shell quoting is
-    involved).
+    每个平台只使用一条固定、纯参数的调用（不经 shell）：macOS 用 "open"，
+    Linux 用 "xdg-open"，Windows 用原生 os.startfile API（其参数是文件名而非
+    命令字符串，因此不涉及 shell 引号处理）。
     """
     if sys.platform == "darwin":
         subprocess.run(["open", path], check=True)
@@ -39,7 +38,7 @@ def _open_path(path: str) -> None:
 
 
 def _emit_and_open(target: str, *, kind: str, output_json: bool) -> None:
-    """Report the target (envelope or human line) and launch the default app."""
+    """报告目标（envelope 或人类可读行）并启动默认应用。"""
     if output_json:
         typer.echo(json.dumps(envelope_ok({"target": target, "kind": kind, "gui": True}), indent=2, ensure_ascii=False))
     else:
@@ -53,24 +52,24 @@ def open_item(
     key: str = typer.Argument(help="Zotero 条目键或 http(s) URL。"),
     open_url: bool = typer.Option(False, "--url", help="在浏览器中打开条目或指定的 URL。"),
 ) -> None:
-    """Open the PDF or URL of a Zotero item in the default app.
+    """用默认应用打开 Zotero 条目的 PDF 或 URL。
 
-    KEY may also be an http(s) URL, which is opened directly
-    (e.g. zot zotero open --url https://example.com). This command launches the system
-    default application, i.e. it has a GUI side effect; JSON mode returns one
-    envelope {target, kind, gui} describing what was opened.
+    KEY 也可以是 http(s) URL，此时直接打开该地址
+    （例如 zot zotero open --url https://example.com）。此命令会启动系统默认
+    应用，即带有 GUI 副作用；JSON 模式返回单个 envelope {target, kind, gui}
+    描述所打开的目标。
 
     \b
-    Examples:
-      zot zotero open ABC123                    Open PDF in default viewer
-      zot zotero open ABC123 --url              Open DOI/URL in browser
-      zot zotero open --url https://example.com Open a web URL directly
-      zot --json zotero open ABC123             Envelope + open (GUI side effect)
+    示例：
+      zot zotero open ABC123                    用默认阅读器打开 PDF
+      zot zotero open ABC123 --url              在浏览器中打开 DOI/URL
+      zot zotero open --url https://example.com 直接打开网页 URL
+      zot --json zotero open ABC123             envelope + 打开（GUI 副作用）
     """
     json_out = ctx.obj.get("json", False)
 
-    # Direct web URL support: "zot zotero open --url https://example.com" used to treat
-    # the URL as an item key. Only http(s) is accepted here.
+    # 直接支持网页 URL：过去 "zot zotero open --url https://example.com" 会把
+    # URL 当作条目键。此处仅接受 http(s)。
     if _HTTP_URL_RE.match(key):
         _emit_and_open(key, kind="url", output_json=json_out)
         return
@@ -116,7 +115,7 @@ def open_item(
             _emit_and_open(target, kind="url", output_json=json_out)
             return
 
-        # Default: open PDF
+        # 默认：打开 PDF
         att = reader.get_pdf_attachment(key)
         if att is None:
             emit_error(

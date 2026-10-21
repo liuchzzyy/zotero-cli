@@ -1,4 +1,4 @@
-"""Error types and pyzotero/HTTP exception translation for Zotero Web API writes."""
+"""Zotero Web API 写入的错误类型以及 pyzotero/HTTP 异常转换。"""
 
 from __future__ import annotations
 
@@ -31,17 +31,16 @@ _HTTP_CODE_PATTERN = re.compile(r"Code:\s*(\d{3})", re.IGNORECASE)
 
 
 class ZoteroWriteError(Exception):
-    """Raised when a Zotero write operation fails.
+    """Zotero 写操作失败时抛出。
 
-    Attributes:
-        code: machine-readable error code (api_error, network_error, not_found,
-            auth_invalid, validation_error, conflict, rate_limited).
-        retryable: True when a retry may succeed (network blips, 5xx, rate
-            limits); False for 4xx/validation/permission/conflict errors.
-        committed: True when the request may already have reached the server
-            (network failure or 5xx after sending). Callers must reconcile
-            instead of blindly retrying when this is True.
-        retry_after_seconds: optional hint parsed from a rate-limit response.
+    属性：
+        code：机器可读的错误码（api_error、network_error、not_found、
+            auth_invalid、validation_error、conflict、rate_limited）。
+        retryable：重试可能成功时为 True（网络抖动、5xx、限流）；
+            4xx、校验、权限或冲突类错误为 False。
+        committed：请求可能已经到达服务端时为 True（发送后发生网络故障或
+            5xx）。该值为 True 时，调用方必须进行核对，不能盲目重试。
+        retry_after_seconds：从限流响应中解析出的可选提示。
     """
 
     def __init__(
@@ -61,7 +60,7 @@ class ZoteroWriteError(Exception):
 
 
 def _retry_after_seconds(value: object) -> int | None:
-    """Extract a Retry-After hint from an exception or response header value."""
+    """从异常或响应头值中提取 Retry-After 提示。"""
     if value is None:
         return None
     if isinstance(value, int):
@@ -73,13 +72,12 @@ def _retry_after_seconds(value: object) -> int | None:
 
 
 def _friendly_api_error(exc: PyZoteroError) -> ZoteroWriteError:
-    """Convert pyzotero exceptions to user-friendly ZoteroWriteError.
+    """把 pyzotero 异常转换为便于用户理解的 ZoteroWriteError。
 
-    Mapping follows the HTTP semantics agents depend on: auth failures are
-    non-retryable, rate limits and transport failures are retryable, 409/412 are
-    write conflicts, and validation-style errors keep their actionable messages.
-    committed is True only when the request may already have reached the server,
-    so callers know a blind retry could duplicate the mutation.
+    映射遵循代理所依赖的 HTTP 语义：认证失败不可重试，限流与传输故障可重试，
+    409/412 属于写入冲突，校验类错误保留可直接处理的提示信息。
+    仅当请求可能已经到达服务端时才把 committed 置为 True，
+    以便调用方知道盲目重试可能导致变更重复。
     """
     msg = str(exc)
     if isinstance(exc, UserNotAuthorisedError):
@@ -115,8 +113,8 @@ def _friendly_api_error(exc: PyZoteroError) -> ZoteroWriteError:
     if isinstance(exc, ResourceNotFoundError):
         return ZoteroWriteError(f"Zotero API error: {msg}", code="not_found", retryable=False, committed=False)
     if isinstance(exc, HTTPError):
-        # pyzotero raises this for unclassified statuses. 5xx is transient and
-        # may have been processed; unclassified 4xx is a client-side rejection.
+        # pyzotero 对未归类的状态码抛出此异常。5xx 是暂时性的，
+        # 且可能已被处理；未归类的 4xx 属于客户端侧拒绝。
         status = _status_from_message(msg)
         retryable = status is None or status >= 500
         return ZoteroWriteError(
@@ -153,7 +151,7 @@ def _friendly_api_error(exc: PyZoteroError) -> ZoteroWriteError:
 
 
 def _status_from_message(message: str) -> int | None:
-    """Parse the trailing Code: NNN pyzotero includes in HTTP error text."""
+    """解析 pyzotero 在 HTTP 错误文本末尾附带的 Code: NNN。"""
     match = _HTTP_CODE_PATTERN.search(message)
     if match is None:
         return None
@@ -161,7 +159,7 @@ def _status_from_message(message: str) -> int | None:
 
 
 def error_for_http_status(status: int, message: str = "", *, retry_after: object = None) -> ZoteroWriteError:
-    """Translate a raw HTTP write response status into a typed ZoteroWriteError."""
+    """把原始 HTTP 写入响应状态码转换为带类型的 ZoteroWriteError。"""
     detail = f": {message}" if message else ""
     if status in (401, 403):
         return ZoteroWriteError(
@@ -208,7 +206,7 @@ def error_for_http_status(status: int, message: str = "", *, retry_after: object
 
 
 def response_retry_after(response: Any) -> int | None:
-    """Return the Retry-After header of an httpx/httpx2 response, if present."""
+    """返回 httpx/httpx2 响应的 Retry-After 头（若存在）。"""
     headers = getattr(response, "headers", None)
     if not headers:
         return None

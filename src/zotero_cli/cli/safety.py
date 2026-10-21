@@ -1,18 +1,17 @@
-"""Single source of truth for CLI command safety tiers.
+"""CLI 命令安全层级的唯一权威定义。
 
-Every top-level command — and every nested subcommand that mutates durable state
-(library, local config, workspace or cache) — has exactly one tier:
+每个顶层命令——以及每个会改动持久状态（库、本地配置、workspace 或缓存）的
+嵌套子命令——都恰好属于一个层级：
 
-* `read`        — safe to run repeatedly; no durable mutation.
-* `write`       — creates or mutates durable state (library, config, workspace).
-* `destructive` — deletes or irreversibly rewrites durable state.
+* `read`        — 可重复执行；不改动持久状态。
+* `write`       — 创建或改动持久状态（库、配置、workspace）。
+* `destructive` — 删除或不可逆地重写持久状态。
 
-Two consumers read this module: `zot --help` (which groups commands by tier via
-`zotero_cli.cli.tiered_group`) and `zot schema` (which advertises each command's
-`safety_tier`). Never duplicate the mapping elsewhere.
+有两个使用方读取本模块：`zot --help`（通过 `zotero_cli.cli.tiered_group`
+按层级对命令分组）和 `zot schema`（对外声明每个命令的 `safety_tier`）。
+不要在别处重复维护该映射。
 
-This module intentionally imports nothing from the rest of the `cli` package so
-command modules can consume it without creating an import cycle.
+本模块刻意不导入 `cli` 包的其他部分，以便各命令模块使用它而不会产生循环导入。
 """
 
 from __future__ import annotations
@@ -23,10 +22,10 @@ READ = "read"
 WRITE = "write"
 DESTRUCTIVE = "destructive"
 
-# Top-level commands default to `read` unless listed here. Nested entries cover
-# subcommands that mutate the library despite sitting under a read-tier parent.
+# 顶层命令默认属于 `read`，除非在此列出。嵌套条目覆盖那些虽位于 read 层级
+# 父命令之下、却会改动库的子命令。
 SAFETY_TIERS: dict[tuple[str, ...], str] = {
-    # read-only commands
+    # 只读命令
     ("config",): READ,
     ("zotero",): READ,
     ("metadata",): READ,
@@ -51,11 +50,11 @@ SAFETY_TIERS: dict[tuple[str, ...], str] = {
     ("zotero", "collection", "reorganize"): WRITE,
     ("zotero", "collection", "delete"): DESTRUCTIVE,
     ("zotero", "trash", "restore"): WRITE,
-    # nested config commands that mutate local configuration/cache state
+    # 会改动本地配置/缓存状态的嵌套 config 命令
     ("config", "init"): WRITE,
     ("config", "profile", "set"): WRITE,
     ("config", "cache", "clear"): DESTRUCTIVE,
-    # nested workspace commands that mutate local workspace/index state
+    # 会改动本地 workspace/索引状态的嵌套 workspace 命令
     ("workspace", "new"): WRITE,
     ("workspace", "add"): WRITE,
     ("workspace", "remove"): WRITE,
@@ -66,7 +65,7 @@ SAFETY_TIERS: dict[tuple[str, ...], str] = {
     ("workspace", "delete"): DESTRUCTIVE,
 }
 
-# Command-name sets derived from SAFETY_TIERS for `zot --help` sectioning.
+# 由 SAFETY_TIERS 派生的命令名集合，供 `zot --help` 分节使用。
 READ_COMMANDS = frozenset(path[0] for path, tier in SAFETY_TIERS.items() if len(path) == 1 and tier == READ)
 WRITE_COMMANDS = frozenset(path[0] for path, tier in SAFETY_TIERS.items() if len(path) == 1 and tier == WRITE)
 DESTRUCTIVE_COMMANDS = frozenset(
@@ -75,11 +74,10 @@ DESTRUCTIVE_COMMANDS = frozenset(
 
 
 def safety_tier_for_path(path: Sequence[str]) -> str:
-    """Return the safety tier for a command path (e.g. `["collection", "delete"]`).
+    """返回命令路径的安全层级（例如 `["collection", "delete"]`）。
 
-    Nested subcommands without an explicit entry inherit their parent's tier;
-    unknown top-level commands are treated as read-only, matching Click's tree
-    (any command that mutates the library must be classified explicitly here).
+    未显式列出的嵌套子命令继承其父命令的层级；未知的顶层命令视为只读，
+    与 Click 的命令树一致（任何会改动库的命令都必须在此显式分类）。
     """
     if not path:
         return READ

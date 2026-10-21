@@ -1,13 +1,12 @@
-"""A Click Group that renders the command list grouped by safety tier.
+"""按安全层级分组渲染命令列表的 Click Group。
 
-zot --help lists read commands first, then write and destructive commands under
-explicit "MUTATES LIBRARY" headers, so an agent scanning help cannot mistake a
-library-mutating command for a harmless one. Tier membership comes from
-zotero_cli.cli.safety.
+zot --help 先列出读取类命令，再把写入类和破坏性命令列在明确的
+"MUTATES LIBRARY" 标题下，使浏览帮助的代理程序不会把改动库的命令误认为
+无害命令。层级归属来自 zotero_cli.cli.safety。
 
-The group also owns the CLI's top-level error boundary: uncaught exceptions and
-Click usage errors are translated into the documented JSON envelope / human
-error format and typed exit codes instead of leaking tracebacks.
+该 Group 同时负责 CLI 的顶层错误边界：未捕获异常与 Click 用法错误会被转换为
+文档约定的 JSON envelope / 人类可读错误格式以及带类型的退出码，而不泄漏
+回溯信息。
 """
 
 from __future__ import annotations
@@ -34,7 +33,7 @@ from zotero_cli.output.exit_codes import (
 
 
 class TieredGroup(TyperGroup):
-    """A Click Group that renders the command list grouped by safety tier."""
+    """按安全层级分组渲染命令列表的 Click Group。"""
 
     def main(  # type: ignore[override]
         self,
@@ -48,8 +47,8 @@ class TieredGroup(TyperGroup):
         if args is None:
             args = sys.argv[1:]
         args = _hoist_global_flags(list(args), self)
-        # Fresh per invocation; the root callback records the parsed --verbose
-        # flag and ZOT_DEBUG is read lazily by verbose_enabled().
+        # 每次调用都重新初始化；根回调记录解析出的 --verbose 选项，
+        # ZOT_DEBUG 由 verbose_enabled() 按需读取。
         set_verbose(False)
 
         if not standalone_mode:
@@ -106,7 +105,7 @@ class TieredGroup(TyperGroup):
             if getattr(exc, "errno", None) == errno.EPIPE:
                 raise SystemExit(EXIT_RUNTIME) from None
             emit_exception(exc, output_json=json_output, verbose=verbose_enabled())
-        except BaseException as exc:  # noqa: BLE001 - the boundary is the point
+        except BaseException as exc:  # noqa: BLE001 - 错误边界正是此处的职责
             emit_exception(exc, output_json=json_output, verbose=verbose_enabled())
 
         if isinstance(result, int):

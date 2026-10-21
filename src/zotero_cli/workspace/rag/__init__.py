@@ -1,7 +1,7 @@
-"""RAG pipeline: text chunking, metadata, rank fusion, and embeddings.
+"""RAG 流水线：文本切分、metadata、排名融合与 embedding。
 
-This module is the stable public facade for `zotero_cli.workspace.rag`; the
-implementations live in `chunking`, `metadata`, `fusion`, and `embeddings`.
+本模块是 `zotero_cli.workspace.rag` 的稳定公共门面；具体实现位于 `chunking`、`metadata`、
+`fusion` 和 `embeddings`。
 """
 
 from __future__ import annotations

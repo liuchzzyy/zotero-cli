@@ -1,4 +1,4 @@
-"""Render ai-note JSON sections into a Zotero HTML note."""
+"""把 ai-note 的 sections JSON 渲染为 Zotero HTML note。"""
 
 from __future__ import annotations
 
@@ -18,14 +18,14 @@ def _escape(text: object) -> str:
 
 
 def _text(text: object) -> str:
-    """Prepare note content for HTML: flatten, space, then escape."""
+    """为 HTML 准备笔记内容：展平、加空格，再转义。"""
     return _escape(prepare(str(text)))
 
 
 def render_note(sections: list[Any], *, title: str) -> str:
-    """Render a sections-JSON payload to an inline-styled HTML note."""
-    # The title is a fixed label plus the item title, so it is escaped but not
-    # re-spaced: the label must stay byte-identical for prefix matching.
+    """把 sections JSON 载荷渲染为内联样式的 HTML note。"""
+    # 标题由固定标签和条目标题组成，因此要转义但不再重排空格：
+    # 前缀匹配要求该标签保持逐字节一致。
     parts = [
         f"<h1 style='color:{_PRIMARY};border-bottom:2px solid {_PRIMARY};padding-bottom:6px;'>{_escape(title)}</h1>"
     ]

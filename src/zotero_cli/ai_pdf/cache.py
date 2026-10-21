@@ -1,11 +1,9 @@
-"""Content-addressed cache for canonical MinerU parse packages.
+"""规范 MinerU 解析包的内容寻址缓存。
 
-Writes are two-phase (mkdtemp staging + same-filesystem replace) and guarded by
-a per-fingerprint lock file so concurrent CLI processes parse each PDF at most
-once. Locks record the owner PID: a lock whose owner process is dead is reclaimed
-immediately, while other waiters are reclaimed once stale. Hidden staging/lock
-entries are ignored by stats and listings, and stale staging directories left by
-killed writes are swept before the next parse.
+写入分两阶段（mkdtemp 暂存目录 + 同一文件系统内替换），并由按指纹
+加锁的锁文件保护，使并发的 CLI 进程对每份 PDF 最多只解析一次。锁会记录
+持有者 PID：持有进程已死的锁立即回收，其他等待中的锁在过期后回收。隐藏的
+暂存/锁条目不计入统计与列表，被杀掉的写入留下的过期暂存目录会在下次解析前清扫。
 """
 
 from __future__ import annotations
@@ -34,19 +32,17 @@ from zotero_cli.workspace.store import mineru_cache_dir
 
 _CACHE_SCHEMA_VERSION = 1
 
-# Cross-process parse reservation. A second CLI process waits for the first one
-# instead of issuing a duplicate MinerU batch. A lock whose recorded owner PID is
-# no longer alive is reclaimed immediately; otherwise it becomes stale after the
-# stale window, which is kept <= the maximum wait so a waiter always gets a
-# chance to recover a crashed or hung holder.
+# 跨进程解析预占。第二个 CLI 进程会等待第一个，而不是重复发起 MinerU 批次。
+# 记录的所有者 PID 已不存在的锁立即回收；否则超过过期窗口后视为过期，
+# 该窗口保持在最大等待时间之内，使等待者总能有机会恢复崩溃或卡住的持有者。
 _LOCK_DIRNAME = ".locks"
 _LOCK_POLL_SECONDS = 0.2
 _LOCK_TIMEOUT_SECONDS = 1800.0
 _LOCK_STALE_SECONDS = 900.0
 assert _LOCK_STALE_SECONDS <= _LOCK_TIMEOUT_SECONDS
 
-# Hidden .{model}-<random> staging dirs older than this are leftovers from a
-# killed write and are swept before the next parse.
+# 早于此时长的隐藏 .{model}-<random> 暂存目录是被中断写入的残留，
+# 会在下次解析前清扫。
 _STAGING_STALE_SECONDS = 24 * 60 * 60.0
 
 
@@ -63,7 +59,7 @@ def _lock_owner_pid(lock_path: Path) -> int | None:
 
 
 def _process_is_alive(pid: int) -> bool | None:
-    """Best-effort liveness probe; None when the platform cannot tell."""
+    """尽力探测进程是否存活；平台无法判断时返回 None。"""
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -77,7 +73,7 @@ def _process_is_alive(pid: int) -> bool | None:
 
 @contextmanager
 def _exclusive_lock(lock_path: Path, *, timeout: float, poll: float, stale: float) -> Iterator[None]:
-    """Create an exclusive lock file, waiting for a live owner and reclaiming dead/stale ones."""
+    """创建排他锁文件；等待存活的持有者，并回收已死/过期的锁。"""
     deadline = time.monotonic() + timeout
     notified = False
     while True:
@@ -120,7 +116,7 @@ def _exclusive_lock(lock_path: Path, *, timeout: float, poll: float, stale: floa
 
 
 class MinerUParseCache:
-    """Content-addressed cache for canonical MinerU parse packages."""
+    """规范 MinerU 解析包的内容寻址缓存。"""
 
     def __init__(
         self,
@@ -139,7 +135,7 @@ class MinerUParseCache:
         self._token = token if token is not None else config.mineru_token
 
     def lookup(self, pdf_path: Path) -> tuple[MinerUParseResult | None, str | None]:
-        """Return the cached package and PDF fingerprint (None, None) when the PDF is missing."""
+        """返回缓存的解析包与 PDF 指纹；PDF 不存在时返回 (None, None)。"""
         if not pdf_path.exists():
             return None, None
         fingerprint = file_sha256(pdf_path)
@@ -249,7 +245,7 @@ class MinerUParseCache:
         return results
 
     def _cleanup_stale_staging(self, fingerprints: Sequence[str]) -> int:
-        """Remove hidden staging dirs left behind by killed writes for these fingerprints."""
+        """删除这些指纹下被中断写入留下的隐藏暂存目录。"""
         removed = 0
         cutoff = time.time() - _STAGING_STALE_SECONDS
         for fingerprint in sorted(set(fingerprints)):
@@ -289,11 +285,10 @@ class MinerUParseCache:
             yield
 
     def clear(self) -> int:
-        """Remove the cache root, counting only valid packages as removed.
+        """删除缓存根目录，仅把有效解析包计入删除数量。
 
-        The root is first renamed to a hidden tombstone (same filesystem) so a
-        crash or delete failure can never leave a half-readable cache root; the
-        tombstone is then deleted best-effort.
+        根目录先被重命名为隐藏的墓碑目录（同一文件系统），使崩溃或删除失败
+        绝不会留下半可读的缓存根目录；随后尽力删除该墓碑目录。
         """
         if not self.root.exists():
             return 0
@@ -302,7 +297,7 @@ class MinerUParseCache:
         try:
             os.replace(self.root, tombstone)
         except OSError:
-            # Rename is best-effort: fall back to a direct delete.
+            # 重命名是尽力而为：失败时回退为直接删除。
             shutil.rmtree(self.root)
             return count
         try:
@@ -319,7 +314,7 @@ class MinerUParseCache:
         )
 
     def _valid_entries(self) -> list[tuple[Path, dict[str, Any]]]:
-        """Return (manifest path, parsed manifest) pairs, skipping corrupt/hidden ones."""
+        """返回 (manifest 路径, 解析后的 manifest)，跳过损坏/隐藏条目。"""
         valid: list[tuple[Path, dict[str, Any]]] = []
         if not self.root.exists():
             return valid
@@ -347,10 +342,10 @@ class MinerUParseCache:
         return total
 
     def stats(self) -> dict[str, int]:
-        """Count valid package manifests and the visible bytes of those packages.
+        """统计有效解析包的 manifest 数量及其可见字节数。
 
-        Corrupt manifests and hidden staging/lock entries are ignored exactly like
-        in entries(), so stats.entries always equals len(entries()).
+        损坏的 manifest 与隐藏的暂存/锁条目会和 entries() 一样被忽略，
+        因此 stats.entries 始终等于 len(entries())。
         """
         entries = self._valid_entries()
         return {"entries": len(entries), "total_bytes": self._visible_bytes(entries)}

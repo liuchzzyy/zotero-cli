@@ -1,4 +1,4 @@
-"""Resolve Zotero data directories, credentials, and local library ids."""
+"""解析 Zotero 数据目录、凭据与本地文库 ID。"""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ from .models import AppConfig
 
 
 class LibraryResolutionError(Exception):
-    """A requested group library could not be resolved from the local database.
+    """无法从本地数据库解析所请求的群组文库。
 
-    The CLI maps this to a typed `not_found` (exit 4); callers must not fall back
-    to the user library because that would silently redirect writes.
+    CLI 会将其映射为类型化的 `not_found`（退出码 4）；调用方不得回退到
+    用户文库，因为那会静默改变写入目标。
     """
 
     code = "not_found"
@@ -25,7 +25,7 @@ class LibraryResolutionError(Exception):
 
 
 def _detect_zotero_data_dir_from_registry() -> Path | None:
-    """Detect Zotero data directory from Windows Registry."""
+    """从 Windows 注册表检测 Zotero 数据目录。"""
     if sys.platform != "win32":
         return None
 
@@ -65,7 +65,7 @@ def detect_zotero_data_dir(config: AppConfig) -> Path:
 
 
 def get_data_dir(config: AppConfig) -> Path:
-    """Get Zotero data dir: env override > config > default."""
+    """获取 Zotero 数据目录：环境变量覆盖 > 配置 > 默认值。"""
     env_dir = os.environ.get("ZOT_DATA_DIR")
     if env_dir:
         return Path(env_dir).expanduser()
@@ -73,7 +73,7 @@ def get_data_dir(config: AppConfig) -> Path:
 
 
 def get_prefs_js_path(config: AppConfig) -> Path | None:
-    """Get Zotero prefs.js path: env override > config."""
+    """获取 Zotero prefs.js 路径：环境变量覆盖 > 配置。"""
     env_path = os.environ.get("ZOT_PREFS_JS_PATH")
     if env_path:
         path = Path(env_path).expanduser()
@@ -114,7 +114,7 @@ def resolve_crossref_mailto(config: AppConfig) -> str:
 
 
 def resolve_library_id(db_path: Path, ctx_obj: dict) -> int:
-    """Resolve the library_id from ctx.obj, defaulting to 1 (user library)."""
+    """从 ctx.obj 解析 library_id，默认值为 1（用户文库）。"""
     if ctx_obj.get("library_type") != "group" or not ctx_obj.get("group_id"):
         return 1
     from zotero_cli.zotero.reader import ZoteroReader

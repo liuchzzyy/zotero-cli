@@ -1,11 +1,11 @@
-"""Zotero Web API write layer (pyzotero 1.16 / httpx2 based).
+"""Zotero Web API 写入层（基于 pyzotero 1.16 / httpx2）。
 
-ZoteroWriter lives here; error translation lives in writer_errors and the
-Extra-field short-note merge in short_note_merge.
+ZoteroWriter 定义在此；错误转换在 writer_errors 中，Extra 字段的 short-note
+合并逻辑在 short_note_merge 中。
 
-Delete semantics: Zotero's Web API DELETE permanently erases an item. Use the
-trash restore path (raw PATCH deleted=0) only for items that were trashed by
-Zotero Desktop; CLI deletions are irreversible.
+删除语义：Zotero Web API 的 DELETE 会永久删除条目。回收站恢复路径
+（原始 PATCH deleted=0）仅适用于被 Zotero Desktop 移入回收站的条目；
+CLI 的删除操作不可撤销。
 """
 
 from __future__ import annotations
@@ -26,19 +26,19 @@ from zotero_cli.zotero.writer_errors import (
 
 SYNC_REMINDER = "Change saved. Run Zotero sync to update local database."
 
-API_TIMEOUT = 30.0  # seconds
+API_TIMEOUT = 30.0  # 秒
 
 
 class ZoteroWriter:
     def __init__(self, library_id: str, api_key: str, library_type: str = "user", timeout: float = API_TIMEOUT) -> None:
         self._zot = zotero.Zotero(library_id, library_type, api_key)
         if self._zot.client is not None:
-            # pyzotero 1.16 ships an httpx2 client whose timeout must be a
-            # float/httpx2.Timeout; an httpx.Timeout object is rejected deep in
-            # httpcore with "'Timeout' object cannot be interpreted as an integer".
+            # pyzotero 1.16 使用 httpx2 客户端，其 timeout 必须是
+            # float 或 httpx2.Timeout；传入 httpx.Timeout 对象会在 httpcore
+            # 深处报错 "'Timeout' object cannot be interpreted as an integer"。
             self._zot.client.timeout = float(timeout)
 
-    # --- plumbing ---------------------------------------------------------
+    # --- 基础设施 ---------------------------------------------------------
 
     @staticmethod
     def _network_error(exc: BaseException) -> ZoteroWriteError:
@@ -53,7 +53,7 @@ class ZoteroWriter:
     def _response_error(response: httpx2.Response) -> ZoteroWriteError:
         try:
             body = response.text.strip()[:300]
-        except Exception:  # noqa: BLE001 - malformed/deleted response body
+        except Exception:  # noqa: BLE001 - 响应体格式错误或已被删除
             body = ""
         return error_for_http_status(
             response.status_code,
@@ -73,11 +73,11 @@ class ZoteroWriter:
         return headers
 
     def _check_response(self, resp: dict) -> str:
-        """Return the created key from a write response or raise a typed error.
+        """从写入响应中返回新建条目的键，或抛出带类型的错误。
 
-        Zotero write responses may carry the created object under
-        successful[0].key, a key map under success[0], or a keyed object under
-        unchanged[0]. pyzotero 1.16 surfaces all three shapes.
+        Zotero 写入响应可能把新建对象放在 successful[0].key 下，把键映射放在
+        success[0] 下，或把带键对象放在 unchanged[0] 下。
+        pyzotero 1.16 会出现以上三种形式。
         """
         if not isinstance(resp, dict):
             raise ZoteroWriteError("Unexpected API response", code="api_error", retryable=True, committed=True)
@@ -104,9 +104,8 @@ class ZoteroWriter:
         failed = resp.get("failed") or {}
         if isinstance(failed, dict) and failed:
             if success_key is not None:
-                # Conflicting response: the write may have landed while the
-                # server also reports a failure. Treat it as an unknown outcome
-                # so callers reconcile instead of blindly retrying.
+                # 响应自相矛盾：写入可能已经生效，同时服务端又报告失败。
+                # 将其视为结果未知，让调用方进行核对而不是盲目重试。
                 raise ZoteroWriteError(
                     "Unexpected API response",
                     code="api_error",
@@ -125,14 +124,14 @@ class ZoteroWriter:
             return success_key
         raise ZoteroWriteError("Unexpected API response", code="api_error", retryable=True, committed=True)
 
-    # --- notes and items --------------------------------------------------
+    # --- 注记与条目 --------------------------------------------------
 
     def add_note(self, parent_key: str, content: str) -> str:
-        """Create a child note under an item; returns the new note key."""
+        """在条目下创建子注记；返回新注记的键。"""
         try:
             try:
                 template = self._zot.item_template("note")
-            except Exception:  # noqa: BLE001 - fall back to a minimal note template
+            except Exception:  # noqa: BLE001 - 退回到最小化注记模板
                 template = {"itemType": "note", "note": "", "tags": [], "collections": [], "relations": {}}
             template["note"] = content
             template["parentItem"] = parent_key
@@ -154,12 +153,11 @@ class ZoteroWriter:
         *,
         extra_fields: dict[str, object] | None = None,
     ) -> str:
-        """Create a Zotero item from a DOI or URL.
+        """根据 DOI 或 URL 创建 Zotero 条目。
 
-        extra_fields is merged into the item template before posting, used by
-        callers that resolved DOI metadata via Crossref. URL-only items get the
-        URL as their title unless the caller supplied one, so the new item is
-        identifiable before any readback/sync.
+        extra_fields 会在提交前合并进条目模板，供通过 Crossref 解析 DOI
+        元数据的调用方使用。仅含 URL 的条目在调用方未提供标题时会把 URL
+        作为标题，从而在任何回读或同步之前就能识别新条目。
         """
         if not doi and not url:
             raise ValueError("Either doi or url must be provided")
@@ -184,7 +182,7 @@ class ZoteroWriter:
             raise _friendly_api_error(e) from e
 
     def update_short_note(self, key: str, short_note: str) -> None:
-        """Merge a short-note line into the item's Extra field via the Web API."""
+        """通过 Web API 把 short-note 行合并进条目的 Extra 字段。"""
         try:
             item = self._zot.item(key)
             current = item["data"].get("extra") or ""
@@ -198,7 +196,7 @@ class ZoteroWriter:
             raise _friendly_api_error(e) from e
 
     def update_item(self, key: str, fields: dict[str, str], *, expected_version: int | None = None) -> None:
-        """Update fields, optionally rejecting changes since a derived payload was prepared."""
+        """更新字段；可选地在派生负载准备好之后拒绝已发生的变更。"""
         try:
             item = self._zot.item(key)
             if expected_version is not None and item.get("version") != expected_version:
@@ -219,12 +217,11 @@ class ZoteroWriter:
             raise _friendly_api_error(e) from e
 
     def restore_from_trash(self, key: str) -> None:
-        """Restore a Zotero Desktop trashed item by PATCHing deleted=0.
+        """通过 PATCH deleted=0 恢复被 Zotero Desktop 移入回收站的条目。
 
-        pyzotero 1.16's update_item rejects the read-only deleted field, so use
-        the raw Web API PATCH with the item's version as a precondition. This
-        only works for items that still exist in the trash; CLI delete is
-        permanent and cannot be restored.
+        pyzotero 1.16 的 update_item 会拒绝只读的 deleted 字段，因此改用
+        原始 Web API PATCH，并以条目版本作为前置条件。该操作仅对仍存在于
+        回收站中的条目有效；CLI 的删除是永久的，无法恢复。
         """
         try:
             item = self._zot.item(key)
@@ -257,7 +254,7 @@ class ZoteroWriter:
             raise self._response_error(response)
 
     def upload_attachment(self, parent_key: str, file_path: Path) -> str:
-        """Upload a file attachment to an existing item. Returns attachment key."""
+        """向已有条目上传文件附件。返回附件键。"""
         if not file_path.exists():
             raise ZoteroWriteError(
                 f"File not found: {file_path}", code="validation_error", retryable=False, committed=False
@@ -306,7 +303,7 @@ class ZoteroWriter:
             raise _friendly_api_error(e) from e
 
     def delete_item(self, key: str) -> None:
-        """Permanently delete an item via the Web API DELETE endpoint."""
+        """通过 Web API 的 DELETE 端点永久删除条目。"""
         try:
             item = self._zot.item(key)
             self._zot.delete_item(item)
@@ -318,7 +315,7 @@ class ZoteroWriter:
             raise _friendly_api_error(e) from e
 
     def add_tags(self, key: str, tags: list[str]) -> None:
-        """Add tags to an item, keeping existing tag names."""
+        """为条目添加标签，并保留已有的标签名。"""
         try:
             item = self._zot.item(key)
             existing = [t["tag"] for t in item["data"].get("tags", [])]
@@ -333,7 +330,7 @@ class ZoteroWriter:
             raise _friendly_api_error(e) from e
 
     def remove_tags(self, key: str, tags: list[str]) -> None:
-        """Remove tags from an item."""
+        """从条目中移除标签。"""
         try:
             item = self._zot.item(key)
             item["data"]["tags"] = [t for t in item["data"].get("tags", []) if t["tag"] not in tags]
@@ -345,10 +342,10 @@ class ZoteroWriter:
         except PyZoteroError as e:
             raise _friendly_api_error(e) from e
 
-    # --- collections ------------------------------------------------------
+    # --- 集合 ------------------------------------------------------
 
     def create_collection(self, name: str, parent_key: str | None = None) -> str:
-        """Create a collection, optionally nested under a parent collection key."""
+        """创建集合，可选地嵌套在父集合键之下。"""
         try:
             payload = [{"name": name, "parentCollection": parent_key or False}]
             resp = self._zot.create_collections(payload)
@@ -363,7 +360,7 @@ class ZoteroWriter:
             raise _friendly_api_error(e) from e
 
     def add_to_collection(self, item_key: str, collection_key: str) -> None:
-        """Add an item to a collection without removing existing collection memberships."""
+        """把条目加入集合，且不移除其已有的集合归属。"""
         try:
             self._zot.addto_collection(collection_key, self._zot.item(item_key))
         except ResourceNotFoundError:
@@ -374,12 +371,11 @@ class ZoteroWriter:
             raise _friendly_api_error(e) from e
 
     def move_to_collection(self, item_key: str, collection_key: str, source_collection_key: str | None = None) -> None:
-        """Move an item to a collection.
+        """把条目移动到集合。
 
-        Without source_collection_key this preserves the historical behavior:
-        add the item to the target collection and keep all existing memberships.
-        When a source collection is provided, update the item membership list so
-        the source is removed and the target is present.
+        未提供 source_collection_key 时保持历史行为：把条目加入目标集合，
+        并保留所有已有的集合归属。提供源集合时，更新条目的集合归属列表，
+        使源集合被移除、目标集合被加入。
         """
         if source_collection_key is None:
             self.add_to_collection(item_key, collection_key)
@@ -408,7 +404,7 @@ class ZoteroWriter:
             raise _friendly_api_error(e) from e
 
     def set_item_collections(self, item_key: str, collection_keys: list[str]) -> None:
-        """Replace an item's collection membership with exactly the given keys."""
+        """把条目的集合归属替换为恰好给定的这些键。"""
         try:
             item = self._zot.item(item_key)
             item["data"]["collections"] = sorted({str(key) for key in collection_keys if key})
@@ -421,7 +417,7 @@ class ZoteroWriter:
             raise _friendly_api_error(e) from e
 
     def delete_collection(self, key: str) -> None:
-        """Permanently delete a collection (nested collections are removed too)."""
+        """永久删除集合（其中的嵌套集合也会被删除）。"""
         try:
             coll = self._zot.collection(key)
             self._zot.delete_collection(coll)
@@ -433,7 +429,7 @@ class ZoteroWriter:
             raise _friendly_api_error(e) from e
 
     def rename_collection(self, key: str, new_name: str) -> None:
-        """Rename a collection, preserving its parent and other fields."""
+        """重命名集合，保留其父集合和其他字段。"""
         try:
             coll = self._zot.collection(key)
             coll["data"]["name"] = new_name

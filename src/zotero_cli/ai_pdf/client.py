@@ -1,4 +1,4 @@
-"""MinerU cloud client: upload, poll, download, and archive parsing."""
+"""MinerU 云端客户端：上传、轮询、下载与归档解析。"""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ class _RemoteParse:
 
 
 class MinerUClient:
-    """Minimal client for the official MinerU v4 upload, poll, and download flow."""
+    """官方 MinerU v4 上传、轮询、下载流程的最小客户端。"""
 
     _RATE_LIMIT = 50
     _RATE_WINDOW = 60.0
@@ -160,10 +160,9 @@ class MinerUClient:
         file_entries: list[dict[str, str]] = [{"name": name, "data_id": data_id} for _path, name, data_id in files]
         payload: dict[str, Any] = {"files": file_entries, "model_version": self.model_version}
         self._rate_limiter.acquire()
-        # Batch creation is not idempotent: retrying after a lost response would
-        # create a second server-side batch and duplicate MinerU work. Let
-        # transient errors fail this batch; the per-file upload PUTs below are
-        # idempotent and are retried.
+        # 创建批次不是幂等操作：响应丢失后重试会在服务端再建一个批次，
+        # 重复 MinerU 的工作。让瞬时错误使本批次失败；下面的逐文件上传
+        # PUT 是幂等的，会进行重试。
         response = self._session.post(
             f"{self.api_base}/file-urls/batch", json=payload, headers=self._headers, timeout=30
         )
@@ -232,19 +231,19 @@ class MinerUClient:
         for _redirect in range(31):
             trusted = _url_origin(zip_url) == _url_origin(self.api_base)
             headers: dict[str, str | None] = {"Authorization": self._headers["Authorization"] if trusted else None}
-            # None removes inherited session headers; explicit auth bypasses
-            # session/netrc/URL credentials, including on presigned downloads.
+            # None 会移除继承的 session 头；显式 auth 绕过 session/netrc/URL
+            # 凭证，包括预签名下载场景。
             response = _retry(
                 lambda: self._session.get(
                     zip_url,
-                    headers=headers,  # type: ignore[arg-type]  # None removes inherited headers
+                    headers=headers,  # type: ignore[arg-type]  # None 会移除继承的请求头
                     auth=lambda request: request,
                     timeout=300,
                     allow_redirects=False,
                 )
             )
-            # requests preserves auth on some cross-origin redirects (notably
-            # http -> https), so recheck the origin before every actual GET.
+            # requests 在某些跨源重定向时会保留 auth（尤其是 http -> https），
+            # 因此每次实际 GET 前都要重新核对源。
             if response.status_code in {301, 302, 303, 307, 308} and response.headers.get("Location"):
                 zip_url = urljoin(zip_url, response.headers["Location"])
                 response.close()
@@ -256,13 +255,13 @@ class MinerUClient:
             try:
                 return _read_limited_body(response)
             except _RETRYABLE_EXCEPTIONS:
-                # A connection can drop while streaming a large body, after the
-                # request-level retry above has already succeeded. Downloads are
-                # idempotent, so re-issue exactly one fresh GET and use its body.
+                # 在流式读取大体积响应时连接可能中断，而这发生在上面请求级
+                # 重试已经成功之后。下载是幂等的，因此重新发起恰好一次 GET
+                # 并使用其响应体。
                 retried = _retry(
                     lambda: self._session.get(
                         zip_url,
-                        headers=headers,  # type: ignore[arg-type]  # None removes inherited headers
+                        headers=headers,  # type: ignore[arg-type]  # None 会移除继承的请求头
                         auth=lambda request: request,
                         timeout=300,
                         allow_redirects=False,
@@ -277,7 +276,7 @@ class MinerUClient:
 
 
 def _format_byte_limit(limit: int) -> str:
-    """Format a byte cap precisely (e.g. 100 B, 1.5 KB, 200 MB, 1 GB)."""
+    """精确格式化字节上限（例如 100 B、1.5 KB、200 MB、1 GB）。"""
     for unit, size in (("GB", 1024**3), ("MB", 1024**2), ("KB", 1024)):
         if limit >= size:
             amount = limit / size
@@ -291,7 +290,7 @@ def _error_text(response: Any) -> str:
 
 
 def _read_limited_body(response: Any) -> bytes:
-    """Read a download body without buffering more than the archive cap."""
+    """读取下载响应体，缓冲量不超过归档上限。"""
     headers = getattr(response, "headers", None) or {}
     header_length = headers.get("Content-Length")
     if header_length is not None:
@@ -424,11 +423,10 @@ def _safe_extract_zip(archive: zipfile.ZipFile, output_dir: Path) -> None:
 
 
 class _RateLimiter:
-    """Sliding-window limiter scoped to this process/instance only.
+    """仅作用于本进程/本实例的滑动窗口限流器。
 
-    Cross-process MinerU request limiting is not attempted here: concurrent CLI
-    invocations each keep their own window, and the parse-cache lock prevents
-    duplicated work for the same PDF.
+    此处不做跨进程的 MinerU 请求限流：并发的 CLI 调用各自维护窗口，
+    而解析缓存锁可防止同一 PDF 的重复工作。
     """
 
     def __init__(self, limit: int, window: float) -> None:

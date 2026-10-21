@@ -1,4 +1,4 @@
-"""Local Qdrant vector store keyed by chunk id."""
+"""以 chunk id 为键的本地 Qdrant 向量 store。"""
 
 from __future__ import annotations
 
@@ -23,20 +23,20 @@ except ImportError:  # pragma: no cover - Windows
 _LOCK_SUFFIX = ".prune.lock"
 _LOCK_TIMEOUT = 5.0
 
-# Ownership marker written by this CLI when it opens/creates a local store.
+# 本 CLI 在打开/创建本地 store 时写入的所有权标记。
 MANAGED_STORE_MARKER = ".zot-vector-store"
 _STORE_MARKER_VERSION = 1
-# Entries a local-mode Qdrant store (plus our marker) owns. Anything else is
-# user data and disqualifies the directory from deletion.
+# 本地模式 Qdrant store（加上我们的标记）拥有的条目。其余任何内容都是用户数据，
+# 会使该目录无法被删除。
 _QDRANT_STORE_ENTRIES = frozenset({"meta.json", "collection", ".lock", "raft_state.json"})
 _MANAGED_ENTRIES = _QDRANT_STORE_ENTRIES | {MANAGED_STORE_MARKER}
 
 
 def resolve_vector_store_path(cfg: VectorStoreConfig) -> Path:
-    """Resolve the configured vector-store directory relative to the state data root.
+    """相对于状态数据根目录解析配置的向量 store 目录。
 
-    In a checkout this is the repository root (unchanged); for an installed CLI
-    it is the deterministic state root instead of the current directory.
+    在源码检出中即为仓库根目录（保持原样）；对于已安装的 CLI，则是确定性的状态根目录，
+    而不再是当前目录。
     """
     path = Path(cfg.path)
     return path if path.is_absolute() else data_root() / path
@@ -61,12 +61,10 @@ def _lock_path(store_path: Path) -> Path:
 
 @contextmanager
 def store_lock(store_path: Path, *, timeout: float = _LOCK_TIMEOUT) -> Iterator[bool]:
-    """Best-effort advisory lock guarding store creation, pruning, and collection drops.
+    """保护 store 创建、清理与 collection 删除的尽力而为的咨询锁。
 
-    The lock file lives next to the store (inside the workspace root) so that a
-    store deletion does not invalidate the lock file itself. Yields True when the
-    lock was acquired, False when it could not be acquired within timeout (or the
-    platform has no advisory locking).
+    锁文件位于 store 旁边（workspace 根目录内），这样删除 store 不会使锁文件本身失效。
+    获取到锁时产出 True；在超时内未能获取（或平台不支持咨询锁）时产出 False。
     """
     lock_path = _lock_path(store_path)
     try:
@@ -104,11 +102,10 @@ def store_lock(store_path: Path, *, timeout: float = _LOCK_TIMEOUT) -> Iterator[
 
 
 def _inspect_store_dir(store_path: Path) -> tuple[bool, set[str]]:
-    """Inspect a store directory without creating or opening anything.
+    """在不创建或打开任何内容的情况下检查 store 目录。
 
-    Returns (looks_like_managed_store, foreign_entries). A directory only counts
-    as a store when it carries our ownership marker or Qdrant's meta.json; every
-    entry outside the known Qdrant/CLI set is reported as foreign user data.
+    返回 (looks_like_managed_store, foreign_entries)。只有带有我们的所有权标记或 Qdrant 的
+    meta.json 的目录才算 store；已知 Qdrant/CLI 集合之外的条目都会作为外部用户数据报告。
     """
     if not store_path.is_dir() or store_path.is_symlink():
         return False, set()
@@ -122,10 +119,9 @@ def _inspect_store_dir(store_path: Path) -> tuple[bool, set[str]]:
 
 
 def is_local_vector_store(store_path: Path) -> bool:
-    """Return True for a local Qdrant store this CLI may manage.
+    """当这是本 CLI 可以管理的本地 Qdrant store 时返回 True。
 
-    Never creates or opens the store; arbitrary directories (including empty ones
-    and directories containing user files) return False.
+    绝不创建或打开 store；任意目录（包括空目录和包含用户文件的目录）都返回 False。
     """
     looks_like_store, foreign = _inspect_store_dir(store_path)
     return looks_like_store and not foreign
@@ -138,16 +134,15 @@ def _write_store_marker(store_path: Path) -> None:
     try:
         marker.write_text(json.dumps({"version": _STORE_MARKER_VERSION}), encoding="utf-8")
     except OSError:
-        # Non-fatal: Qdrant's own meta.json still identifies the store.
+        # 非致命：Qdrant 自身的 meta.json 仍能标识该 store。
         pass
 
 
 def drop_collection(store_path: Path, collection: str, *, prune_empty: bool = False) -> bool:
-    """Delete one collection from an existing local store without creating it.
+    """从已有的本地 store 删除一个 collection，且不创建 store。
 
-    Refuses arbitrary directories: the path must be a managed local Qdrant store
-    with no foreign entries, and it is never created. Returns True when the
-    collection (or, with `prune_empty`, the now-empty store) was removed.
+    拒绝任意目录：路径必须是受管理的本地 Qdrant store 且没有外部条目，并且绝不创建它。
+    当 collection（或在 `prune_empty` 下已清空的 store）被删除时返回 True。
     """
     name = _validated_collection_name(collection)
     looks_like_store, foreign = _inspect_store_dir(store_path)
@@ -188,13 +183,11 @@ def _store_has_collections(store_path: Path) -> bool | None:
 
 
 def prune_empty_store(store_path: Path) -> bool:
-    """Remove a managed, empty local store directory.
+    """删除受管理的空本地 store 目录。
 
-    Safety rules: never creates the store, never opens a non-Qdrant directory,
-    refuses directories with foreign user data, and re-checks after closing the
-    client so a concurrent writer cannot lose files. The empty check and rmtree
-    happen under the same advisory lock used by store creation/writes, so a
-    concurrent workspace cannot have its fresh collection removed.
+    安全规则：绝不创建 store，绝不打开非 Qdrant 目录，拒绝含有外部用户数据的目录，
+    并在关闭 client 后重新检查，使并发写入方不会丢失文件。空目录检查与 rmtree 在同一把
+    咨询锁下执行，该锁也用于 store 创建与写入，因此并发 workspace 的新建 collection 不会被删除。
     """
     looks_like_store, foreign = _inspect_store_dir(store_path)
     if not looks_like_store or foreign:
@@ -219,11 +212,10 @@ def prune_empty_store(store_path: Path) -> bool:
 
 
 class QdrantVectorStore:
-    """Local Qdrant-backed vector store (no server or account required).
+    """基于 Qdrant 的本地向量 store（无需服务器或账户）。
 
-    Each workspace owns one collection inside a shared local directory, so a
-    single .workspace/_qdrant directory can host many workspaces without
-    cross-contamination.
+    每个 workspace 在共享的本地目录中拥有一个 collection，因此单个 .workspace/_qdrant 目录
+    可以承载多个 workspace 而不会相互污染。
     """
 
     def __init__(self, path: Path, collection: str) -> None:
@@ -303,7 +295,7 @@ class QdrantVectorStore:
             self._client.delete_collection(self._collection)
 
     def drop_collection(self, collection_name: str) -> bool:
-        """Delete another named collection in this local store; return True if it existed."""
+        """删除此本地 store 中另一个指定名称的 collection；若其存在则返回 True。"""
         name = _validated_collection_name(collection_name)
         removed = bool(self._client.collection_exists(name))
         if removed:

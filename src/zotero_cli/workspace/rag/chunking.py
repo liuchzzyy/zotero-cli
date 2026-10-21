@@ -1,4 +1,4 @@
-"""Text chunking for RAG: section-aware plain text and MinerU structured blocks."""
+"""RAG 的文本切分：按章节感知的纯文本与 MinerU 结构化块。"""
 
 from __future__ import annotations
 
@@ -57,8 +57,8 @@ def _chunk_by_sentence(text: str, max_chars: int, overlap: int) -> list[str]:
     current: list[str] = []
     current_len = 0
     for sent in sentences:
-        # re.split() yields a trailing empty piece for text that ends with
-        # full-width punctuation; it must never become an empty chunk.
+        # 对以全角标点结尾的文本，re.split() 会产生一个结尾空片段；
+        # 它绝不能变成空 chunk。
         if not sent:
             continue
         sent_len = len(sent)
@@ -88,11 +88,10 @@ def _validate_chunk_parameters(max_chars: int, overlap: int) -> None:
 
 
 def cascade_chunk(text: str, max_chars: int, overlap: int) -> list[str]:
-    """Split text with the sentence -> word -> character cascade.
+    """按句子 -> 词 -> 字符的层级依次切分文本。
 
-    `overlap` applies only to the character-level fallback used for tokens that
-    are longer than `max_chars`; sentence- and word-aligned chunks are
-    contiguous and do not overlap. Empty chunks are never returned.
+    `overlap` 仅作用于长度超过 `max_chars` 的 token 所使用的字符级回退切分；按句子和按词对齐的
+    chunk 彼此连续且不重叠。绝不返回空 chunk。
     """
     _validate_chunk_parameters(max_chars, overlap)
     if not text:
@@ -143,10 +142,9 @@ def _split_supplementary_sections(heading: str, section_text: str) -> list[tuple
 
 
 def chunk_text(text: str, paper_title: str, max_tokens: int = 500, overlap: int = 50) -> list[str]:
-    """Chunk text with a positive token budget and a character-count overlap.
+    """以正的 token 预算和按字符数计算的重叠量切分文本。
 
-    Overlap applies only to character-level fallback splits of over-long unbroken
-    tokens; section, paragraph, and sentence aligned chunks stay contiguous.
+    重叠仅作用于过长且无法断开 token 的字符级回退切分；按章节、段落和句子对齐的 chunk 保持连续。
     """
     if type(max_tokens) is not int or max_tokens <= 0:
         raise ValueError("max_tokens must be a positive integer")
@@ -194,7 +192,7 @@ def chunk_text(text: str, paper_title: str, max_tokens: int = 500, overlap: int 
 
 @dataclass(frozen=True)
 class MinerUStructuredChunk:
-    """Searchable text derived from one or more MinerU structured blocks."""
+    """由一个或多个 MinerU 结构化块得到的可搜索文本。"""
 
     content: str
     page: int | None
@@ -208,7 +206,7 @@ def chunk_mineru_content(
     max_tokens: int = 500,
     overlap: int = 50,
 ) -> list[MinerUStructuredChunk]:
-    """Build RAG chunks from MinerU JSON, preserving section, page, and block type."""
+    """从 MinerU JSON 构建 RAG chunk，并保留章节、页码和块类型。"""
     if type(max_tokens) is not int or max_tokens <= 0:
         raise ValueError("max_tokens must be a positive integer")
     max_chars = max_tokens * 4

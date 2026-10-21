@@ -1,4 +1,4 @@
-"""Reciprocal rank fusion for hybrid RAG retrieval."""
+"""用于混合 RAG 检索的倒数排名融合。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from collections.abc import Sequence
 
 
 def reciprocal_rank_fusion(*rankings: list[tuple[int, float, dict]], k: int = 60) -> list[tuple[int, float, dict]]:
-    """Fuse rankings with equal weights."""
+    """以相同权重融合多个排名。"""
     return weighted_reciprocal_rank_fusion(rankings, weights=None, k=k)
 
 
@@ -17,11 +17,10 @@ def weighted_reciprocal_rank_fusion(
     weights: Sequence[float] | None = None,
     k: int = 60,
 ) -> list[tuple[int, float, dict]]:
-    """Fuse rankings into one descending score list with weighted reciprocal rank fusion.
+    """使用加权倒数排名融合将多个排名合并为一个降序分数列表。
 
-    `k` must be a positive integer and `weights` (when given) must have exactly
-    one finite non-negative entry per ranking; anything else is a caller error
-    rather than silently dropping rankings.
+    `k` 必须为正整数；`weights`（若提供）必须为每个排名恰好提供一个有限非负值；
+    其他情况视为调用方错误，而不是静默丢弃排名。
     """
     if type(k) is not int or k <= 0:
         raise ValueError("k must be a positive integer")

@@ -1,4 +1,4 @@
-"""Configuration: paths, typed settings models, loaders, and Zotero resolution."""
+"""配置：路径、类型化设置模型、加载器以及 Zotero 解析。"""
 
 from __future__ import annotations
 

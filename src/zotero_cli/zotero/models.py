@@ -65,8 +65,8 @@ class SearchResult:
     items: list[Item]
     total: int
     query: str
-    # True when a bounded full-text scan could not cover every indexed
-    # attachment (legacy/v130); metadata search is always complete.
+    # 当有界的全文扫描无法覆盖每个已索引附件时为 True
+    # （旧版/v130）；元数据搜索始终是完整的。
     fulltext_limited: bool = False
 
 
@@ -74,4 +74,4 @@ class SearchResult:
 class DuplicateGroup:
     items: list[Item]
     match_type: str  # "doi" | "title"
-    score: float  # 1.0 for DOI exact match, 0.0-1.0 for title similarity
+    score: float  # DOI 完全匹配为 1.0，标题相似度为 0.0-1.0

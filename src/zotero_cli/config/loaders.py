@@ -1,10 +1,9 @@
-"""Load config.toml sections, validate them, and write merged config files.
+"""加载并校验 config.toml 各分节，并写入合并后的配置文件。
 
-Saving is merge-preserving: sections the caller does not touch (profiles,
-ai_notes, pdf, embedding, rerank, semantic_search, ...) are round-tripped
-verbatim. Writes are atomic (temp file + fsync + os.replace), keep a `.bak`
-copy of the previous file, and use 0600 file / 0700 directory permissions
-because the file may hold API keys.
+保存采用保持合并的方式：调用方未触及的分节（profiles、ai_notes、pdf、
+embedding、rerank、semantic_search 等）会原样往返保留。写入是原子的
+（临时文件 + fsync + os.replace），保留上一文件的 `.bak` 副本，并使用
+0600 文件权限 / 0700 目录权限，因为文件中可能含有 API 密钥。
 """
 
 from __future__ import annotations
@@ -37,11 +36,11 @@ _BARE_TOML_KEY = re.compile(r"^[A-Za-z0-9_-]+$")
 _BACKUP_SUFFIX = ".bak"
 
 
-# --- reading -----------------------------------------------------------------
+# --- 读取 --------------------------------------------------------------------
 
 
 def read_config_data(path: Path | None = None) -> dict[str, Any]:
-    """Load raw TOML data; missing files yield {}, malformed files raise ConfigError."""
+    """加载原始 TOML 数据；文件缺失返回 {}，格式错误则抛出 ConfigError。"""
     resolved = path or paths.config_file_path()
     if not resolved.exists():
         return {}
@@ -60,7 +59,7 @@ def read_config_data(path: Path | None = None) -> dict[str, Any]:
 
 
 def resolve_config_path(explicit: str | Path | None = None, *, must_exist: bool = False) -> Path:
-    """Resolve an explicit --config-path (typed error when missing) or the repo default."""
+    """解析显式的 --config-path（缺失时抛出类型化错误）或仓库默认路径。"""
     if explicit is None or str(explicit) == "":
         return paths.config_file_path()
     resolved = Path(explicit).expanduser()
@@ -69,7 +68,7 @@ def resolve_config_path(explicit: str | Path | None = None, *, must_exist: bool 
     return resolved
 
 
-# --- value validation --------------------------------------------------------
+# --- 取值校验 -----------------------------------------------------------------
 
 
 def _require_table(data: dict[str, Any], key: str) -> dict[str, Any]:
@@ -125,11 +124,10 @@ def _env_value(name: str) -> Any:
 
 
 def _section_for_profile(data: dict[str, Any], section: str, profile: str | None) -> dict[str, Any]:
-    """Return a config section, overlaying [profile.<name>.<section>] when requested.
+    """返回配置分节；被请求时叠加 [profile.<name>.<section>] 的值。
 
-    Without an explicit profile only the top-level section is used (historical
-    behavior). With a profile, keys from the profile-scoped section win and
-    missing keys fall back to the top-level section.
+    未指定 profile 时只使用顶层分节（历史行为）。指定 profile 后，
+    profile 作用域分节中的键优先，缺失的键回退到顶层分节。
     """
     top_value = data.get(section, {})
     if not isinstance(top_value, dict):
@@ -151,11 +149,11 @@ def _section_for_profile(data: dict[str, Any], section: str, profile: str | None
     return {**top, **nested_value}
 
 
-# --- section loaders ---------------------------------------------------------
+# --- 分节加载器 ---------------------------------------------------------------
 
 
 def _normalize_profile(value: str | None) -> str | None:
-    """Strip a profile name; blank names mean "unset"."""
+    """去除 profile 名称的首尾空白；空白名称表示“未设置”。"""
     if value is None:
         return None
     return value.strip() or None
@@ -164,12 +162,11 @@ def _normalize_profile(value: str | None) -> str | None:
 def resolve_active_profile(
     profiles: dict[str, Any], default_profile: str | None, *, explicit: str | None = None
 ) -> str | None:
-    """Resolve the active profile name, failing closed on invalid configuration.
+    """解析当前生效的 profile 名称，配置无效时采取失败关闭策略。
 
-    A config that defines [profile.*] tables must name one of them in
-    [default].profile (or receive an explicit --profile); it never silently falls
-    back to the legacy flat [zotero] section, which could point at a different
-    library or credentials.
+    定义了 [profile.*] 表的配置必须在 [default].profile 中指定其中之一
+    （或接收显式 --profile）；它绝不会静默回退到旧的扁平 [zotero] 分节，
+    因为那可能指向另一个文库或凭据。
     """
     explicit_name = _normalize_profile(explicit)
     default_name = _normalize_profile(default_profile)
@@ -395,7 +392,7 @@ def load_semantic_search_config(path: Path | None = None, *, profile: str | None
 
 
 def _split_models(value: Any) -> list[str] | None:
-    """Accept a TOML array, or a comma-separated string from a shell variable."""
+    """接受 TOML 数组，或来自 shell 变量的逗号分隔字符串。"""
     if isinstance(value, str):
         value = value.split(",")
     if not isinstance(value, list):
@@ -404,11 +401,11 @@ def _split_models(value: Any) -> list[str] | None:
 
 
 def load_ai_note_config(path: Path | None = None, *, apply_env_overrides: bool = True) -> AiNoteConfig:
-    """Load `[ai_notes]`, then layer `ZOT_AI_*` overrides on top.
+    """加载 `[ai_notes]`，再在其上叠加 `ZOT_AI_*` 覆盖项。
 
-    Precedence is env > config file > defaults, matching the other loaders, so
-    a run can point `ai-note` at another endpoint or model without editing
-    the tracked `.zot/config.toml`.
+    优先级为环境变量 > 配置文件 > 默认值，与其他加载器一致，因此一次运行
+    可以在不修改受版本管理的 `.zot/config.toml` 的情况下，将 `ai-note`
+    指向其他端点或模型。
     """
     config = AiNoteConfig()
     data = read_config_data(path)
@@ -460,7 +457,7 @@ def load_ai_note_config(path: Path | None = None, *, apply_env_overrides: bool =
 
 
 def list_profiles(path: Path | None = None) -> list[str]:
-    """List all profile names from config."""
+    """列出配置中的所有 profile 名称。"""
     data = read_config_data(path)
     profiles = data.get("profile", {})
     if not isinstance(profiles, dict):
@@ -469,7 +466,7 @@ def list_profiles(path: Path | None = None) -> list[str]:
 
 
 def get_default_profile(path: Path | None = None) -> str:
-    """Get the active/default profile name from config (blank when unset)."""
+    """从配置中获取当前生效/默认的 profile 名称（未设置时为空）。"""
     data = read_config_data(path)
     default = data.get("default", {})
     if not isinstance(default, dict):
@@ -477,7 +474,7 @@ def get_default_profile(path: Path | None = None) -> str:
     return _parse_string(default.get("profile"), "[default] profile", "").strip()
 
 
-# --- merge-preserving save ---------------------------------------------------
+# --- 保持合并的保存 -----------------------------------------------------------
 
 
 def merge_config_data(
@@ -487,12 +484,11 @@ def merge_config_data(
     profile: str | None = None,
     allow_new_profile: bool = False,
 ) -> tuple[dict[str, Any], list[str]]:
-    """Merge AppConfig values into raw TOML data, preserving every other key.
+    """将 AppConfig 的值合并进原始 TOML 数据，保留其他所有键。
 
-    Returns the merged data and the dotted keys that were written. Existing
-    non-empty strings are never overwritten with an empty value and scalar
-    defaults never clobber user-set values, so credentials and unrelated
-    sections survive config-init reruns on profile-based configs.
+    返回合并后的数据以及被写入的点分键。已有的非空字符串绝不会被空值
+    覆盖，标量默认值也绝不覆盖用户设置的值，因此凭据和无关分节在基于
+    profile 的配置上反复运行 config-init 时都能保留。
     """
     profile = _normalize_profile(profile)
     data = copy.deepcopy(existing) if existing else {}
@@ -516,8 +512,8 @@ def merge_config_data(
         data["profile"] = profiles
     if profile is not None:
         current_default = _normalize_profile(default_profile)
-        # Point [default].profile at the explicit profile when it is unset or names a
-        # profile that no longer exists, so an init can repair a broken default.
+        # 当 [default].profile 未设置或指向已不存在的 profile 时，将其指向
+        # 显式指定的 profile，以便 init 能修复损坏的默认值。
         if current_default is None or current_default not in profiles:
             default_table["profile"] = profile
             data["default"] = default_table
@@ -666,7 +662,7 @@ def _record_scalar(
         changed.append(dotted)
 
 
-# --- writing -----------------------------------------------------------------
+# --- 写入 --------------------------------------------------------------------
 
 
 def _toml_key(key: str) -> str:
@@ -674,7 +670,7 @@ def _toml_key(key: str) -> str:
 
 
 def _toml_datetime(value: datetime.datetime | datetime.date | datetime.time) -> str:
-    # timespec="microseconds" always includes the seconds component TOML requires.
+    # timespec="microseconds" 始终包含 TOML 所需的秒分量。
     if isinstance(value, (datetime.datetime, datetime.time)):
         return value.isoformat(timespec="microseconds")
     return value.isoformat()
@@ -692,8 +688,8 @@ def _toml_value(value: Any, *, path: str) -> str:
             return "inf" if value > 0 else "-inf"
         return repr(value)
     if isinstance(value, str):
-        # JSON string literals are valid TOML basic strings and escape quotes,
-        # backslashes, control characters and Unicode correctly.
+        # JSON 字符串字面量是合法的 TOML 基础字符串，能正确转义引号、
+        # 反斜杠、控制字符和 Unicode。
         return json.dumps(value, ensure_ascii=False)
     if isinstance(value, (datetime.datetime, datetime.date, datetime.time)):
         return _toml_datetime(value)
@@ -752,11 +748,11 @@ def _fsync_directory(directory: Path) -> None:
 
 
 def _prepare_config_directory(directory: Path) -> None:
-    """Create missing config directories with 0700 permissions.
+    """以 0700 权限创建缺失的配置目录。
 
-    Only directories created by this call are chmod-ed. A pre-existing parent
-    (for example a foreign or sticky /tmp) is left exactly as it is: chmod on a
-    directory the process does not own must never make a config save fail.
+    只有本次调用创建的目录才会被 chmod。已存在的父目录（例如外来的或
+    带粘滞位的 /tmp）保持原样：对进程并不拥有的目录执行 chmod 绝不能
+    导致配置保存失败。
     """
     if directory.exists():
         return
@@ -778,22 +774,22 @@ def _prepare_config_directory(directory: Path) -> None:
         try:
             candidate.chmod(0o700)
         except OSError:
-            # The directory exists now; a failed chmod (umask/ACL quirk) must not
-            # turn a successful config save into an error.
+            # 目录现已存在；chmod 失败（umask/ACL 差异）不能把
+            # 成功的配置保存变成错误。
             pass
 
 
 def _config_write_target(path: Path) -> Path:
-    """Follow a symlinked config path so a save updates the target, not the link."""
+    """跟随符号链接的配置路径，使保存更新目标文件而非链接本身。"""
     return path.resolve() if path.is_symlink() else path
 
 
 def write_config_data(path: Path, data: dict[str, Any]) -> Path | None:
-    """Write TOML data atomically with a .bak backup and restrictive permissions.
+    """以原子方式写入 TOML 数据，并生成 .bak 备份与严格权限。
 
-    Symlinked config paths write through to their target. Returns the .bak path
-    created by this write, or None when the file already had identical content
-    (no-op saves never rewrite the file or churn the backup).
+    符号链接的配置路径会写入其目标文件。返回本次写入创建的 .bak 路径；
+    若文件内容已完全相同则返回 None（空操作保存不会重写文件或反复
+    生成备份）。
     """
     target = _config_write_target(path)
     text = _dump_toml(data)
@@ -854,7 +850,7 @@ def save_config(
     profile: str | None = None,
     allow_new_profile: bool = False,
 ) -> Path:
-    """Persist AppConfig values without dropping unrelated sections or profiles."""
+    """持久化 AppConfig 的值，同时不丢弃无关分节或 profile。"""
     profile = profile or None
     resolved = path or paths.config_file_path()
     existing = read_config_data(resolved) if resolved.exists() else {}

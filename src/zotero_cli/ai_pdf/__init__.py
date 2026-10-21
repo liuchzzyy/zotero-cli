@@ -1,8 +1,8 @@
-"""MinerU-only cloud parsing and the canonical shared parse package cache.
+"""仅使用 MinerU 的云端解析，以及规范的共享解析包缓存。
 
-This module is the stable public facade for `zotero_cli.ai_pdf`; the
-implementations live in `client` (HTTP upload/poll/download flow), `cache`
-(content-addressed parse packages), `models`, and `utils`.
+本模块是 `zotero_cli.ai_pdf` 的稳定公开门面；具体实现位于
+`client`（HTTP 上传/轮询/下载流程）、`cache`（内容寻址解析包）、
+`models` 与 `utils`。
 """
 
 from __future__ import annotations

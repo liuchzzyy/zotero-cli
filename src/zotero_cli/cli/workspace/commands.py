@@ -1,4 +1,4 @@
-"""Workspace browsing, mutation, import, and search commands."""
+"""workspace 的浏览、修改、导入与搜索命令。"""
 
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ def _open_reader(ctx: click.Context) -> ZoteroReader:
 
 
 def _resolve_collection_key(reader: ZoteroReader, name_or_key: str) -> str | None:
-    """Resolve a collection name or key to a collection key."""
+    """将 collection 名称或 key 解析为 collection key。"""
     collections = reader.get_collections()
 
     def _search(colls: list[Collection]) -> str | None:
@@ -66,7 +66,7 @@ def _resolve_collection_key(reader: ZoteroReader, name_or_key: str) -> str | Non
 
 
 def workspace_new(ctx: click.Context, name: str, description: str, dry_run: bool) -> None:
-    """Create a new workspace."""
+    """创建新的 workspace。"""
     json_out = output_json(ctx)
     if not validate_name(name):
         emit_error(
@@ -99,7 +99,7 @@ def workspace_new(ctx: click.Context, name: str, description: str, dry_run: bool
 
 
 def workspace_delete(ctx: click.Context, name: str, yes: bool, dry_run: bool) -> None:
-    """Delete a workspace."""
+    """删除 workspace。"""
     json_out = output_json(ctx)
     workspace_directory_or_exit(ctx, name, context="workspace delete")
     try:
@@ -140,7 +140,7 @@ def workspace_delete(ctx: click.Context, name: str, yes: bool, dry_run: bool) ->
 
 
 def workspace_add(ctx: click.Context, name: str, keys: tuple[str, ...], dry_run: bool) -> None:
-    """Add items to a workspace by Zotero key."""
+    """按 Zotero key 将条目添加到 workspace。"""
     workspace = load_workspace_or_exit(ctx, name, context="workspace add", hint=_ADD_HINT)
     reader = _open_reader(ctx)
     added: list[str] = []
@@ -184,7 +184,7 @@ def workspace_add(ctx: click.Context, name: str, keys: tuple[str, ...], dry_run:
 
 
 def workspace_remove(ctx: click.Context, name: str, keys: tuple[str, ...], dry_run: bool) -> None:
-    """Remove items from a workspace by key."""
+    """按键从 workspace 中移除条目。"""
     workspace = load_workspace_or_exit(ctx, name, context="workspace remove")
     removed: list[str] = []
     not_present: list[str] = []
@@ -223,7 +223,7 @@ def workspace_remove(ctx: click.Context, name: str, keys: tuple[str, ...], dry_r
 
 
 def workspace_list(ctx: click.Context) -> None:
-    """List all workspaces."""
+    """列出所有 workspace。"""
     workspaces = list_workspaces()
     if not workspaces:
         emit_result(
@@ -237,7 +237,7 @@ def workspace_list(ctx: click.Context) -> None:
 
 
 def workspace_show(ctx: click.Context, name: str) -> None:
-    """Show items in a workspace."""
+    """显示 workspace 中的条目。"""
     json_out = output_json(ctx)
     detail = ctx.obj.get("detail", "standard")
     limit = ctx.obj.get("limit", 50)
@@ -292,7 +292,7 @@ def _markdown_export(name: str, workspace: Workspace, items: list[Item]) -> str:
 
 
 def workspace_export(ctx: click.Context, name: str, fmt: str) -> None:
-    """Export workspace items for external use."""
+    """导出 workspace 条目以供外部使用。"""
     json_out = output_json(ctx)
     workspace = load_workspace_or_exit(ctx, name, context="workspace export")
     if not workspace.items:
@@ -360,7 +360,7 @@ def workspace_import_cmd(
     search_query: str | None,
     dry_run: bool,
 ) -> None:
-    """Bulk import items into a workspace from collection, tag, or search."""
+    """从 collection、tag 或搜索结果批量导入条目到 workspace。"""
     json_out = output_json(ctx)
     workspace = load_workspace_or_exit(ctx, name, context="workspace import", hint=_ADD_HINT)
     if not collection and not tag and not search_query:
@@ -439,7 +439,7 @@ def workspace_import_cmd(
 
 
 def workspace_search(ctx: click.Context, query: str, ws_name: str) -> None:
-    """Search items within a workspace by title, author, or abstract."""
+    """在 workspace 内按标题、作者或摘要搜索条目。"""
     json_out = output_json(ctx)
     detail = ctx.obj.get("detail", "standard")
     limit = ctx.obj.get("limit", 50)

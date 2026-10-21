@@ -1,18 +1,16 @@
-"""Flatten AI-note prose for Zotero.
+"""为 Zotero 展平 AI note 正文。
 
-Two normalisations, applied in this order:
+两种规范化，按此顺序应用：
 
-1. No super/subscripts. Unicode superscripts survive into the note only as
-   typography and mangle the reading flow, so they are written out. A negative
-   exponent keeps a caret (``g⁻¹`` → ``g^-1``) because ``g-1`` would read as a
-   subtraction; subscripts and charge signs are simply flattened (``MnO₂`` →
-   ``MnO2``, ``Zn²⁺`` → ``Zn2+``).
-2. A half-width space between CJK and Latin. MinerU output and the model glue
-   Chinese to English terms and numbers ("层状δ-MnO2"), which reads as a typo in
-   Zotero's proportional font.
+1. 不使用上下标。Unicode 上下标进入笔记后只是排版符号，反而破坏阅读流，
+   因此一律写成普通字符。负指数保留脱字符（``g⁻¹`` → ``g^-1``），否则
+   ``g-1`` 会被读作减法；下标与电荷符号直接展平（``MnO₂`` → ``MnO2``，
+   ``Zn²⁺`` → ``Zn2+``）。
+2. 中英文之间使用半角空格。MinerU 输出与模型常把中文与英文术语和数字粘连
+   （"层状δ-MnO2"），在 Zotero 的比例字体中看起来像错别字。
 
-Prompts ask for both; the renderer enforces them because an instruction alone is
-only probabilistic. Both steps are idempotent.
+prompt 会同时要求这两点；renderer 仍强制执行，因为指令本身只有概率性效果。
+两个步骤都是幂等的。
 """
 
 from __future__ import annotations
@@ -72,36 +70,35 @@ _SUBSCRIPT = {
 _SCRIPT_RUN = re.compile(f"[{''.join(_SUPERSCRIPT)}]+|[{''.join(_SUBSCRIPT)}]+")
 
 _CJK = (
-    "\u3040-\u30ff"  # Hiragana, Katakana
-    "\u3400-\u4dbf"  # CJK Ext. A
-    "\u4e00-\u9fff"  # CJK Unified Ideographs
-    "\uac00-\ud7af"  # Hangul syllables
-    "\uf900-\ufaff"  # CJK Compatibility Ideographs
+    "\u3040-\u30ff"  # 平假名、片假名
+    "\u3400-\u4dbf"  # CJK 扩展 A
+    "\u4e00-\u9fff"  # CJK 统一表意文字
+    "\uac00-\ud7af"  # 谚文音节
+    "\uf900-\ufaff"  # CJK 兼容表意文字
 )
 
 _LATIN = (
     "0-9A-Za-z"
-    "\u0370-\u03ff"  # Greek: δ-MnO2, α-MnO2
-    "\u1f00-\u1fff"  # Greek Extended
+    "\u0370-\u03ff"  # 希腊字母：δ-MnO2、α-MnO2
+    "\u1f00-\u1fff"  # 希腊字母扩展
 )
 
-# A charge sign, permille/percent or degree sign ends a Latin run, so the space
-# goes after it: "Zn2+" + "嵌入".
+# 电荷符号、千分号/百分号或度数符号结束一段拉丁字符，因此空格放在其后：
+# "Zn2+" + "嵌入"。
 _LATIN_TAIL = _LATIN + "%\u2030\u00b0+"
 
-# Zero-width matches at each boundary; re.sub drops the separator into them.
+# 在每个边界处零宽匹配；re.sub 会把分隔符填入这些位置。
 _BOUNDARY = re.compile(rf"(?<=[{_CJK}])(?=[{_LATIN}])|(?<=[{_LATIN_TAIL}])(?=[{_CJK}])")
 
 
-# Repair only a whole math span containing one digit-tokenised number. Plain
-# prose, table rows, citation lists and spans with multiple decimal points are
-# ambiguous scientific data and must remain untouched.
+# 只修复包含一个被拆散数字的完整数学片段。普通正文、表格行、引用列表以及
+# 含多个小数点的片段属于有歧义的科学数据，必须保持原样。
 _MATH_SPAN = re.compile(r"\$([^$\n]+)\$")
 _SINGLE_SPLIT_NUMBER = re.compile(r"[+-]?\d(?: *\d)*(?: *\. *\d(?: *\d)*)?")
 
 
 def join_spaced_digits(text: str) -> str:
-    """Rejoin one unambiguous math number without altering numeric sequences."""
+    """在不改动数字序列的前提下，重连一个无歧义的数学数字。"""
 
     def repair(match: re.Match[str]) -> str:
         body = match.group(1).strip()
@@ -113,7 +110,7 @@ def join_spaced_digits(text: str) -> str:
 
 
 def plain_super_subscripts(text: str) -> str:
-    """Write Unicode super/subscripts out as plain characters."""
+    """把 Unicode 上下标写成普通字符。"""
 
     def flatten(match: re.Match[str]) -> str:
         run = match.group(0)
@@ -126,10 +123,10 @@ def plain_super_subscripts(text: str) -> str:
 
 
 def pad_cjk_latin(text: str) -> str:
-    """Return ``text`` with a half-width space at every CJK/Latin boundary."""
+    """返回 ``text``，并在每个中英文边界处插入半角空格。"""
     return _BOUNDARY.sub(" ", text)
 
 
 def prepare(text: str) -> str:
-    """Flatten a note string for Zotero: no super/subscripts, CJK/Latin spaced."""
+    """为 Zotero 展平笔记字符串：去掉上下标，并在中英文之间加空格。"""
     return pad_cjk_latin(plain_super_subscripts(text))

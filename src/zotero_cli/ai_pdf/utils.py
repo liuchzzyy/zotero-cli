@@ -1,4 +1,4 @@
-"""Shared MinerU helpers: hashing, DOI extraction, path validation, and retries."""
+"""MinerU 共用辅助函数：哈希、DOI 提取、路径校验与重试。"""
 
 from __future__ import annotations
 
@@ -21,9 +21,8 @@ from requests.exceptions import (
 
 from zotero_cli.ai_pdf.models import MinerUError
 
-# Only retry errors that are plausibly transient; deterministic errors (bad
-# URLs, invalid payloads, missing files) must fail immediately instead of
-# multiplying requests or repeating non-idempotent operations.
+# 只重试明显属于瞬时的错误；确定性错误（错误 URL、非法载荷、文件缺失）
+# 必须立即失败，而不是放大请求量或重复非幂等操作。
 _RETRYABLE_EXCEPTIONS: tuple[type[BaseException], ...] = (
     RequestsConnectionError,
     Timeout,
@@ -55,7 +54,7 @@ def _validated_model_version(model_version: str) -> str:
 
 
 def _url_origin(url: str) -> tuple[str, str, int | None]:
-    # Use the URL requests will send, not urllib's different authority parsing.
+    # 使用 requests 实际发送的 URL，而非 urllib 对 authority 的不同解析结果。
     request = PreparedRequest()
     request.prepare_url(url, None)
     parsed = urlsplit(str(request.url))
@@ -69,7 +68,7 @@ def _retry(
     exceptions: tuple[type[BaseException], ...] = _RETRYABLE_EXCEPTIONS,
     attempts: int = 3,
 ) -> Any:
-    """Call `function`, retrying only transient/idempotent failures."""
+    """调用 `function`，仅重试瞬时/幂等失败。"""
     for attempt in range(attempts):
         try:
             return function()

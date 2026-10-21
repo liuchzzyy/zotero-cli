@@ -1,4 +1,4 @@
-"""Check and update publication status of preprints via Semantic Scholar."""
+"""通过 Semantic Scholar 检查并更新预印本的发表状态。"""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ _NETWORK_FAMILY_CODES = frozenset({"network_error", "rate_limited"})
 
 
 def _write_failure_exit_code(failure_codes: list[str]) -> int:
-    """Exit 5 when every write failure is network/rate, otherwise runtime (1)."""
+    """当所有写入失败都属于网络/限流时返回退出码 5，否则返回运行时错误码（1）。"""
     if failure_codes and all(code in _NETWORK_FAMILY_CODES for code in failure_codes):
         return EXIT_NETWORK
     return EXIT_RUNTIME
@@ -46,26 +46,26 @@ def update_status(
     collection: str | None,
     limit: int | None,
 ) -> None:
-    """Check if preprints (arXiv, bioRxiv, medRxiv) have been formally published.
+    """检查预印本（arXiv、bioRxiv、medRxiv）是否已正式发表。
 
-    Uses the Semantic Scholar API to look up publication status.
-    Runs as a preview by default (also selectable with --dry-run); --apply is
-    the only way to write the discovered metadata back to Zotero.
-
-    \b
-    API key (optional, increases rate limit):
-      --api-key KEY                                Pass directly
-      .zot/config.toml: semantic_scholar_api_key    Set in repo-local zot config
-    Apply at https://www.semanticscholar.org/product/api#api-key-form
+    使用 Semantic Scholar API 查询发表状态。
+    默认以预览模式运行（也可用 --dry-run 显式指定）；--apply 是唯一会把
+    发现的元数据写回 Zotero 的方式。
 
     \b
-    Examples:
-      zot metadata update-status                    # check all preprints (preview)
-      zot metadata update-status --dry-run          # explicit preview, never writes
-      zot metadata update-status --apply            # update published items in Zotero
-      zot metadata update-status ABC123             # check a single item
-      zot metadata update-status --collection "NLP" # check items in a collection
-      zot metadata update-status --limit 10         # check at most 10 items
+    API key（可选，可提高速率上限）：
+      --api-key KEY                                直接传入
+      .zot/config.toml: semantic_scholar_api_key    在仓库本地的 zot 配置中设置
+    申请地址：https://www.semanticscholar.org/product/api#api-key-form
+
+    \b
+    示例：
+      zot metadata update-status                    # 检查所有预印本（预览）
+      zot metadata update-status --dry-run          # 显式预览，绝不写入
+      zot metadata update-status --apply            # 在 Zotero 中更新已发表条目
+      zot metadata update-status ABC123             # 检查单个条目
+      zot metadata update-status --collection "NLP" # 检查某分类下的条目
+      zot metadata update-status --limit 10         # 最多检查 10 个条目
     """
     if apply and dry_run:
         emit_error(
@@ -85,7 +85,7 @@ def update_status(
         if not json_out:
             click.echo(rate_msg, err=True)
 
-    # Read items from local DB
+    # 从本地数据库读取条目
     data_dir = get_data_dir(cfg)
     db_path = data_dir / "zotero.sqlite"
     library_id = resolve_library_id(db_path, ctx.obj)
@@ -127,8 +127,8 @@ def update_status(
             click.echo("No preprints found.")
         return
 
-    # Extract preprint identifiers (arXiv, bioRxiv, medRxiv)
-    preprint_items: list[tuple[str, PreprintInfo, str]] = []  # (item_key, info, title)
+    # 提取预印本标识（arXiv、bioRxiv、medRxiv）
+    preprint_items: list[tuple[str, PreprintInfo, str]] = []  # (条目键, 信息, 标题)
     for item in items:
         info = extract_preprint_info(
             url=item.url,
@@ -148,7 +148,7 @@ def update_status(
             click.echo("No items with preprint IDs found.")
         return
 
-    # Count by source
+    # 按来源统计
     arxiv_count = sum(1 for _, info, _ in preprint_items if info.source == "arxiv")
     biorxiv_count = len(preprint_items) - arxiv_count
 
@@ -164,7 +164,7 @@ def update_status(
             click.echo(f"Estimated time: ~{est_time}s (use API key to speed up)")
         click.echo()
 
-    # Query Semantic Scholar
+    # 查询 Semantic Scholar
     client = SemanticScholarClient(api_key=api_key or None)
     results: list[dict] = []
     published_count = 0
@@ -231,7 +231,7 @@ def update_status(
         click.echo(f"Found {published_count}/{len(preprint_items)} published paper(s).")
 
     if apply and published_count > 0:
-        # Apply updates via Zotero Web API
+        # 通过 Zotero Web API 应用更新
         library_type = ctx.obj.get("library_type", "user")
         group_id = ctx.obj.get("group_id")
         zot_library_id, zot_api_key = resolve_write_credentials(cfg, library_type=library_type, group_id=group_id)
@@ -285,7 +285,7 @@ def update_status(
     failure_codes = [str(failure["error"].get("code", "")) for failure in update_failed]
     if json_out:
         if apply and update_failed:
-            # Partial success: some writes may have failed; never ok=True then.
+            # 部分成功：部分写入可能已失败；此时绝不能返回 ok=True。
             env = envelope_partial_data(data, meta={"count": len(results)})
         else:
             env = envelope_ok(data, meta={"count": len(results)}, dry_run=not apply)

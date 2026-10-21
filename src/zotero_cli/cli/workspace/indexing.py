@@ -1,4 +1,4 @@
-"""Workspace index construction, MinerU ingestion, and index state helpers."""
+"""workspace 索引构建、MinerU 导入与索引状态辅助函数。"""
 
 from __future__ import annotations
 
@@ -53,8 +53,8 @@ from zotero_cli.workspace.store import (
 from zotero_cli.zotero.models import Item
 from zotero_cli.zotero.reader import ZoteroReader
 
-# Stored in the index metadata for every item; bump it when chunking or the
-# MinerU pipeline changes so incremental reindexing picks the change up.
+# 为每个条目存进索引 metadata；当 chunk 切分方式或 MinerU 流水线变化时递增它，
+# 使增量重建索引能识别该变化。
 _RAG_PIPELINE_VERSION = "mineru-json-v1"
 
 _ITEM_HINT = "Use 'zot workspace list' to see available workspaces"
@@ -96,11 +96,10 @@ def _vector_store_for(name: str) -> QdrantVectorStore:
 
 
 def drop_workspace_vector_collection(name: str) -> bool:
-    """Drop this workspace's local Qdrant collection and prune an empty store.
+    """删除该 workspace 的本地 Qdrant collection，并清理空的 store。
 
-    Never creates the store directory; safe to call for workspaces that never
-    produced vectors. The empty-store prune runs even when the named collection
-    is absent so a workspace that only produced an empty store cleans it up.
+    绝不创建 store 目录；对从未产生过向量的 workspace 调用是安全的。即使指定的 collection 不存在
+    也会执行空 store 清理，因此只产生过空 store 的 workspace 也能被清理干净。
     """
     store_path = resolve_vector_store_path(load_vector_store_config())
     if not is_local_vector_store(store_path):
@@ -111,7 +110,7 @@ def drop_workspace_vector_collection(name: str) -> bool:
 
 
 def _read_index_stats(index_path: Path) -> dict[str, object]:
-    """Read chunk/item counts without creating or writing the index."""
+    """在不创建或写入索引的情况下读取 chunk 与条目数量。"""
     stats: dict[str, object] = {"index_exists": index_path.exists(), "chunks": 0, "indexed_items": 0}
     if not index_path.exists():
         return stats
@@ -130,11 +129,10 @@ def _read_index_stats(index_path: Path) -> dict[str, object]:
 
 
 def open_vector_store_for_read(name: str) -> QdrantVectorStore | None:
-    """Open the workspace vector store only when it already exists.
+    """仅当 workspace 向量 store 已存在时才打开它。
 
-    Read paths (query) must never create the local store: a missing directory
-    simply means "no vectors", and an unreadable/read-only store degrades to
-    BM25-only instead of failing the command or writing to disk.
+    只读路径（query）绝不能创建本地 store：目录缺失仅表示“没有向量”，而不可读或只读的 store
+    会降级为仅用 BM25，而不是让命令失败或写入磁盘。
     """
     store_path = resolve_vector_store_path(load_vector_store_config())
     if not store_path.is_dir():
@@ -146,7 +144,7 @@ def open_vector_store_for_read(name: str) -> QdrantVectorStore | None:
 
 
 def prune_workspace_items(name: str, keys: list[str]) -> int:
-    """Prune chunks/meta/vectors for item keys removed from the workspace manifest."""
+    """清理已从 workspace manifest 中移除的条目 key 所对应的 chunk、meta 与向量。"""
     if not keys:
         return 0
     index_path = workspace_index_path(name)
@@ -182,7 +180,7 @@ def prune_workspace_items(name: str, keys: list[str]) -> int:
 
 
 def _clear_workspace_index(name: str, index_path: Path, *, force: bool) -> int:
-    """Prune every indexed item (or clear everything for --force) for an empty workspace."""
+    """为空 workspace 清理所有已索引条目（使用 --force 时清空全部内容）。"""
     store_path = resolve_vector_store_path(load_vector_store_config())
     pruned = 0
     if index_path.exists():
@@ -376,9 +374,8 @@ def _index_workspace(
                     sys.stderr.write(f"\r{' ' * 100}\r")
                     sys.stderr.flush()
 
-            # Phase 1 - obtain the canonical MinerU parse packages before any
-            # index mutation so a config/network failure cannot destroy a
-            # working index.
+            # 阶段 1 - 在任何索引变更之前先获取规范的 MinerU 解析包，这样配置或网络
+            # 故障就不会破坏一个可用的索引。
             unique_pdf_paths: list[Path] = list(
                 dict.fromkeys(path for _ws, _item, refs, _notes in to_index for _k, _n, path in refs)
             )
@@ -411,7 +408,7 @@ def _index_workspace(
                     )
                 clear_progress_status()
 
-            # Phase 2 - chunk MinerU structured JSON; Markdown is reserved for AI notes.
+            # 阶段 2 - 切分 MinerU 结构化 JSON；Markdown 保留给 AI 笔记。
             emit_progress(ctx, f"  Chunking {len(to_index)} item(s)...")
             all_chunks: list[tuple[str, str, str, int]] = []
             item_chunk_counts: list[int] = []
@@ -452,8 +449,8 @@ def _index_workspace(
                         )
                 item_chunk_counts.append(len(all_chunks) - sum(item_chunk_counts))
 
-            # 仅在解析完成后修改索引。强制重建使用候选 SQLite 文件，直到
-            # 候选索引构建完成才替换可用索引，避免 MinerU 或构建失败时丢失结果。
+            # 仅在解析完成后修改索引。强制重建使用候选 SQLite 文件，直到候选索引构建完成
+            # 才替换可用索引，避免 MinerU 或构建失败时丢失结果。
             if force:
                 pass
             else:
@@ -464,7 +461,7 @@ def _index_workspace(
                         _prune_item_from_index(idx, vector_store, ws_item.key)
             idx.commit()
 
-            # Phase 3 - write the term index (SQLite FTS5).
+            # 阶段 3 - 写入词项索引（SQLite FTS5）。
             emit_progress(ctx, f"  Indexing {len(all_chunks)} chunk(s)...")
             chunk_ids: list[int] = []
             chunk_texts: list[str] = []
@@ -494,7 +491,7 @@ def _index_workspace(
                 idx.commit()
             clear_progress_status()
 
-            # Phase 4 - embed with the configured provider and write vectors to Qdrant local.
+            # 阶段 4 - 用配置的 provider 做 embedding 并将向量写入本地 Qdrant。
             mode_label = "BM25 (FTS5)"
             emb_cfg = None if no_embed else load_embedding_config(apply_env_overrides=True)
             if emb_cfg and emb_cfg.is_configured and chunk_texts:
@@ -575,7 +572,7 @@ def workspace_index(
     no_embed: bool,
     dry_run: bool,
 ) -> None:
-    """Build the workspace semantic index (MinerU PDF -> Gitee embeddings + SQLite FTS5)."""
+    """构建 workspace 语义索引（MinerU PDF -> Gitee embedding + SQLite FTS5）。"""
     _index_workspace(
         ctx,
         name,
@@ -588,7 +585,7 @@ def workspace_index(
 
 
 def workspace_reindex(ctx: click.Context, name: str, progress_lines: bool, no_embed: bool, dry_run: bool) -> None:
-    """Force a full rebuild of a workspace index."""
+    """强制完整重建 workspace 索引。"""
     _index_workspace(
         ctx,
         name,

@@ -1,17 +1,14 @@
-"""Global flag hoisting and output-mode detection for the root group.
+"""全局选项上提与根命令组的输出模式检测。
 
---json / --no-json must work wherever they appear in argv, even after the
-subcommand: agents append them out of habit and Click would otherwise reject
-them as unknown options. The same applies to the boolean global flags
---no-interaction and --verbose, and to the value-taking global --detail
-(minimal/standard/full), which is what "--detail minimal" after a subcommand
-means today.
+--json / --no-json 必须能在 argv 中的任意位置生效，即使位于子命令之后：
+代理程序习惯性地把它们追加到末尾，否则 Click 会将其视为未知选项而拒绝。
+布尔全局选项 --no-interaction 和 --verbose，以及取值型全局选项 --detail
+（minimal/standard/full）同理，后者正是当前在子命令之后写 "--detail minimal"
+所表达的含义。
 
-Hoisting happens before Click parses, following the active command's option
-arity so option *values* that look like flags are never mistaken for globals.
-A bare value-taking flag such as "--detail" without a valid value is hoisted
-alone and left for Click to report a missing-argument error instead of
-swallowing the following flag or subcommand token.
+上提发生在 Click 解析之前，并遵循当前命令的选项参数个数，因此看起来像选项
+的选项*值*不会被误认作全局选项。像 "--detail" 这种缺少有效值的裸取值选项会
+被单独上提，留给 Click 报告缺少参数错误，而不会吞掉后续的选项或子命令词元。
 """
 
 from __future__ import annotations
@@ -22,20 +19,20 @@ from collections.abc import Sequence
 
 import click
 
-# Boolean root options that are safe to hoist from anywhere in argv.
+# 可从 argv 任意位置安全上提的布尔根选项。
 _HOISTED_FLAGS = frozenset({"--json", "--no-json", "--no-interaction", "--verbose"})
-# Value-taking root options that are safe to hoist (value follows or is attached).
+# 可安全上提的取值型根选项（值紧随其后或以等号连接）。
 _HOISTED_VALUE_FLAGS = frozenset({"--detail"})
-# Accepted values for the --detail choice, used to avoid swallowing other flags.
+# --detail 允许的取值，用于避免吞掉其他选项。
 _DETAIL_CHOICES = frozenset({"minimal", "standard", "full"})
 
 
 def detect_json_output(args: Sequence[str]) -> bool:
-    """Best-effort output-mode detection for errors raised before Click parsing.
+    """在 Click 解析前尽力检测输出模式，供其之前抛出的错误使用。
 
-    Mirrors the root callback precedence: explicit flag > ZOT_FORMAT > TTY
-    auto-detect (piped stdout => JSON). Used by the top-level error boundary so
-    usage errors raised during parsing still emit the right channel.
+    与根回调的优先级保持一致：显式选项 > ZOT_FORMAT > TTY 自动检测
+    （stdout 被管道重定向时视为 JSON）。顶层错误边界借此让解析阶段产生的
+    用法错误仍输出到正确的通道。
     """
     if "--json" in args:
         return True
@@ -50,12 +47,11 @@ def detect_json_output(args: Sequence[str]) -> bool:
 
 
 def _hoist_global_flags(args: list[str], command: click.Command) -> list[str]:
-    """Move standalone global flags to the root, preserving Click option values.
+    """将独立的全局选项移到根位置，同时保留 Click 选项的取值。
 
-    Follow the active command's option arity before interpreting a token as a
-    global flag. In particular, a value such as --json must not disappear and
-    cause the following --dry-run to become an option value. An unconsumed
-    -- terminates hoisting just as it terminates option parsing.
+    在把词元解释为全局选项之前，先遵循当前命令的选项参数个数。特别是，
+    --json 这样的取值不能被丢弃，否则后续的 --dry-run 会被当作它的选项值。
+    未被消耗的 -- 会终止上提，正如它终止选项解析一样。
     """
 
     def options_for(cmd: click.Command) -> dict[str, click.Option]:
@@ -100,9 +96,8 @@ def _hoist_global_flags(args: list[str], command: click.Command) -> list[str]:
                 flags.extend([tok, following])
                 index += 2
                 continue
-            # No value where one is expected: hoist the flag with an explicit
-            # empty value so Click reports a validation error for the flag
-            # itself instead of swallowing the next flag or subcommand token.
+            # 缺少应有的取值：以显式空值上提该选项，让 Click 针对该选项本身
+            # 报告校验错误，而不是吞掉下一个选项或子命令词元。
             flags.append(f"{tok}=")
             index += 1
             continue
@@ -111,7 +106,7 @@ def _hoist_global_flags(args: list[str], command: click.Command) -> list[str]:
         option = options.get(name)
         attached_value = bool(separator)
         if option is None and tok.startswith("-") and not tok.startswith("--"):
-            # Click accepts short-option clusters and attached values (-dtext).
+            # Click 接受短选项组合与紧贴取值（-dtext）。
             for char_index, char in enumerate(tok[1:], 2):
                 option = options.get(f"-{char}")
                 if option is not None and not option.is_flag and not option.count:

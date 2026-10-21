@@ -1,4 +1,4 @@
-"""Cross-platform path helpers, including WSL/Windows path conversion."""
+"""跨平台路径辅助函数，包括 WSL/Windows 路径转换。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import re
 
 
 def is_wsl_environment() -> bool:
-    """Return True if running inside WSL2."""
+    """若运行在 WSL2 中则返回 True。"""
     try:
         with open("/proc/version") as f:
             content = f.read().lower()
@@ -16,21 +16,21 @@ def is_wsl_environment() -> bool:
 
 
 def windows_to_wsl_path(windows_path: str) -> str:
-    """Convert Windows path to WSL path.
+    """把 Windows 路径转换为 WSL 路径。
 
-    Examples:
+    示例：
         C:\\Users\\name\\file.pdf -> /mnt/c/Users/name/file.pdf
         \\\\server\\share\\file.pdf -> /mnt/server/share/file.pdf
-        /mnt/c/already/wsl.pdf -> /mnt/c/already/wsl.pdf (pass-through)
+        /mnt/c/already/wsl.pdf -> /mnt/c/already/wsl.pdf（原样返回）
     """
     if not windows_path:
         return ""
 
-    # Already a WSL path
+    # 已经是 WSL 路径
     if windows_path.startswith("/mnt/"):
         return windows_path
 
-    # UNC path: \\server\share\...
+    # UNC 路径：\\server\share\...
     if windows_path.startswith("\\\\"):
         path = windows_path[2:]
         parts = path.split("\\")
@@ -38,7 +38,7 @@ def windows_to_wsl_path(windows_path: str) -> str:
             return "/mnt/" + "/".join(parts)
         return windows_path
 
-    # Drive letter path: C:\Users\...
+    # 盘符路径：C:\Users\...
     match = re.match(r"^([A-Za-z]):\\(.+)$", windows_path)
     if match:
         drive = match.group(1).lower()

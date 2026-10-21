@@ -1,17 +1,17 @@
-"""Configuration and state paths.
+"""配置与状态路径。
 
-Source checkouts keep configuration and runtime state inside the repository
-(/.zot, /.workspace). Installed wheels resolve both deterministically per user
-instead of depending on the current working directory:
+源码检出将配置和运行时状态保存在仓库内部
+（/.zot、/.workspace）。已安装的 wheel 则按用户确定性地解析两者，
+而不依赖当前工作目录：
 
-* state: absolute `ZOT_STATE_DIR`, else `XDG_STATE_HOME/zotero-cli`
-  (`~/.local/state/zotero-cli`) or Windows `%LOCALAPPDATA%/zotero-cli`;
-* config: `XDG_CONFIG_HOME/zotero-cli/config.toml` (`~/.config/...`) or
-  Windows `%APPDATA%/zotero-cli/config.toml`.
+* 状态：绝对路径 `ZOT_STATE_DIR`，否则 `XDG_STATE_HOME/zotero-cli`
+  （`~/.local/state/zotero-cli`）或 Windows 的 `%LOCALAPPDATA%/zotero-cli`；
+* 配置：`XDG_CONFIG_HOME/zotero-cli/config.toml`（`~/.config/...`）或
+  Windows 的 `%APPDATA%/zotero-cli/config.toml`。
 
-Relative XDG/ZOT path env values are ignored (XDG base directories must be
-absolute) and the per-user default is used instead, so state never fragments
-by working directory nor silently picks up a foreign project's config.
+相对的 XDG/ZOT 路径环境变量值会被忽略（XDG 基础目录必须是绝对路径），
+改用按用户的默认值，因此状态既不会随工作目录分散，也不会静默读取到
+其他项目的配置。
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ APP_DIRNAME = "zotero-cli"
 
 
 def _absolute_env_path(name: str) -> Path | None:
-    """Return an absolute, ~-expanded path from an env var; relative values are ignored."""
+    """从环境变量返回绝对且已展开 ~ 的路径；相对值会被忽略。"""
     value = os.environ.get(name, "").strip()
     if not value:
         return None
@@ -53,12 +53,12 @@ def _source_project_root() -> Path | None:
 
 
 def checkout_root() -> Path | None:
-    """Return the source-checkout root, or None for an installed package."""
+    """返回源码检出根目录；对已安装的包返回 None。"""
     return _source_project_root() or _find_project_root(Path.cwd().resolve())
 
 
 def project_root(start: Path | None = None) -> Path:
-    """Return the checkout root (config discovery fallback: CWD marker search)."""
+    """返回检出根目录（配置发现回退：搜索 CWD 标记）。"""
     if start is not None:
         current = start.resolve()
         return _find_project_root(current) or current
@@ -83,11 +83,10 @@ def _installed_state_root() -> Path:
 
 
 def config_search_dir() -> Path:
-    """Directory holding config.toml: repo-local for a source checkout, else per-user.
+    """存放 config.toml 的目录：源码检出为仓库本地，否则按用户。
 
-    Installed packages never read a config from the current working directory, so
-    running zot inside an unrelated project cannot pick up that project's
-    .zot/config.toml (or its credentials).
+    已安装的包绝不会从当前工作目录读取配置，因此在无关项目中运行 zot
+    不会意外读取该项目的 .zot/config.toml（或其凭据）。
     """
     source_root = _source_project_root()
     if source_root is not None:
@@ -100,10 +99,10 @@ def config_search_dir() -> Path:
 
 
 def state_root() -> Path:
-    """Root for persistent runtime state (caches, idempotency DB, version check).
+    """持久化运行时状态的根目录（缓存、幂等数据库、版本检查）。
 
-    Checkouts keep their historical location (/.zot/state); installed packages use
-    the deterministic per-user state root so state never fragments by CWD.
+    检出的仓库保持其历史位置（/.zot/state）；已安装的包使用按用户的确定性
+    状态根目录，因此状态不会因 CWD 而分散。
     """
     root = checkout_root()
     if root is not None:
@@ -112,13 +111,13 @@ def state_root() -> Path:
 
 
 def data_root() -> Path:
-    """Base for repository/workspace data: checkout root, else the state root."""
+    """仓库/工作区数据的基础目录：检出根目录，否则状态根目录。"""
     root = checkout_root()
     return root if root is not None else state_root()
 
 
 def workspace_root() -> Path:
-    """Root for workspaces: /.workspace in a checkout, state root when installed."""
+    """工作区的根目录：检出中为 /.workspace，安装后为状态根目录。"""
     root = checkout_root()
     if root is not None:
         return root / WORKSPACE_DIRNAME
@@ -136,7 +135,7 @@ def config_file_path(start: Path | None = None) -> Path:
 
 
 def state_dir(start: Path | None = None) -> Path:
-    """State directory; an explicit `start` keeps the historical repo-relative form."""
+    """状态目录；显式传入 `start` 时保持历史性的仓库相对形式。"""
     if start is not None:
         return settings_dir(start) / STATE_DIRNAME
     return state_root()

@@ -1,4 +1,4 @@
-"""Shared envelope, dry-run, and workspace-loading helpers for workspace commands."""
+"""workspace 命令共用的 envelope、dry-run 与 workspace 加载辅助函数。"""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def emit_result(
     meta: dict[str, Any] | None = None,
     dry_run: bool = False,
 ) -> None:
-    """Emit exactly one output document: a JSON envelope, or human-readable text."""
+    """只输出一个结果文档：JSON envelope 或人类可读文本。"""
     if output_json(ctx):
         click.echo(json.dumps(envelope_ok(data, meta=meta, dry_run=dry_run), indent=2, ensure_ascii=False))
     else:
@@ -35,12 +35,12 @@ def emit_result(
 
 
 def emit_warning(message: str) -> None:
-    """Warnings always go to stderr so JSON stdout stays a single envelope."""
+    """警告始终写入 stderr，使 JSON 模式下 stdout 只保留一个 envelope。"""
     click.echo(f"Warning: {message}", err=True)
 
 
 def emit_progress(ctx: click.Context, message: str) -> None:
-    """Progress is written to stderr in JSON mode so stdout stays a single envelope."""
+    """JSON 模式下进度写入 stderr，使 stdout 只保留一个 envelope。"""
     if output_json(ctx):
         click.echo(message, err=True)
     else:
@@ -48,7 +48,7 @@ def emit_progress(ctx: click.Context, message: str) -> None:
 
 
 def workspace_directory_or_exit(ctx: click.Context, name: str, *, context: str, hint: str = "") -> Path:
-    """Resolve a workspace directory, emitting typed errors for bad or missing names."""
+    """解析 workspace 目录；名称非法或不存在时输出带类型的错误。"""
     json_out = output_json(ctx)
     try:
         directory = workspace_dir(name)
@@ -68,7 +68,7 @@ def workspace_directory_or_exit(ctx: click.Context, name: str, *, context: str, 
 
 
 def load_workspace_or_exit(ctx: click.Context, name: str, *, context: str, hint: str = "") -> Workspace:
-    """Load a workspace, converting invalid/missing/corrupt manifests to typed errors."""
+    """加载 workspace，将非法、缺失或损坏的 manifest 转换为带类型的错误。"""
     json_out = output_json(ctx)
     workspace_directory_or_exit(ctx, name, context=context, hint=hint or _LIST_HINT)
     try:
@@ -91,7 +91,7 @@ def load_workspace_or_exit(ctx: click.Context, name: str, *, context: str, hint:
 
 
 def load_workspace_if_readable(name: str) -> Workspace | None:
-    """Best-effort manifest load used by delete previews and corrupt-workspace cleanup."""
+    """尽力而为地加载 manifest，供删除预览和损坏 workspace 清理使用。"""
     try:
         return load_workspace(name)
     except (OSError, ValueError):

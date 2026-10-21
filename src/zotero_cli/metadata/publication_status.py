@@ -1,4 +1,4 @@
-"""Semantic Scholar API client for checking preprint publication status."""
+"""用于检查预印本发表状态的 Semantic Scholar API 客户端。"""
 
 from __future__ import annotations
 
@@ -13,22 +13,22 @@ import httpx
 API_BASE = "https://api.semanticscholar.org/graph/v1"
 FIELDS = "externalIds,journal,venue,publicationDate,title,publicationVenue"
 
-# Rate limits
-RATE_DELAY_NO_KEY = 3.0  # seconds between requests without API key
-RATE_DELAY_WITH_KEY = 1.0  # seconds between requests with API key
+# 速率限制
+RATE_DELAY_NO_KEY = 3.0  # 无 API 密钥时请求之间的间隔秒数
+RATE_DELAY_WITH_KEY = 1.0  # 有 API 密钥时请求之间的间隔秒数
 REQUEST_TIMEOUT = 15.0
 MAX_RETRY_WAIT = 60.0
 
-# bioRxiv/medRxiv DOI prefix
+# bioRxiv/medRxiv 的 DOI 前缀
 BIORXIV_DOI_PREFIX = "10.1101/"
 
 
 @dataclass
 class PublicationStatus:
-    """Result of checking a preprint's publication status."""
+    """预印本发表状态检查的结果。"""
 
     preprint_id: str
-    source: str  # "arxiv" or "doi" (for bioRxiv/medRxiv)
+    source: str  # "arxiv" 或 "doi"（用于 bioRxiv/medRxiv）
     title: str
     is_published: bool
     venue: str | None = None
@@ -38,12 +38,11 @@ class PublicationStatus:
 
 
 class SemanticScholarError(Exception):
-    """Raised when Semantic Scholar cannot be queried.
+    """当无法查询 Semantic Scholar 时抛出。
 
-    A 404 (paper unknown to Semantic Scholar) is not an error - callers get
-    None instead. Network failures, rate limits, 5xx responses, and malformed
-    payloads raise this so callers can surface a retryable error rather than
-    silently reporting "not published".
+    404（Semantic Scholar 不知道该论文）不是错误——调用方会得到 None。
+    网络故障、速率限制、5xx 响应以及载荷格式错误会抛出此异常，使调用方
+    能够报告可重试错误，而不是静默报告“未发表”。
     """
 
     def __init__(self, message: str, *, retryable: bool = True, rate_limited: bool = False) -> None:
@@ -54,24 +53,24 @@ class SemanticScholarError(Exception):
 
 @dataclass
 class PreprintInfo:
-    """Extracted preprint identifier."""
+    """提取出的预印本标识符。"""
 
     preprint_id: str
-    source: str  # "arxiv" or "doi"
-    api_id: str  # ID formatted for Semantic Scholar API
+    source: str  # "arxiv" 或 "doi"
+    api_id: str  # 为 Semantic Scholar API 格式化后的 ID
 
 
 def extract_preprint_info(
     url: str | None = None, doi: str | None = None, extra: str | None = None
 ) -> PreprintInfo | None:
-    """Extract preprint ID from URL, DOI, or extra field.
+    """从 URL、DOI 或 extra 字段中提取预印本 ID。
 
-    Supports:
+    支持：
       - arXiv: https://arxiv.org/abs/1706.03762, 10.48550/arXiv.1706.03762, arXiv:1706.03762
       - bioRxiv: https://www.biorxiv.org/content/10.1101/..., DOI 10.1101/...
       - medRxiv: https://www.medrxiv.org/content/10.1101/..., DOI 10.1101/...
     """
-    # arXiv patterns
+    # arXiv 模式
     arxiv_patterns = [
         r"arxiv\.org/(?:abs|pdf)/(\d{4}\.\d{4,5}(?:v\d+)?)",
         r"arxiv\.org/(?:abs|pdf)/([a-z\-]+/\d{7}(?:v\d+)?)",
@@ -87,7 +86,7 @@ def extract_preprint_info(
                 aid = re.sub(r"v\d+$", "", m.group(1))
                 return PreprintInfo(preprint_id=aid, source="arxiv", api_id=f"arXiv:{aid}")
 
-    # bioRxiv/medRxiv: DOI starts with 10.1101/
+    # bioRxiv/medRxiv：DOI 以 10.1101/ 开头
     for source in [doi or "", url or ""]:
         if not source:
             continue
@@ -100,7 +99,7 @@ def extract_preprint_info(
 
 
 class SemanticScholarClient:
-    """Client for Semantic Scholar API with rate limiting."""
+    """带速率限制的 Semantic Scholar API 客户端。"""
 
     def __init__(self, api_key: str | None = None) -> None:
         self._delay = RATE_DELAY_WITH_KEY if api_key else RATE_DELAY_NO_KEY
@@ -120,10 +119,10 @@ class SemanticScholarClient:
         self._last_request_time = time.time()
 
     def _fetch(self, api_url: str) -> dict | None:
-        """Fetch from the API with rate limiting and one retry on 429.
+        """带速率限制地从 API 获取数据，遇到 429 时重试一次。
 
-        Transient failures raise SemanticScholarError so callers can report a
-        retryable error instead of treating an outage as "not published".
+        临时故障会抛出 SemanticScholarError，使调用方能够报告可重试错误，
+        而不是把服务中断当作“未发表”。
         """
         self._rate_limit()
         try:
@@ -176,9 +175,9 @@ class SemanticScholarClient:
         return data
 
     def check_publication(self, info: PreprintInfo) -> PublicationStatus | None:
-        """Check if a preprint has been formally published.
+        """检查预印本是否已正式发表。
 
-        Returns PublicationStatus or None if the paper is not found.
+        返回 PublicationStatus；若论文未找到则返回 None。
         """
         url = f"{API_BASE}/paper/{info.api_id}?fields={FIELDS}"
         data = self._fetch(url)
@@ -193,7 +192,7 @@ class SemanticScholarClient:
         external_ids = data.get("externalIds")
         formal_doi = external_ids.get("DOI") if isinstance(external_ids, dict) else None
 
-        # Publication venue info (more structured than venue string)
+        # 发表载体信息（比 venue 字符串更结构化）
         pub_venue = data.get("publicationVenue") or {}
         if not journal_name and isinstance(pub_venue, dict):
             journal_name = pub_venue.get("name")
@@ -204,9 +203,9 @@ class SemanticScholarClient:
         formal_doi = formal_doi if isinstance(formal_doi, str) else None
         pub_date = pub_date if isinstance(pub_date, str) else None
 
-        # Determine if formally published:
-        # - Must have a DOI that is NOT the preprint DOI itself
-        # - Must have a venue/journal that is NOT a preprint server name
+        # 判断是否已正式发表：
+        # - 必须有一个不是预印本 DOI 本身的 DOI
+        # - 必须有一个不是预印本服务器名称的载体/期刊
         is_preprint_doi = False
         if formal_doi:
             is_preprint_doi = formal_doi.startswith("10.48550/") or formal_doi.startswith(BIORXIV_DOI_PREFIX)

@@ -1,7 +1,7 @@
-"""The `zot` command-line interface.
+"""`zot` 命令行界面。
 
-The console-script entry point remains `zotero_cli.cli:main`; `main` is defined in
-`root` and imported here together with the internals tests consume directly.
+控制台脚本入口仍为 `zotero_cli.cli:main`；`main` 定义在 `root` 中，
+在此与测试直接使用的内部对象一并导入。
 """
 
 from __future__ import annotations

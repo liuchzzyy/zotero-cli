@@ -1,4 +1,4 @@
-"""OpenAI-compatible chat client with a multi-model fallback chain."""
+"""基于 OpenAI 兼容接口、带回退模型链的对话客户端。"""
 
 from __future__ import annotations
 
@@ -14,16 +14,14 @@ logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = "你是一位专业的科研文献分析助手，擅长深入分析学术论文并提取关键信息。"
 
-# Appended only when a model rejects image input: every text/table block is
-# still analysed, but no figure pixels were seen.
+# 仅在模型拒绝图像输入时追加：所有文本/表格块仍会被分析，但未看到任何图像像素。
 TEXT_ONLY_NOTICE = (
     "\n\n【图像说明】当前模型不支持图像输入，本次请求未附任何图片。"
     "图号与图注仍可作为文字证据；不得声称看过图内曲线、坐标、形貌或颜色。"
 )
 
-# Providers word the same limitation differently; match only capability
-# rejections. Generic errors that merely mention "image" (payload size, bad URL)
-# must not silently downgrade the request to text-only.
+# 各服务商对同一限制的措辞不同；此处只匹配能力类拒绝。仅提及 "image"
+# 的普通错误（载荷过大、URL 错误）不得让请求静默降级为纯文本。
 _IMAGE_REJECTION_HINTS = (
     "image input is not supported",
     "image input not supported",
@@ -37,19 +35,19 @@ _IMAGE_REJECTION_HINTS = (
 
 
 class AiClient:
-    """OpenAI-compatible chat client with multi-model fallback chain."""
+    """基于 OpenAI 兼容接口、带回退模型链的对话客户端。"""
 
     def __init__(self, config: AiNoteConfig) -> None:
         self.config = config
-        # Config-owned request bounds (env ZOT_AI_TIMEOUT / ZOT_AI_MAX_RETRIES).
+        # 由配置控制的请求边界（环境变量 ZOT_AI_TIMEOUT / ZOT_AI_MAX_RETRIES）。
         timeout_seconds = float(config.timeout_seconds)
         max_retries = int(config.max_retries)
         self.timeout_seconds = timeout_seconds
         self.max_retries = max_retries
         base_url = (config.base_url or "").strip()
         is_local = "127.0.0.1" in base_url or "localhost" in base_url
-        # OpenAI 3.x uses httpx2 internally; DefaultHttpx2Client is its public
-        # client class, so the http_client type matches the SDK signature.
+        # OpenAI 3.x 内部使用 httpx2；DefaultHttpx2Client 是其公开客户端类，
+        # 因此 http_client 的类型与 SDK 签名一致。
         http_client = DefaultHttpx2Client(trust_env=False, timeout=timeout_seconds) if is_local else None
         self._client = OpenAI(
             base_url=config.base_url,
@@ -58,7 +56,7 @@ class AiClient:
             timeout=timeout_seconds,
             max_retries=max_retries,
         )
-        # Last observed provider usage for diagnostics; never carries the payload.
+        # 最近一次观测到的服务商用量，仅用于诊断；从不携带载荷内容。
         self.last_usage: dict[str, int] | None = None
         self.last_model: str = ""
         self.usage_history: list[dict[str, Any]] = []
@@ -71,7 +69,7 @@ class AiClient:
         return chain or ["deepseek-flash", "gemini-3.8-flash-high", "gpt-5.6-sol"]
 
     def _user_content(self, prompt: str, figures: list[tuple[int, str]]) -> Any:
-        """Build the user message, attaching figures as image parts when given."""
+        """构造用户消息；提供图片时把图像作为 image 部分附上。"""
         if not figures:
             return prompt
         content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
@@ -95,8 +93,8 @@ class AiClient:
         if self.last_usage is not None:
             self.usage_history.append({**self.last_usage, "model": self.last_model})
         choice = response.choices[0]
-        # A length stop means the note JSON is incomplete; it must never be
-        # written as a finished analysis, so surface it instead of the partial text.
+        # 因长度而停止意味着 note JSON 不完整；它绝不能作为已完成的分析写入，
+        # 因此抛出错误而不是返回部分文本。
         if getattr(choice, "finish_reason", None) == "length":
             raise RuntimeError(
                 "AI truncated (finish_reason=length): the analysis output hit the "
@@ -117,8 +115,7 @@ class AiClient:
         last_error: Exception | None = None
 
         for idx, model in enumerate(models):
-            # Capability is per model: an image rejection here must not strip
-            # the figures from a vision model later in the chain.
+            # 能力限制按模型各自生效：此处拒绝图像，不能让链中后续的视觉模型也丢失图片。
             attempt_figures = figures or []
             create_kwargs: dict[str, Any] = {
                 "model": model,
@@ -137,15 +134,15 @@ class AiClient:
                 return self._send(**create_kwargs)
             except Exception as e:
                 err_str = str(e).lower()
-                # A text-only model rejects the image parts; retry this model
-                # without them rather than losing the whole analysis.
+                # 纯文本模型会拒绝图像部分；改用不带图片的方式重试该模型，
+                # 而不是让整次分析失败。
                 if attempt_figures and any(hint in err_str for hint in _IMAGE_REJECTION_HINTS):
                     msg = f"模型 {model} 不接受图片输入，改为纯文本重试"
                     logger.warning(msg)
                     if progress:
                         progress("fallback", msg)
-                    # Keep every text/table block; drop only the image parts and
-                    # state that plainly so the note cannot claim visual evidence.
+                    # 保留所有文本/表格块；只去掉图像部分并明确说明，
+                    # 使笔记无法声称拥有视觉证据。
                     create_kwargs["messages"][1]["content"] = prompt + TEXT_ONLY_NOTICE
                     try:
                         return self._send(**create_kwargs)

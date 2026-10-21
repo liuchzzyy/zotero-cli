@@ -1,4 +1,4 @@
-"""Rerank retrieved chunks with the configured rerank provider."""
+"""使用配置的 rerank provider 对检索到的 chunk 重排。"""
 
 from __future__ import annotations
 
@@ -12,9 +12,9 @@ RankedChunk = tuple[int, float, dict]
 
 
 class UnsupportedRerankerProviderError(ValueError):
-    """Raised when the configured reranker provider has no implementation.
+    """当配置的 reranker provider 没有实现时抛出。
 
-    CLI callers should translate this into a typed configuration_error envelope.
+    CLI 调用方应将其转换为带类型的 configuration_error envelope。
     """
 
 

@@ -167,7 +167,7 @@ def ai_note(
             try:
                 release_rejected_mutation(cache_scope, idem_key)
             except (OSError, sqlite3.Error):
-                pass  # Preserve the reservation if its durable release failed.
+                pass  # 持久化释放失败时保留预占。
         emit_error(
             exc.code,
             str(exc),

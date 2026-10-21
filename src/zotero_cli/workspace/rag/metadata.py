@@ -1,4 +1,4 @@
-"""Text normalization and paper-kind metadata helpers for the RAG pipeline."""
+"""RAG 流水线的文本规范化与论文类型 metadata 辅助函数。"""
 
 from __future__ import annotations
 
@@ -7,9 +7,8 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-# Covers/headers that identify a supplementary document. These are matched at the
-# *start* of a line near the top of the text, so ordinary prose that merely
-# mentions "Supporting Information" does not trigger a classification.
+# 用于识别补充材料文档的封面/页眉。它们只在文本顶部附近的*行首*进行匹配，
+# 因此仅仅提到“Supporting Information”的普通正文不会触发分类。
 _SUPPLEMENTARY_COVER_HINTS = (
     "electronic supplementary material",
     "electronic supplementary information",
@@ -24,14 +23,13 @@ _SUPPLEMENTARY_COVER_HINTS = (
 )
 _SUPPLEMENTARY_HINTS = _SUPPLEMENTARY_COVER_HINTS + ("figure s1", "table s1")
 
-# Words that may follow a cover phrase on a genuine cover line ("Supporting
-# Information *for* <title>"). Anything else means the line is prose.
+# 真实封面行上可能跟在封面短语之后的词（例如“Supporting Information
+# *for* <title>”）。其他情况说明该行是正文。
 _COVER_CONTINUATIONS = frozenset({"for", "of", "to", "esi"})
 
-# Strong main-article cues: a typeset article front matter. Weak cues are the
-# publisher stamps that a supplement inherits from its parent article — the SI
-# cover of `sciadv.aea1401_sm.pdf` carries the article DOI — so they are checked
-# only after every supplementary cue has been ruled out.
+# 强主体论文线索：排版后的论文前置信息。弱线索是补充材料从母论文继承的
+# 出版商标记——例如 `sciadv.aea1401_sm.pdf` 的 SI 封面带有论文 DOI——因此
+# 只有在排除所有补充材料线索之后才检查它们。
 _MAIN_PAPER_HINTS = (
     "cite this:",
     "broader context",
@@ -44,9 +42,8 @@ _WEAK_MAIN_PAPER_HINTS = (
     "doi:",
 )
 
-# Attachment filenames are a reliable supplementary signal ("..._SI.pdf",
-# "supplementary-material.pdf"); tokens are matched between non-alphanumerics so
-# ordinary words such as "sodium" or "spin" are not misread as "si".
+# 附件文件名是可靠的补充材料信号（“..._SI.pdf”、“supplementary-material.pdf”）；
+# token 在非字母数字分隔处匹配，使“sodium”“spin”等普通词不会被误读为“si”。
 _SUPPLEMENTARY_FILENAME_RE = re.compile(
     r"(?:^|[^a-z0-9])(?:si|esi|supp|suppl|supplementary|supporting)(?:[^a-z0-9]|$)",
     re.IGNORECASE,
@@ -58,12 +55,10 @@ def _supplementary_filename(filename: str) -> bool:
 
 
 def _cover_line(line: str) -> bool:
-    """True for `Supporting Information`, `Supplementary Material for <title>`, …
+    """当文本为 `Supporting Information`、`Supplementary Material for <title>` 等时返回 True。
 
-    Matched as a prefix rather than a whole line, because cover variants append
-    the parent paper's title or the journal name. A continuation word or an
-    opening bracket must follow the phrase; prose such as "Supporting
-    Information is available free of charge" keeps its default main kind.
+    按前缀而非整行匹配，因为封面变体会追加所属论文标题或期刊名。短语之后必须跟连接词或左括号；
+    像“Supporting Information is available free of charge”这类正文仍保持默认的 main 类型。
     """
     text = line.strip(" #\t\r*-_")
     lowered = text.lower()
@@ -112,11 +107,10 @@ def infer_pdf_kind(text: str, filename: str = "") -> str:
         return "main"
     if "experimental section" in head:
         return "supplementary"
-    # An SI cover the line rules above did not recognise still outranks a
-    # publisher stamp: `sciadv.aea1401_sm.pdf` carries the article DOI at char
-    # 247. Only an *early* mention counts — a main article cites its own SI
-    # thousands of characters in (item DDM2563M: char 9073), which must not
-    # flip it.
+    # 上述行规则未能识别的 SI 封面，其优先级仍高于出版商标记：
+    # `sciadv.aea1401_sm.pdf` 在第 247 个字符处带有论文 DOI。只有*早期*提及才
+    # 算数——主体论文会在数千字符之后才引用自己的 SI（条目 DDM2563M：第 9073 个
+    # 字符），这不得改变判定。
     if any(hint in early for hint in _SUPPLEMENTARY_HINTS):
         return "supplementary"
     if any(hint in head for hint in _WEAK_MAIN_PAPER_HINTS):
@@ -126,12 +120,11 @@ def infer_pdf_kind(text: str, filename: str = "") -> str:
     return "main"
 
 
-# --- Figure/table numbering ------------------------------------------------
-# Cue-free structure: a document that numbers its own panels "Figure S1",
-# "Supplementary Fig. 3" or "Table S2" is a supplement; one that numbers them
-# "Figure 1"/"Table 1" is the article. The numbering survives every publisher
-# layout, so it beats cover text and filenames — but MinerU puts the "S" in two
-# places (on the number, or on a qualifier word), and both must be accepted.
+# --- 插图/表格编号 ----------------------------------------------------------
+# 无线索结构：把自己子图编为“Figure S1”、“Supplementary Fig. 3”或“Table S2”的
+# 文档是补充材料；编为“Figure 1”/“Table 1”的则是论文。编号在各种出版商版式下
+# 都保持不变，因此它胜过封面文本和文件名——但 MinerU 会把“S”放在两个位置
+# （编号上或限定词上），两种都必须接受。
 _CAPTION_LABEL_RE = re.compile(
     r"\b(?:(?P<qualifier>supplementary|supporting|esi)\s+)?"
     r"(?P<label>figure|fig\.?|scheme|table)\s*\.?\s*"
@@ -140,16 +133,15 @@ _CAPTION_LABEL_RE = re.compile(
 )
 _CAPTION_FIELDS = {"image": "image_caption", "chart": "chart_caption", "table": "table_caption"}
 
-# A typeset article front matter. This is the one signal that outranks caption
-# numbering, because demoting a main text to supplementary is the expensive
-# mistake: its figures then become optional and get sampled away.
+# 排版后的论文前置信息。这是唯一优先级高于题注编号的信号，因为把主体正文
+# 降级为补充材料是代价高昂的错误：其插图随后会变成可选并被采样丢弃。
 _FRONT_MATTER_ABSTRACT_CHARS = 6000
 _FRONT_MATTER_INTRO_CHARS = 12_000
 
 
 @dataclass(frozen=True)
 class CaptionCounts:
-    """How one document numbers its own figures and tables."""
+    """单个文档如何为自己的插图和表格编号。"""
 
     figure_supplementary: int = 0
     figure_plain: int = 0
@@ -166,11 +158,10 @@ class CaptionCounts:
 
     @property
     def kind(self) -> str:
-        """`supplementary`, `main`, or `unknown` from numbering alone.
+        """仅依据编号判定 `supplementary`、`main` 或 `unknown`。
 
-        Figures decide first and tables only break a tie: a supplement numbers
-        *all* its panels, so a document with plain figures is an article even if
-        it also carries a stray "Supplementary Table" caption.
+        插图优先判定，表格仅用于打破平局：补充材料会为*所有*子图编号，因此插图使用普通编号的
+        文档就是论文，即使它还带有零星的“Supplementary Table”题注。
         """
         for supplementary, plain in (
             (self.figure_supplementary, self.figure_plain),
@@ -185,7 +176,7 @@ class CaptionCounts:
 
 @dataclass(frozen=True)
 class PdfDocument:
-    """One parsed attachment as the kind classifier sees it."""
+    """类型分类器视角下的单个已解析附件。"""
 
     identifier: str
     filename: str
@@ -212,7 +203,7 @@ def _caption_text(value: Any) -> str:
 
 
 def caption_counts(blocks: Any) -> CaptionCounts:
-    """Count S-numbered versus plain-numbered figure and table captions."""
+    """统计 S 编号与普通编号的插图、表格题注数量。"""
     figure_supplementary = figure_plain = table_supplementary = table_plain = 0
     for block in _iter_blocks(blocks):
         field = _CAPTION_FIELDS.get(str(block.get("type") or ""))
@@ -240,18 +231,16 @@ def _has_front_matter(markdown: str) -> bool:
 
 
 def _kinds(documents: Sequence[PdfDocument], supplements: Sequence[str]) -> dict[str, str]:
-    """Name the supplement set; every other document is main text."""
+    """指出补充材料集合；其余文档均为主体正文。"""
     return {doc.identifier: "supplementary" if doc.identifier in supplements else "main" for doc in documents}
 
 
 def resolve_pdf_kinds(documents: Sequence[PdfDocument]) -> dict[str, str]:
-    """Classify an item's attachments together, not one at a time.
+    """将同一附件的条目放在一起分类，而不是逐个分类。
 
-    A single attachment is the main text by definition; with two or more, the
-    document whose captions are S-numbered is the supplement and the rest are
-    main text. The rules are ordered so the *conservative* answer wins: leaving
-    a document as main text costs nothing but images, while demoting a real
-    article to a supplement lets its figures be sampled away.
+    单个附件按定义即为主体正文；有两个及以上时，题注为 S 编号的文档是补充材料，其余为主体正文。
+    规则按顺序排列，使*保守*的结论优先：把文档保留为主体正文最多只多出图片，
+    而把真实论文降级为补充材料会让其插图被采样丢弃。
     """
     if not documents:
         return {}
@@ -261,11 +250,10 @@ def resolve_pdf_kinds(documents: Sequence[PdfDocument]) -> dict[str, str]:
     front = {doc.identifier: _has_front_matter(doc.markdown) for doc in documents}
 
     def rest(main: str) -> list[str]:
-        """Every document but `main` — the supplement set when one article is named."""
+        """除 `main` 之外的所有文档——当指明一篇论文时，即为补充材料集合。"""
         return [doc.identifier for doc in documents if doc.identifier != main]
 
-    # A merged article+SI PDF carries both front matter and S-numbered panels;
-    # the front matter wins.
+    # 合并了论文与 SI 的 PDF 同时带有前置信息和 S 编号子图；以前置信息为准。
     numbered = {
         doc.identifier: (
             "main"
@@ -275,22 +263,20 @@ def resolve_pdf_kinds(documents: Sequence[PdfDocument]) -> dict[str, str]:
         for doc in documents
     }
 
-    # 1. Exactly one document numbers its panels with an S.
+    # 1. 恰好一个文档用 S 为其子图编号。
     s_numbered = [identifier for identifier, kind in numbered.items() if kind == "supplementary"]
     if len(s_numbered) == 1:
         return _kinds(documents, s_numbered)
-    # 2. No document's figures say "S", but exactly one carries any S-numbered
-    #    caption at all — a Nature-style supplement numbers figures plainly and
-    #    tables "Supplementary Table 1".
+    # 2. 没有文档的插图标有“S”，但恰好一个文档带有 S 编号的题注——Nature 风格的
+    #    补充材料插图用普通编号，而表格编为“Supplementary Table 1”。
     any_s = [identifier for identifier, value in counts.items() if value.supplementary and not front[identifier]]
     if len(any_s) == 1:
         return _kinds(documents, any_s)
-    # 3. Exactly one plainly numbered document; anything unnumbered beside it is
-    #    the supplement.
+    # 3. 恰好一个普通编号的文档；与之并列的未编号文档就是补充材料。
     plain = [identifier for identifier, kind in numbered.items() if kind == "main"]
     if len(plain) == 1:
         return _kinds(documents, rest(plain[0]))
-    # 4. Fall back to the cover/filename heuristics of `infer_pdf_kind`.
+    # 4. 回退到 `infer_pdf_kind` 的封面/文件名启发式规则。
     textual = [
         doc.identifier
         for doc in documents
@@ -298,7 +284,7 @@ def resolve_pdf_kinds(documents: Sequence[PdfDocument]) -> dict[str, str]:
     ]
     if len(textual) == 1:
         return _kinds(documents, textual)
-    # 5. Nothing conclusive: the longer document is the article.
+    # 5. 无确定结论：较长的文档是论文。
     return _kinds(documents, rest(max(documents, key=lambda doc: len(doc.markdown)).identifier))
 
 
@@ -330,8 +316,8 @@ def _decode_numeric_entity(match: re.Match[str], *, base: int) -> str:
         codepoint = int(raw, base)
     except ValueError:
         return match.group(0)
-    # Reject NUL, surrogate code points, and values outside Unicode; malformed
-    # entities are kept literally instead of crashing the caller.
+    # 拒绝 NUL、代理码点以及 Unicode 范围之外的值；格式错误的实体按字面保留，
+    # 而不是让调用方崩溃。
     if codepoint <= 0 or codepoint > 0x10FFFF or 0xD800 <= codepoint <= 0xDFFF:
         return match.group(0)
     return chr(codepoint)

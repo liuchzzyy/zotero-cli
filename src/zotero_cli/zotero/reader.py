@@ -1,14 +1,12 @@
-"""SQLite read layer for the local Zotero database.
+"""本地 Zotero 数据库的 SQLite 读取层。
 
-Reads go straight to zotero.sqlite and never write. Connection setup is
-WAL-aware: when a non-empty WAL is present the database is replayed from a
-temporary copy instead of using the stale immutable snapshot. Citation
-formatting comes from CitationExportMixin.
+所有读取都直接访问 zotero.sqlite，绝不写入。连接建立过程会考虑 WAL：
+当存在非空 WAL 时，从临时副本重放数据库，而不使用可能过期的 immutable
+快照。引用格式化能力来自 CitationExportMixin。
 
-The reader keeps every query concern here (items, search, recent, trash,
-duplicates, notes, collections, attachments, stats, relations, and the batch
-hydration helpers they share); only SQL-free export formatting lives in
-citations.py.
+读取器把所有查询相关逻辑都放在这里（条目、搜索、最近条目、回收站、
+重复项、注记、集合、附件、统计、关联，以及它们共用的批量加载辅助函数）；
+只有不涉及 SQL 的导出格式化放在 citations.py 中。
 """
 
 from __future__ import annotations
@@ -32,35 +30,32 @@ from zotero_cli.zotero.models import (
     SearchResult,
 )
 
-# Excluded type names (looked up dynamically per database)
+# 需排除的类型名（按数据库动态查询）
 _EXCLUDED_TYPE_NAMES = ("attachment", "note", "annotation")
 
-# Stay below SQLite's legacy 999-variable limit, including library parameters.
+# 保持在 SQLite 旧版 999 个变量上限之下，并预留库参数的位置。
 _ITEM_BATCH_SIZE = 900
 
-# Supported Zotero userdata schema range. Newer schemas may rename tables the
-# reader depends on, so refuse them with a clear error instead of failing with
-# confusing SQL errors halfway through a command.
+# 支持的 Zotero userdata schema 范围。较新的 schema 可能重命名读取器所依赖的
+# 表，因此直接以明确的错误拒绝，而不是在命令执行到一半时出现难以理解的
+# SQL 错误。
 MIN_SCHEMA_VERSION = 100
 MAX_SCHEMA_VERSION = 200
 
-# Schema v130+ databases no longer ship fulltext word tables. Zotero Desktop
-# keeps a per-attachment plain-text cache next to the stored file instead; scan
-# a bounded number of those caches so full-text search keeps working without
-# loading the whole corpus into memory.
+# schema v130 及以上的数据库不再包含全文分词表。Zotero Desktop 改为在每个
+# 附件文件旁保存纯文本缓存；这里只扫描有限数量的缓存，使全文搜索继续可用，
+# 同时不会把整个语料载入内存。
 _FULLTEXT_CACHE_FILENAME = ".zotero-ft-cache"
-# Bounds are sized from observed real libraries (1,510 caches on the reference
-# library) so a normal library gets a complete scan while pathological
-# collections stay finite. Scan truncation is reported via
-# SearchResult.fulltext_limited instead of failing or silently pretending the
-# corpus was fully searched.
+# 上限依据真实库的观测结果（参考库中有 1,510 个缓存）设定，使普通库能够
+# 完整扫描，而异常庞大的集合也保持有限。扫描被截断时通过
+# SearchResult.fulltext_limited 报告，而不是报错或默默假装已完整搜索语料。
 _FULLTEXT_CACHE_MAX_FILES = 4000
 _FULLTEXT_CACHE_MAX_BYTES_PER_FILE = 8 * 1024 * 1024
 _FULLTEXT_CACHE_MAX_TOTAL_BYTES = 256 * 1024 * 1024
 
 
 class ZoteroSchemaError(RuntimeError):
-    """Raised when the local Zotero userdata schema is outside the tested range."""
+    """本地 Zotero userdata schema 超出已验证范围时抛出。"""
 
     def __init__(
         self,
@@ -103,10 +98,9 @@ class ZoteroReader(CitationExportMixin):
                 f"  Run 'zot config show' to check your configuration.\n"
                 f"  Run 'zot config init --data-dir <path>' to set the correct data directory."
             )
-        # immutable=1 skips the WAL, so while Zotero Desktop is running it
-        # returns a stale snapshot: recently synced attachments appear missing
-        # and their PDF paths look broken. Only take that fast path when there
-        # is no pending WAL; otherwise replay DB+WAL from a temp copy.
+        # immutable=1 会跳过 WAL，因此在 Zotero Desktop 运行期间会返回过期快照：
+        # 最近同步的附件看起来丢失，其 PDF 路径也似乎失效。仅在没有待处理 WAL 时
+        # 才走这条快速路径；否则从临时副本重放 DB+WAL。
         wal_path = self._db_path.with_suffix(".sqlite-wal")
         try:
             if wal_path.exists() and wal_path.stat().st_size > 0:
@@ -131,20 +125,20 @@ class ZoteroReader(CitationExportMixin):
                 conn.close()
             raise
         except sqlite3.Error:
-            # Fallback: copy DB to temp file (e.g. if immutable read hits corruption)
+            # 备选方案：把数据库复制到临时文件（例如 immutable 读取遇到损坏时）
             if conn is not None:
                 conn.close()
             return self._connect_from_copy()
 
     def _validate_schema(self, conn: sqlite3.Connection) -> None:
-        """Reject userdata schemas outside the tested range before running SQL."""
+        """在执行 SQL 之前拒绝超出已验证范围的 userdata schema。"""
         if self._schema_checked:
             return
         self._schema_checked = True
         try:
             row = conn.execute("SELECT version FROM version WHERE schema = 'userdata'").fetchone()
         except sqlite3.Error:
-            # Schema-less fixture databases (and pre-version columns) are fine.
+            # 无 schema 的测试夹具数据库（以及缺少 version 列的情况）是可以接受的。
             return
         if row is None:
             return
@@ -153,7 +147,7 @@ class ZoteroReader(CitationExportMixin):
             raise ZoteroSchemaError(version)
 
     def _get_excluded_ids(self) -> tuple[int, ...]:
-        """Look up excluded type IDs by name (cached after first call)."""
+        """按名称查询需排除的类型 ID（首次调用后缓存）。"""
         if self._excluded_ids is not None:
             return self._excluded_ids
         conn = self._connect()
@@ -166,7 +160,7 @@ class ZoteroReader(CitationExportMixin):
         return self._excluded_ids
 
     def _get_excluded_sql(self) -> str:
-        """Build SQL fragment with literal IDs (for simple string concatenation)."""
+        """构造包含字面量 ID 的 SQL 片段（用于简单的字符串拼接）。"""
         if self._excluded_sql is not None:
             return self._excluded_sql
         ids = self._get_excluded_ids()
@@ -174,26 +168,24 @@ class ZoteroReader(CitationExportMixin):
         return self._excluded_sql
 
     def _excluded_filter(self) -> tuple[str, tuple[int, ...]]:
-        """Return (SQL fragment with ? placeholders, parameter tuple) for excluded types."""
+        """返回用于排除类型的（带 ? 占位符的 SQL 片段, 参数元组）。"""
         ids = self._get_excluded_ids()
         ph = ",".join("?" * len(ids))
         return f"NOT IN ({ph})", ids
 
     def _library_filter(self) -> tuple[str, tuple[int, ...]]:
-        """Return (SQL fragment, params) scoping item queries to this library.
+        """返回将条目查询限定到本库的（SQL 片段, 参数）。
 
-        Always filter explicitly: the user library is libraryID 1 and Zotero
-        group libraries have their own IDs, so omitting the filter would leak
-        group items into user-library results.
+        必须显式过滤：用户库是 libraryID 1，Zotero 群组库有各自的 ID，
+        省略该过滤条件会使群组条目混入用户库结果。
         """
         return "AND i.libraryID = ?", (self._library_id,)
 
     def _connect_from_copy(self) -> sqlite3.Connection:
-        """Replay DB+WAL from a private temporary copy to avoid WAL locks.
+        """从私有临时副本重放 DB+WAL，以避免 WAL 锁。
 
-        Files are materialised atomically inside a private temp directory and
-        the resulting connection is marked query_only so reading can never
-        write back to the copy or the live database.
+        文件在私有临时目录中以原子方式落盘，生成的连接会标记为 query_only，
+        确保读取过程绝不会写回副本或正在使用的数据库。
         """
         tmp_dir_obj = tempfile.TemporaryDirectory()
         tmp_dir = Path(tmp_dir_obj.name)
@@ -234,7 +226,7 @@ class ZoteroReader(CitationExportMixin):
         return conn
 
     def close(self) -> None:
-        """Close the SQLite connection and clean up any WAL replay copy."""
+        """关闭 SQLite 连接，并清理所有 WAL 重放副本。"""
         if self._conn:
             self._conn.close()
             self._conn = None
@@ -250,13 +242,13 @@ class ZoteroReader(CitationExportMixin):
         self.close()
 
     def get_schema_version(self) -> int | None:
-        """Return the userdata schema version, or None when the table is absent."""
+        """返回 userdata schema 版本；表不存在时返回 None。"""
         conn = self._connect()
         row = conn.execute("SELECT version FROM version WHERE schema = 'userdata'").fetchone()
         return row["version"] if row else None
 
     def resolve_group_library_id(self, group_id: int) -> int | None:
-        """Look up the SQLite libraryID for a Zotero group by its public groupID."""
+        """根据公开的 groupID 查询 Zotero 群组对应的 SQLite libraryID。"""
         conn = self._connect()
         row = conn.execute(
             "SELECT libraryID FROM groups WHERE groupID = ?",
@@ -265,7 +257,7 @@ class ZoteroReader(CitationExportMixin):
         return row["libraryID"] if row else None
 
     def get_item(self, key: str) -> Item | None:
-        """Look up a top-level item by key, scoped to this reader's library."""
+        """按键查询顶级条目，范围限定为本读取器所属的库。"""
         conn = self._connect()
         lib_sql, lib_params = self._library_filter()
         row = conn.execute(
@@ -310,7 +302,7 @@ class ZoteroReader(CitationExportMixin):
         limit: int = 50,
         offset: int = 0,
     ) -> SearchResult:
-        """Search items by title, abstract, creator, tag, or full text; trash excluded."""
+        """按标题、摘要、作者、标签或全文搜索条目；不含回收站中的条目。"""
         conn = self._connect()
         item_ids: set[int] = set()
         fulltext_limited = False
@@ -319,7 +311,7 @@ class ZoteroReader(CitationExportMixin):
 
         if query:
             like = self._like_pattern(query)
-            # Search titles, abstracts, and all other metadata field values
+            # 搜索标题、摘要以及所有其他元数据字段值
             rows = conn.execute(
                 "SELECT DISTINCT i.itemID FROM items i "
                 "JOIN itemData id ON i.itemID = id.itemID "
@@ -330,7 +322,7 @@ class ZoteroReader(CitationExportMixin):
             ).fetchall()
             item_ids.update(r["itemID"] for r in rows)
 
-            # Search creators
+            # 搜索作者
             rows = conn.execute(
                 "SELECT DISTINCT ic.itemID FROM itemCreators ic "
                 "JOIN creators c ON ic.creatorID = c.creatorID "
@@ -342,7 +334,7 @@ class ZoteroReader(CitationExportMixin):
             ).fetchall()
             item_ids.update(r["itemID"] for r in rows)
 
-            # Search tags
+            # 搜索标签
             rows = conn.execute(
                 "SELECT DISTINCT it.itemID FROM itemTags it "
                 "JOIN tags t ON it.tagID = t.tagID "
@@ -353,7 +345,7 @@ class ZoteroReader(CitationExportMixin):
             ).fetchall()
             item_ids.update(r["itemID"] for r in rows)
 
-            # Search fulltext (legacy word tables or v130 per-attachment caches).
+            # 搜索全文（旧版分词表或 v130 的逐附件缓存）。
             fulltext_ids, fulltext_limited = self._search_fulltext(
                 conn, query, excl_sql, excl_params, lib_sql, lib_params
             )
@@ -366,7 +358,7 @@ class ZoteroReader(CitationExportMixin):
             ).fetchall()
             item_ids.update(r["itemID"] for r in rows)
 
-        # Filter by collection (accepts key or name)
+        # 按集合过滤（接受键或名称）
         if collection:
             col_row = conn.execute(
                 "SELECT collectionID FROM collections WHERE libraryID = ? AND (key = ? OR collectionName = ?)",
@@ -384,7 +376,7 @@ class ZoteroReader(CitationExportMixin):
                     f"Collection '{collection}' not found. Use 'zot zotero collection list' to see available names."
                 )
 
-        # Filter by item type (batched to respect SQLite's variable limit)
+        # 按条目类型过滤（分批处理以遵守 SQLite 的变量数量上限）
         if item_type:
             type_row = conn.execute(
                 "SELECT itemTypeID FROM itemTypes WHERE typeName = ?",
@@ -403,7 +395,7 @@ class ZoteroReader(CitationExportMixin):
             else:
                 item_ids = set()
 
-        # Resolve items in batch
+        # 批量解析条目
         total = len(item_ids)
 
         if sort and item_ids:
@@ -415,16 +407,16 @@ class ZoteroReader(CitationExportMixin):
 
         return SearchResult(items=items, total=total, query=query, fulltext_limited=fulltext_limited)
 
-    # --- Search helpers ---
+    # --- 搜索辅助函数 ---
 
     @staticmethod
     def _like_pattern(query: str) -> str:
-        """Build a LIKE pattern that treats user wildcards as literal text."""
+        """构造把用户输入的未转义通配符当作字面文本处理的 LIKE 模式。"""
         escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         return f"%{escaped}%"
 
     def _fulltext_schema(self, conn: sqlite3.Connection) -> str:
-        """Return which fulltext schema this database uses ("legacy"/"v130"/"none")."""
+        """返回该数据库使用的全文 schema（"legacy"/"v130"/"none"）。"""
         if self._fulltext_mode is not None:
             return self._fulltext_mode
         try:
@@ -455,13 +447,13 @@ class ZoteroReader(CitationExportMixin):
         lib_sql: str,
         lib_params: tuple[int, ...],
     ) -> tuple[set[int], bool]:
-        """Resolve item IDs whose attachment full text matches the query.
+        """解析附件全文与查询匹配的条目 ID。
 
-        Zotero 6 databases store tokenised full text in fulltextWords /
-        fulltextItemWords; Zotero 7+ (userdata v130) only stores fulltextItems
-        and keeps the extracted text in per-attachment .zotero-ft-cache files.
-        Both are handled defensively: a missing table or unreadable cache
-        degrades to metadata-only search instead of crashing.
+        Zotero 6 数据库把分词后的全文保存在 fulltextWords /
+        fulltextItemWords 中；Zotero 7+（userdata v130）只保存 fulltextItems，
+        并把提取的文本放在每个附件的 .zotero-ft-cache 文件中。
+        两种形式都做了防御性处理：表缺失或缓存不可读时降级为仅搜索元数据，
+        而不是崩溃。
         """
         mode = self._fulltext_schema(conn)
         if mode == "legacy":
@@ -492,7 +484,7 @@ class ZoteroReader(CitationExportMixin):
         lib_sql: str,
         lib_params: tuple[int, ...],
     ) -> tuple[set[int], bool]:
-        """Scan a bounded number of .zotero-ft-cache files for the query text."""
+        """在有限数量的 .zotero-ft-cache 文件中扫描查询文本。"""
         needle = query.casefold()
         if not needle:
             return set(), False
@@ -554,7 +546,7 @@ class ZoteroReader(CitationExportMixin):
         limit: int,
         offset: int,
     ) -> list[int]:
-        """Return page-sorted IDs, batching IN (...) queries under SQLite limits."""
+        """返回按页排序的 ID，并把 IN (...) 查询分批以符合 SQLite 限制。"""
         ids = list(item_ids)
         descending = direction == "desc"
         if sort in ("dateAdded", "dateModified"):
@@ -610,7 +602,7 @@ class ZoteroReader(CitationExportMixin):
 
     @staticmethod
     def _nocase_key(value: str) -> str:
-        """Approximate SQLite NOCASE collation (ASCII-only case folding)."""
+        """近似 SQLite NOCASE 排序规则（仅对 ASCII 做大小写折叠）。"""
         return "".join(chr(ord(char) + 32) if "A" <= char <= "Z" else char for char in value)
 
     def get_recent_items(
@@ -619,7 +611,7 @@ class ZoteroReader(CitationExportMixin):
         sort: str = "dateAdded",
         limit: int = 50,
     ) -> list[Item]:
-        """Return items added or modified since the given timestamp."""
+        """返回在给定时间戳之后新增或修改的条目。"""
         conn = self._connect()
         excl_sql, excl_params = self._excluded_filter()
         lib_sql, lib_params = self._library_filter()
@@ -633,7 +625,7 @@ class ZoteroReader(CitationExportMixin):
         return self._get_items_batch(conn, item_ids) if item_ids else []
 
     def get_trash_items(self, limit: int = 50) -> list[Item]:
-        """Return items in the trash, ordered by deletion date (newest first)."""
+        """返回回收站中的条目，按删除日期排序（最新的在前）。"""
         conn = self._connect()
         excl_sql, excl_params = self._excluded_filter()
         lib_sql, lib_params = self._library_filter()
@@ -653,13 +645,13 @@ class ZoteroReader(CitationExportMixin):
         threshold: float = 0.85,
         limit: int = 50,
     ) -> list[DuplicateGroup]:
-        """Find potential duplicate items by DOI and/or title similarity.
+        """按 DOI 和/或标题相似度查找潜在的重复条目。
 
-        Candidates are scoped to this library. Trashed items may still be
-        included: find_duplicates follows the documented M-01 mixed trash
-        scoping, so callers should not assume a global deletedItems filter.
-        Title fuzzy matching uses blocking keys plus cheap ratio prefilters so
-        it does not compare every pair of titles in large libraries.
+        候选项限定在本库范围内。回收站中的条目仍可能被包含：
+        find_duplicates 遵循文档中 M-01 的混合回收站范围约定，
+        因此调用方不应假定存在全局的 deletedItems 过滤。
+        标题模糊匹配使用分块键加上低廉的相似度预筛，
+        因此不会在大库中比较每一对标题。
         """
         if limit <= 0:
             return []
@@ -668,8 +660,8 @@ class ZoteroReader(CitationExportMixin):
         excl_sql, excl_params = self._excluded_filter()
         lib_sql, lib_params = self._library_filter()
 
-        # Load items for comparison (cap at 10k most recent). Per M-01, trashed
-        # items keep the documented mixed scoping and may be included here.
+        # 加载用于比较的条目（最多取最近 10k 条）。按 M-01，回收站中的条目
+        # 保持文档所述的混合范围约定，因此可能被包含在此。
         rows = conn.execute(
             f"SELECT i.itemID, i.key FROM items i WHERE i.itemTypeID {excl_sql} {lib_sql} "
             "ORDER BY i.dateAdded DESC LIMIT 10000",
@@ -687,7 +679,7 @@ class ZoteroReader(CitationExportMixin):
         def _reached_limit() -> bool:
             return len(groups) >= limit
 
-        # --- DOI strategy ---
+        # --- DOI 策略 ---
         if strategy in ("doi", "both"):
             doi_map: dict[str, list[int]] = {}
             for chunk in self._chunks(item_ids):
@@ -715,7 +707,7 @@ class ZoteroReader(CitationExportMixin):
                     if _reached_limit():
                         return groups
 
-        # --- Title strategy ---
+        # --- 标题策略 ---
         if strategy in ("title", "both"):
             title_values: dict[int, str] = {}
             doi_by_item_id: dict[int, str] = {}
@@ -738,12 +730,10 @@ class ZoteroReader(CitationExportMixin):
                 ).fetchall()
                 doi_by_item_id.update({row["itemID"]: row["doi"] for row in doi_rows})
 
-            # A title-only match is not enough when both records carry
-            # different DOIs: books, reviews, translations, and conference
-            # chapters often share nearly identical titles. Keep same-DOI
-            # matches (already found by the DOI strategy) and title matches
-            # where at least one DOI is absent, but suppress conflicting DOI
-            # pairs as false positives.
+            # 当两条记录带有不同 DOI 时，仅标题匹配并不充分：图书、书评、
+            # 译作和会议论文章节常常有几乎相同的标题。保留 DOI 相同的匹配
+            # （已由 DOI 策略找到）以及至少一方缺少 DOI 的标题匹配，
+            # 但把 DOI 相互冲突的配对作为误报抑制掉。
             def _compatible_title_ids(ids: list[int]) -> bool:
                 dois = {doi_by_item_id[item_id] for item_id in ids if item_id in doi_by_item_id}
                 return len(dois) <= 1
@@ -751,7 +741,7 @@ class ZoteroReader(CitationExportMixin):
             normalized_titles = [(item_id, self._normalize_title(title)) for item_id, title in title_values.items()]
             norm_by_id = dict(normalized_titles)
 
-            # Group exact normalized matches (O(n))
+            # 按归一化后的完全一致进行分组（O(n)）
             norm_groups: dict[str, list[int]] = {}
             for item_id, norm in normalized_titles:
                 norm_groups.setdefault(norm, []).append(item_id)
@@ -767,7 +757,7 @@ class ZoteroReader(CitationExportMixin):
                             if _reached_limit():
                                 return groups
 
-            # Fuzzy match singletons only; blocking keeps this far below O(n^2).
+            # 只对单元素分组做模糊匹配；分块使复杂度远低于 O(n^2)。
             singletons = [(item_id, norm) for item_id, norm in normalized_titles if len(norm_groups[norm]) == 1]
             candidates = self._duplicate_candidates([norm for _item_id, norm in singletons])
             matched: set[int] = set()
@@ -810,13 +800,13 @@ class ZoteroReader(CitationExportMixin):
 
     @staticmethod
     def _normalize_title(title: str) -> str:
-        """Lowercase and strip punctuation/whitespace runs for title matching."""
+        """为标题匹配转为小写，并去除标点与连续空白。"""
         stripped = re.sub(r"[^\w\s]", "", title.lower()).strip()
         return re.sub(r"\s+", " ", stripped)
 
     @staticmethod
     def _title_lengths_can_match(norm_a: str, norm_b: str, threshold: float) -> bool:
-        """Cheap upper bound on SequenceMatcher.ratio() for two title strings."""
+        """为两个标题字符串给出 SequenceMatcher.ratio() 的廉价上界。"""
         total_len = len(norm_a) + len(norm_b)
         if total_len == 0:
             return True
@@ -825,7 +815,7 @@ class ZoteroReader(CitationExportMixin):
 
     @staticmethod
     def _title_block_keys(normalized: str) -> tuple[str, ...]:
-        """Blocking keys likely shared by near-duplicate titles."""
+        """近似重复标题可能共有的分块键。"""
         if not normalized:
             return ("empty",)
         keys = ["prefix:" + normalized[:6]]
@@ -836,22 +826,22 @@ class ZoteroReader(CitationExportMixin):
         return tuple(keys)
 
     def _duplicate_candidates(self, normalized_titles: list[str]) -> list[set[int]]:
-        """Return candidate partner indexes for each title using blocking keys."""
+        """使用分块键为每个标题返回候选配对索引。"""
         buckets: dict[str, list[int]] = {}
         for index, normalized in enumerate(normalized_titles):
             for key in self._title_block_keys(normalized):
                 buckets.setdefault(key, []).append(index)
 
         candidates: list[set[int]] = [set() for _ in normalized_titles]
-        # Safety valve: blocking already cuts most pairs, but cap pathological
-        # blocks so a large library can never degrade back to a full scan.
+        # 安全阀：分块已经削减了大部分配对，但仍需对异常分块设上限，
+        # 使大库绝不会退化回全量扫描。
         max_pairs = 250_000
         pair_count = 0
         for members in buckets.values():
             if len(members) < 2:
                 continue
-            # Very large buckets are usually generic prefixes ("the ", ...);
-            # refine them once by a longer prefix before pairing.
+            # 过大的分桶通常是通用前缀（如 "the " 等）；
+            # 在配对之前先用更长前缀再细分一次。
             groups = [members]
             if len(members) > 128:
                 refined: dict[str, list[int]] = {}
@@ -860,7 +850,7 @@ class ZoteroReader(CitationExportMixin):
                 groups = list(refined.values())
             for group in groups:
                 if len(group) > 256:
-                    # Pathological bucket: compare only a bounded sliding window.
+                    # 异常分桶：只比较限定大小的滑动窗口。
                     group = group[:256]
                 for left_pos, left in enumerate(group):
                     for right in group[left_pos + 1 :]:
@@ -872,7 +862,7 @@ class ZoteroReader(CitationExportMixin):
         return candidates
 
     def get_notes(self, key: str) -> list[Note]:
-        """Return an item's notes, skipping trashed notes and trashed parents."""
+        """返回条目的注记，跳过回收站中的注记及其父条目在回收站中的情况。"""
         conn = self._connect()
         lib_sql, lib_params = self._library_filter()
         parent = conn.execute(
@@ -888,7 +878,7 @@ class ZoteroReader(CitationExportMixin):
         ).fetchall()
         if not rows:
             return []
-        # Batch-fetch tags for all note items
+        # 批量获取所有注记条目的标签
         note_ids = [r["itemID"] for r in rows]
         ph = ",".join("?" * len(note_ids))
         tag_rows = conn.execute(
@@ -906,7 +896,7 @@ class ZoteroReader(CitationExportMixin):
         return notes
 
     def get_collections(self) -> list[Collection]:
-        """Return the library's collection tree, with children nested under parents."""
+        """返回库的集合树，子集合嵌套在父集合之下。"""
         conn = self._connect()
         rows = conn.execute(
             "SELECT collectionID, collectionName, parentCollectionID, key FROM collections WHERE libraryID = ?",
@@ -931,7 +921,7 @@ class ZoteroReader(CitationExportMixin):
         return [c for cid, c in coll_map.items() if parent_map[cid] is None]
 
     def get_collection_items(self, collection_key: str) -> list[Item]:
-        """Return the top-level items in a collection (notes and attachments excluded)."""
+        """返回集合中的顶级条目（不含注记和附件）。"""
         conn = self._connect()
         _, lib_params = self._library_filter()
         col_row = conn.execute(
@@ -949,7 +939,7 @@ class ZoteroReader(CitationExportMixin):
         return self._get_items_batch(conn, [r["itemID"] for r in rows])
 
     def get_attachments(self, key: str) -> list[Attachment]:
-        """Return an item's attachments, skipping trashed attachments and trashed parents."""
+        """返回条目的附件，跳过回收站中的附件及其父条目在回收站中的情况。"""
         conn = self._connect()
         lib_sql, lib_params = self._library_filter()
         parent = conn.execute(
@@ -988,14 +978,14 @@ class ZoteroReader(CitationExportMixin):
         return attachments
 
     def get_pdf_attachment(self, key: str) -> Attachment | None:
-        """Return the item's first PDF attachment, if any."""
+        """返回条目的第一个 PDF 附件（若存在）。"""
         for att in self.get_attachments(key):
             if att.content_type == "application/pdf":
                 return att
         return None
 
     def get_pdf_attachments(self, key: str) -> list[Attachment]:
-        """Return the item's PDF attachments, dropping duplicate resolved paths."""
+        """返回条目的 PDF 附件，并去除解析结果重复的路径。"""
         pdf_attachments: list[Attachment] = []
         seen_paths: set[str] = set()
         for att in self.get_attachments(key):
@@ -1013,12 +1003,12 @@ class ZoteroReader(CitationExportMixin):
         collection: str | None = None,
         limit: int = 200,
     ) -> list[Item]:
-        """Find preprint items (arXiv, bioRxiv, medRxiv) by URL, DOI, extra, or itemType."""
+        """按 URL、DOI、extra 或 itemType 查找预印本条目（arXiv、bioRxiv、medRxiv）。"""
         conn = self._connect()
         excl_sql, excl_params = self._excluded_filter()
         lib_sql, lib_params = self._library_filter()
 
-        # Find items with arXiv or bioRxiv/medRxiv references in URL, DOI, or extra fields
+        # 查找在 URL、DOI 或 extra 字段中带有 arXiv 或 bioRxiv/medRxiv 引用的条目
         rows = conn.execute(
             "SELECT DISTINCT id.itemID FROM itemData id "
             "JOIN fields f ON id.fieldID = f.fieldID "
@@ -1032,7 +1022,7 @@ class ZoteroReader(CitationExportMixin):
         ).fetchall()
         item_ids = {r["itemID"] for r in rows}
 
-        # Also find all items with itemType = preprint
+        # 同时查找所有 itemType = preprint 的条目
         preprint_type = conn.execute("SELECT itemTypeID FROM itemTypes WHERE typeName = 'preprint'").fetchone()
         if preprint_type:
             rows = conn.execute(
@@ -1045,7 +1035,7 @@ class ZoteroReader(CitationExportMixin):
         if not item_ids:
             return []
 
-        # Filter by collection if specified
+        # 若指定了集合则按集合过滤
         if collection:
             col_row = conn.execute(
                 "SELECT collectionID FROM collections WHERE libraryID = ? AND (key = ? OR collectionName = ?)",
@@ -1066,16 +1056,16 @@ class ZoteroReader(CitationExportMixin):
         return self._get_items_batch(conn, target_ids) if target_ids else []
 
     def get_stats(self) -> dict:
-        """Return library statistics."""
+        """返回库统计信息。"""
         conn = self._connect()
         lib_sql, lib_params = self._library_filter()
-        # Total items (excluding attachments and notes)
+        # 条目总数（不含附件和注记）
         total = conn.execute(
             "SELECT COUNT(*) as cnt FROM items i WHERE itemTypeID " + self._get_excluded_sql() + " " + lib_sql,
             lib_params,
         ).fetchone()["cnt"]
 
-        # Items by type
+        # 按类型统计条目
         type_rows = conn.execute(
             "SELECT t.typeName, COUNT(*) as cnt FROM items i "
             "JOIN itemTypes t ON i.itemTypeID = t.itemTypeID "
@@ -1085,7 +1075,7 @@ class ZoteroReader(CitationExportMixin):
         ).fetchall()
         by_type = {r["typeName"]: r["cnt"] for r in type_rows}
 
-        # Top tags
+        # 热门标签
         tag_rows = conn.execute(
             "SELECT t.name, COUNT(*) as cnt FROM itemTags it "
             "JOIN tags t ON it.tagID = t.tagID "
@@ -1095,7 +1085,7 @@ class ZoteroReader(CitationExportMixin):
         ).fetchall()
         top_tags = {r["name"]: r["cnt"] for r in tag_rows}
 
-        # Collections with item counts
+        # 带条目数的集合
         coll_rows = conn.execute(
             "SELECT c.collectionName, COUNT(ci.itemID) as cnt "
             "FROM collections c "
@@ -1106,7 +1096,7 @@ class ZoteroReader(CitationExportMixin):
         ).fetchall()
         collections = {r["collectionName"]: r["cnt"] for r in coll_rows}
 
-        # Attachments
+        # 附件
         pdf_count = conn.execute(
             "SELECT COUNT(*) as cnt FROM itemAttachments ia "
             "JOIN items i ON ia.itemID = i.itemID "
@@ -1114,7 +1104,7 @@ class ZoteroReader(CitationExportMixin):
             lib_params,
         ).fetchone()["cnt"]
 
-        # Notes count
+        # 注记数量
         notes_count = conn.execute(
             f"SELECT COUNT(*) as cnt FROM itemNotes n JOIN items i ON n.itemID = i.itemID WHERE 1=1 {lib_sql}",
             lib_params,
@@ -1130,7 +1120,7 @@ class ZoteroReader(CitationExportMixin):
         }
 
     def get_related_items(self, key: str, limit: int = 20) -> list[Item]:
-        """Rank related items by explicit relations, shared collections, and tags."""
+        """按显式关联、共享集合和标签对相关条目排序。"""
         conn = self._connect()
         lib_sql, lib_params = self._library_filter()
         parent = conn.execute(
@@ -1142,8 +1132,8 @@ class ZoteroReader(CitationExportMixin):
         item_id = parent["itemID"]
         related_ids: dict[int, int] = {}
 
-        # Explicit relations: resolve the dc:relation predicate instead of
-        # hardcoding an ID that could differ between Zotero databases.
+        # 显式关联：解析 dc:relation 谓词，而不是硬编码一个在不同 Zotero
+        # 数据库中可能不同的 ID。
         predicate = conn.execute(
             "SELECT predicateID FROM relationPredicates WHERE predicate = 'dc:relation'"
         ).fetchone()
@@ -1162,7 +1152,7 @@ class ZoteroReader(CitationExportMixin):
                 if rel_row:
                     related_ids[rel_row["itemID"]] = related_ids.get(rel_row["itemID"], 0) + 100
 
-        # Implicit: shared collections
+        # 隐式：共享集合
         my_cols = {
             r["collectionID"]
             for r in conn.execute("SELECT collectionID FROM collectionItems WHERE itemID = ?", (item_id,)).fetchall()
@@ -1178,7 +1168,7 @@ class ZoteroReader(CitationExportMixin):
             for r in rows:
                 related_ids[r["itemID"]] = related_ids.get(r["itemID"], 0) + r["cnt"]
 
-        # Implicit: shared tags (2+ overlap)
+        # 隐式：共享标签（重叠 2 个及以上）
         my_tags = {
             r["tagID"] for r in conn.execute("SELECT tagID FROM itemTags WHERE itemID = ?", (item_id,)).fetchall()
         }
@@ -1196,10 +1186,10 @@ class ZoteroReader(CitationExportMixin):
         sorted_ids = sorted(related_ids, key=lambda x: related_ids[x], reverse=True)[:limit]
         return self._get_items_batch(conn, sorted_ids)
 
-    # --- Private helpers ---
+    # --- 私有辅助函数 ---
 
     def _get_items_batch(self, conn: sqlite3.Connection, item_ids: list[int]) -> list[Item]:
-        """Resolve multiple item IDs to Items using bulk queries instead of N+1."""
+        """使用批量查询把多个条目 ID 解析为 Item，避免 N+1 查询。"""
         if not item_ids:
             return []
         if len(item_ids) > _ITEM_BATCH_SIZE:
@@ -1211,7 +1201,7 @@ class ZoteroReader(CitationExportMixin):
 
         placeholders = ",".join("?" * len(item_ids))
 
-        # Fetch base item rows
+        # 获取条目的基础行
         lib_sql, lib_params = self._library_filter()
         rows = conn.execute(
             f"SELECT itemID, itemTypeID, key, dateAdded, dateModified "
@@ -1225,7 +1215,7 @@ class ZoteroReader(CitationExportMixin):
         valid_ids = list(id_to_row.keys())
         valid_ph = ",".join("?" * len(valid_ids))
 
-        # Batch fetch item types
+        # 批量获取条目类型
         type_ids = list({r["itemTypeID"] for r in rows})
         type_ph = ",".join("?" * len(type_ids))
         type_rows = conn.execute(
@@ -1234,7 +1224,7 @@ class ZoteroReader(CitationExportMixin):
         ).fetchall()
         type_map = {r["itemTypeID"]: r["typeName"] for r in type_rows}
 
-        # Batch fetch fields
+        # 批量获取字段
         field_rows = conn.execute(
             f"SELECT id.itemID, f.fieldName, iv.value FROM itemData id "
             f"JOIN fields f ON id.fieldID = f.fieldID "
@@ -1246,7 +1236,7 @@ class ZoteroReader(CitationExportMixin):
         for r in field_rows:
             fields_map.setdefault(r["itemID"], {})[r["fieldName"]] = r["value"]
 
-        # Batch fetch creators
+        # 批量获取作者
         creator_rows = conn.execute(
             f"SELECT ic.itemID, c.firstName, c.lastName, ct.creatorType "
             f"FROM itemCreators ic "
@@ -1261,7 +1251,7 @@ class ZoteroReader(CitationExportMixin):
                 Creator(r["firstName"] or "", r["lastName"] or "", r["creatorType"])
             )
 
-        # Batch fetch tags
+        # 批量获取标签
         tag_rows = conn.execute(
             f"SELECT it.itemID, t.name FROM itemTags it "
             f"JOIN tags t ON it.tagID = t.tagID "
@@ -1272,7 +1262,7 @@ class ZoteroReader(CitationExportMixin):
         for r in tag_rows:
             tags_map.setdefault(r["itemID"], []).append(r["name"])
 
-        # Batch fetch collections
+        # 批量获取集合
         coll_rows = conn.execute(
             f"SELECT ci.itemID, c.key FROM collectionItems ci "
             f"JOIN collections c ON ci.collectionID = c.collectionID "
@@ -1283,7 +1273,7 @@ class ZoteroReader(CitationExportMixin):
         for r in coll_rows:
             colls_map.setdefault(r["itemID"], []).append(r["key"])
 
-        # Assemble items in original order
+        # 按原始顺序组装条目
         items: list[Item] = []
         for item_id in item_ids:
             if item_id not in id_to_row:

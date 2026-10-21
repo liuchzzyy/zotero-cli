@@ -1,4 +1,4 @@
-"""Embedding providers and the configured embedding entry point for RAG."""
+"""RAG 的 embedding provider 与配置化 embedding 入口。"""
 
 from __future__ import annotations
 
@@ -39,8 +39,8 @@ def embed_texts(
             f"\r{' ' * 60}\r  [WARN] Unsupported embedding provider '{config.provider}'. Falling back to BM25-only.\n"
         )
         return None
-    # Imported lazily so provider implementations can depend on this module
-    # for the EmbeddingProvider contract without an import cycle.
+    # 延迟导入，使 provider 实现可以依赖本模块提供的 EmbeddingProvider 约定，
+    # 而不会形成循环导入。
     from zotero_cli.workspace.rag.providers.gitee import GiteeEmbeddingProvider
 
     provider = GiteeEmbeddingProvider(

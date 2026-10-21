@@ -1,9 +1,9 @@
-"""Citation export formatting for item records.
+"""条目记录的引用导出格式化。
 
-Query and connection concerns stay in zotero_cli.zotero.reader; this
-module only renders an already-hydrated zotero_cli.zotero.models.Item as BibTeX,
-CSL-JSON, or RIS. ZoteroReader composes CitationExportMixin, so callers keep
-using reader.export_citation().
+查询与连接相关逻辑保留在 zotero_cli.zotero.reader；本模块只负责把已经
+完整加载的 zotero_cli.zotero.models.Item 渲染为 BibTeX、CSL-JSON 或 RIS。
+ZoteroReader 通过组合 CitationExportMixin 获得这些能力，
+调用方仍继续使用 reader.export_citation()。
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ _BIBTEX_ESCAPES = {
 _YEAR_RE = re.compile(r"\b(\d{4})\b")
 _DATE_PARTS_RE = re.compile(r"^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?")
 
-# Zotero item types -> BibTeX entry types.
+# Zotero 条目类型 -> BibTeX 条目类型。
 _BIBTEX_TYPES = {
     "journalArticle": "article",
     "book": "book",
@@ -45,7 +45,7 @@ _BIBTEX_TYPES = {
     "blogPost": "misc",
 }
 
-# Zotero item types -> RIS reference types.
+# Zotero 条目类型 -> RIS 文献类型。
 _RIS_TYPES = {
     "journalArticle": "JOUR",
     "book": "BOOK",
@@ -63,7 +63,7 @@ _RIS_TYPES = {
     "blogPost": "BLOG",
 }
 
-# Zotero item types -> CSL-JSON item types.
+# Zotero 条目类型 -> CSL-JSON 条目类型。
 _CSL_TYPES = {
     "journalArticle": "article-journal",
     "book": "book",
@@ -81,12 +81,12 @@ _CSL_TYPES = {
 
 
 def _clean_text(value: str) -> str:
-    """Strip HTML markup and decode entities from a Zotero field value."""
+    """去除 Zotero 字段值中的 HTML 标记并解码实体。"""
     return html.unescape(_HTML_TAG_RE.sub("", value)).strip()
 
 
 def _item_year(item: Item) -> str | None:
-    """Return the 4-digit year from Zotero's stored date string, if any."""
+    """从 Zotero 保存的日期字符串中返回 4 位年份（若存在）。"""
     if not item.date:
         return None
     match = _YEAR_RE.search(item.date)
@@ -94,7 +94,7 @@ def _item_year(item: Item) -> str | None:
 
 
 def _item_date_parts(item: Item) -> list[list[int]] | None:
-    """Convert Zotero's stored date string into CSL date-parts."""
+    """把 Zotero 保存的日期字符串转换为 CSL date-parts。"""
     if not item.date:
         return None
     match = _DATE_PARTS_RE.match(item.date.strip())
@@ -112,11 +112,11 @@ def _item_date_parts(item: Item) -> list[list[int]] | None:
 
 
 class CitationExportMixin(ABC):
-    """BibTeX/CSL-JSON/RIS rendering for a reader that can load items."""
+    """为能够加载条目的读取器提供 BibTeX/CSL-JSON/RIS 渲染能力。"""
 
     @abstractmethod
     def get_item(self, key: str) -> Item | None:
-        """Return the hydrated item for *key* (implemented by the concrete reader)."""
+        """返回 *key* 对应的完整条目（由具体读取器实现）。"""
 
     def export_citation(self, key: str, fmt: str = "bibtex") -> str | None:
         item = self.get_item(key)
@@ -132,10 +132,10 @@ class CitationExportMixin(ABC):
 
     @staticmethod
     def _escape_bibtex(value: str) -> str:
-        """Escape special LaTeX/BibTeX characters in a field value.
+        """转义字段值中的 LaTeX/BibTeX 特殊字符。
 
-        A single regex pass is used so the braces inserted for a backslash
-        escape are not escaped again on a later loop iteration.
+        这里只进行单次正则替换，避免为反斜杠转义插入的花括号在后续循环中
+        被再次转义。
         """
         return _BIBTEX_ESCAPE_RE.sub(lambda match: _BIBTEX_ESCAPES[match.group(1)], value)
 
@@ -167,7 +167,7 @@ class CitationExportMixin(ABC):
 
     @staticmethod
     def _to_csl_json(item: Item) -> str:
-        """Convert an Item to CSL-JSON format (single item, not array)."""
+        """把 Item 转换为 CSL-JSON 格式（单个条目，而非数组）。"""
         csl: dict = {
             "id": item.key,
             "type": _CSL_TYPES.get(item.item_type, "article"),
@@ -193,7 +193,7 @@ class CitationExportMixin(ABC):
 
     @staticmethod
     def _to_ris(item: Item) -> str:
-        """Convert an Item to RIS format."""
+        """把 Item 转换为 RIS 格式。"""
         lines = [f"TY  - {_RIS_TYPES.get(item.item_type, 'GEN')}"]
         title = _clean_text(item.title)
         if title:

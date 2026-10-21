@@ -1,4 +1,4 @@
-"""`zot config profile` - list and select configuration profiles."""
+"""`zot config profile` - 列出并选择配置 profile。"""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def profile_list(
     ctx: typer.Context,
     config_path: str | None = typer.Option(None, "--config-path", help="配置文件路径。"),
 ) -> None:
-    """List all profiles."""
+    """列出所有 profile。"""
     json_out = _json_out(ctx)
     try:
         path = resolve_config_path(config_path, must_exist=config_path is not None)
@@ -68,7 +68,7 @@ def profile_set(
     config_path: str | None = typer.Option(None, "--config-path", help="配置文件路径。"),
     dry_run: bool = typer.Option(False, "--dry-run", help="仅预览，不写入。"),
 ) -> None:
-    """Set the default profile, keeping every other config section intact."""
+    """设置默认 profile，保持其他配置段不变。"""
     json_out = _json_out(ctx)
     try:
         path = resolve_config_path(config_path, must_exist=True)

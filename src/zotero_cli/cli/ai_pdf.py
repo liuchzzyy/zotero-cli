@@ -220,8 +220,8 @@ def ai_pdf(
     except SystemExit:
         raise
     except Exception as exc:
-        # Last-resort boundary: classify centrally (configuration vs runtime) and
-        # honor --verbose tracebacks like every other command.
+        # 兜底边界：集中分类（配置错误与运行时错误），并像其他命令一样
+        # 遵循 --verbose 的回溯输出。
         emit_exception(exc, output_json=json_out, verbose=verbose, context="ai-pdf")
     finally:
         if reader is not None:

@@ -1,4 +1,4 @@
-"""Constants shared by the AI note analysis pipeline modules."""
+"""AI note 分析流水线各模块共用的常量。"""
 
 from __future__ import annotations
 
@@ -10,15 +10,15 @@ NOTE_TITLE_PREFIX = "AI条目分析 - "
 
 MIN_SECTIONS = 10
 
-# Hard ceiling for the *short-note* prompt (template + the AI note it condenses).
-# The analysis prompt is bounded instead by `[ai_notes].max_extracted_chars`
-# (default 250,000, 0 = no limit) and by the 500k-token image budget in
-# `ai_notes/structured_input.py`; the two limits are independent.
+# *short-note* prompt 的硬上限（模板 + 被压缩的 AI note）。
+# 分析 prompt 改用 `[ai_notes].max_extracted_chars` 限界
+# （默认 250,000，0 表示不限），并受 `ai_notes/structured_input.py`
+# 中 500k token 的图片预算约束；两处限制相互独立。
 MAX_PROMPT_CHARS = 220_000
 PROMPT_RESERVE_CHARS = 2_000
 
-# Per-field caps keep specially crafted / pathological Zotero metadata from
-# consuming the prompt budget before the (truncatable) full text is considered.
+# 逐字段上限，避免刻意构造或异常的 Zotero 元数据在（可截断的）全文
+# 之前就耗尽 prompt 预算。
 MAX_TITLE_CHARS = 2_000
 MAX_ABSTRACT_CHARS = 20_000
 MAX_AUTHORS_CHARS = 10_000
@@ -26,7 +26,7 @@ MAX_JOURNAL_CHARS = 1_000
 MAX_DATE_CHARS = 100
 MAX_DOI_CHARS = 500
 
-# Retry instructions appended to a prompt when the model output is unusable.
+# 模型输出不可用时追加到 prompt 末尾的重试指令。
 PARSE_RETRY_SUFFIX = (
     "\n\n【输出格式要求（必须遵守）】"
     "上一次输出无法解析为 JSON。请重新输出，且只输出一个 json 代码块："

@@ -1,23 +1,21 @@
-"""Stable JSON envelope contract: request scope, meta, and envelope builders.
+"""稳定的 JSON envelope 契约：请求作用域、meta 以及 envelope 构建函数。
 
-Every machine-readable response zot emits is built here so agents can rely on
-one shape. Documented top-level keys:
+zot 输出的每个机器可读响应都在此处构建，因此代理可以依赖同一种结构。
+文档化的顶层键：
 
-* ok: True (success), False (error) or "partial" (some operations succeeded,
-  some failed). Consumers must treat this as tri-state, not a boolean.
-* data: present on success and partial envelopes.
-* error: present on error envelopes, with code/message/retryable (+hint/context).
-* meta: schema_version, cli_version, request_id/latency_ms in a request scope,
-  plus per-command fields (e.g. count, detail).
-* dry_run: optional True marker for preview-only commands.
-* next: optional non-empty list of safe follow-up command strings, only on
-  success/partial envelopes. Agents may run them as-is; they must never be the
-  only way to understand the result, and they never imply immediate local
-  visibility for remote writes (local reads can lag until Zotero Desktop syncs).
+* ok：True（成功）、False（错误）或 "partial"（部分操作成功、部分失败）。
+  使用方必须将其视为三态，而不是布尔值。
+* data：出现在成功与 partial envelope 中。
+* error：出现在错误 envelope 中，含 code/message/retryable（以及 hint/context）。
+* meta：schema_version、cli_version，请求作用域内的 request_id/latency_ms，
+  以及各命令字段（例如 count、detail）。
+* dry_run：可选，预览类命令的 True 标记。
+* next：可选，安全的后续命令字符串组成的非空列表，仅出现在成功/partial
+  envelope 中。代理可以直接执行它们；但它们绝不能是理解结果的唯一途径，
+  也绝不意味着远程写入在本地立即可见（本地读取可能滞后，直到 Zotero Desktop 同步）。
 
-No other top-level keys are part of the contract. The request scope binds
-request_id/latency to the current context, and base_meta() folds them into meta
-without callers having to pass them around.
+其他顶层键都不属于该契约。请求作用域将 request_id/latency 绑定到当前上下文，
+base_meta() 会把它们合入 meta，调用方无需自行传递。
 """
 
 from __future__ import annotations
@@ -33,7 +31,7 @@ from zotero_cli import __version__
 
 SCHEMA_VERSION = "1.2.0"
 
-# Top-level extras accepted by the compatibility shim; both are official keys.
+# 兼容层接受的顶层额外键；两者都是正式键。
 _ALLOWED_EXTRAS = frozenset({"dry_run", "next"})
 
 _request_id: contextvars.ContextVar[str | None] = contextvars.ContextVar("_request_id", default=None)
@@ -42,10 +40,10 @@ _request_start: contextvars.ContextVar[float | None] = contextvars.ContextVar("_
 
 @contextmanager
 def request_scope() -> Iterator[str]:
-    """Bind a request_id and start time to the current context.
+    """将 request_id 与起始时间绑定到当前上下文。
 
-    Envelopes emitted inside this scope automatically carry request_id and
-    latency_ms in meta, so commands don't have to pass them explicitly.
+    在此作用域内输出的 envelope 会自动在 meta 中带上 request_id 与
+    latency_ms，因此命令无需显式传递它们。
     """
     rid = uuid.uuid4().hex[:12]
     rid_tok = _request_id.set(rid)
@@ -58,12 +56,12 @@ def request_scope() -> Iterator[str]:
 
 
 def current_request_id() -> str | None:
-    """Return the request_id bound to the active request scope, if any."""
+    """返回绑定到当前请求作用域的 request_id；若不存在则为 None。"""
     return _request_id.get()
 
 
 def elapsed_ms() -> int | None:
-    """Return milliseconds elapsed in the active request scope, if any."""
+    """返回当前请求作用域已流逝的毫秒数；若不存在则为 None。"""
     start = _request_start.get()
     if start is None:
         return None
@@ -71,7 +69,7 @@ def elapsed_ms() -> int | None:
 
 
 def base_meta() -> dict[str, Any]:
-    """Return the meta fields every envelope carries, including request context."""
+    """返回每个 envelope 都会携带的 meta 字段，包含请求上下文。"""
     meta: dict[str, Any] = {"schema_version": SCHEMA_VERSION, "cli_version": __version__}
     rid = current_request_id()
     if rid:
@@ -83,7 +81,7 @@ def base_meta() -> dict[str, Any]:
 
 
 def _clean_next(next: Sequence[str] | None) -> list[str] | None:
-    """Validate the official optional 'next' hint list (None when empty)."""
+    """校验正式的可选 'next' 提示列表（为空时返回 None）。"""
     if next is None:
         return None
     if isinstance(next, str) or not isinstance(next, (list, tuple)):
@@ -101,7 +99,7 @@ def _merge_legacy_extra(
     next: Sequence[str] | None,
     dry_run: bool,
 ) -> tuple[Sequence[str] | None, bool]:
-    """Accept the legacy extra={...} shim for the two documented top-level extras."""
+    """仅接受两个已文档化顶层额外键的旧式 extra={...} 兼容层。"""
     if not extra:
         return next, dry_run
     unknown = set(extra) - _ALLOWED_EXTRAS
@@ -138,12 +136,11 @@ def envelope_ok(
     next: Sequence[str] | None = None,
     dry_run: bool = False,
 ) -> dict:
-    """Build a success envelope (ok=True).
+    """构建成功 envelope（ok=True）。
 
-    next: optional safe follow-up commands (non-empty strings); emitted as the
-    top-level next list only when non-empty. extra is a compatibility shim
-    accepting only the documented dry_run/next keys; new code should pass
-    dry_run=True / next=[...] directly.
+    next：可选的安全后续命令（非空字符串）；仅当非空时作为顶层 next 列表
+    输出。extra 是兼容层，只接受已文档化的 dry_run/next 键；新代码应直接
+    传入 dry_run=True / next=[...]。
     """
     next, dry_run = _merge_legacy_extra(extra, next, dry_run)
     return _finalize({"ok": True, "data": data}, meta=meta, next=next, dry_run=dry_run)
@@ -155,7 +152,7 @@ def envelope_error(
     retryable: bool = False,
     **extra: Any,
 ) -> dict:
-    """Build an error envelope (ok=False); 'next' is rejected here by contract."""
+    """构建错误 envelope（ok=False）；按契约此处拒绝 'next'。"""
     if "next" in extra:
         raise ValueError("'next' is only allowed on success/partial envelopes")
     err: dict[str, Any] = {"code": code, "message": message, "retryable": retryable}
@@ -177,11 +174,10 @@ def envelope_partial(
     next: Sequence[str] | None = None,
     dry_run: bool = False,
 ) -> dict:
-    """Partial-success envelope with the standard succeeded/failed lists.
+    """使用标准 succeeded/failed 列表的部分成功 envelope。
 
-    ok is the tri-state string "partial". Details live in
-    data.succeeded / data.failed. Consumers must compare explicitly or treat
-    anything other than True as not fully successful.
+    ok 是三态字符串 "partial"。详情位于 data.succeeded / data.failed。
+    使用方必须显式比较，或将任何非 True 的值视为未完全成功。
     """
     return _finalize(
         {"ok": "partial", "data": {"succeeded": succeeded, "failed": failed}},
@@ -198,11 +194,10 @@ def envelope_partial_data(
     next: Sequence[str] | None = None,
     dry_run: bool = False,
 ) -> dict:
-    """Partial-success envelope with a command-specific data payload.
+    """使用命令特定数据载荷的部分成功 envelope。
 
-    For commands that complete part of an operation (e.g. an item is created but
-    its attachment upload fails) and want to return their own data shape instead
-    of the generic succeeded/failed lists. ok="partial", never ok=False without
-    an error object.
+    适用于完成操作一部分的命令（例如条目已创建但附件上传失败），它们希望
+    返回自己的数据结构，而不是通用的 succeeded/failed 列表。此时
+    ok="partial"，且绝不会在没有 error 对象的情况下出现 ok=False。
     """
     return _finalize({"ok": "partial", "data": data}, meta=meta, next=next, dry_run=dry_run)

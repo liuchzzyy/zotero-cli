@@ -1,4 +1,4 @@
-"""Workspace hybrid retrieval command (FTS5 + Qdrant, optional rerank)."""
+"""workspace 混合检索命令（FTS5 + Qdrant，可选 rerank）。"""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def _search_run(
     rrf_k: int,
     mode: str,
 ) -> tuple[list[tuple[int, float, dict]], str, list[str], bool]:
-    """Run retrieval and return (merged, executed_mode, degradation_notes, semantic_available)."""
+    """执行检索并返回 (merged, executed_mode, degradation_notes, semantic_available)。"""
     degradation: list[str] = []
     has_vectors = False
     if vector_store is not None:
@@ -99,7 +99,7 @@ def workspace_query(
     rerank: bool,
     rerank_top_n: int,
 ) -> None:
-    """Query workspace papers with natural language (FTS5 + Qdrant hybrid retrieval)."""
+    """用自然语言查询 workspace 论文（FTS5 + Qdrant 混合检索）。"""
     json_out = output_json(ctx)
     workspace_directory_or_exit(ctx, ws_name, context="workspace query")
     idx_path = workspace_index_path(ws_name)

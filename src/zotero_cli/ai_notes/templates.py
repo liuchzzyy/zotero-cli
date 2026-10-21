@@ -1,6 +1,6 @@
-"""Resolve AI note prompt templates from the package or local checkout.
+"""从包内或本地检出目录解析 AI note prompt 模板。
 
-Prompts live in `src/zotero_cli/ai_notes/templates/`.
+prompt 位于 `src/zotero_cli/ai_notes/templates/`。
 """
 
 from __future__ import annotations
@@ -19,8 +19,8 @@ def _candidate_template_dirs() -> list[Path]:
 _TEMPLATES_DIR = _candidate_template_dirs()[0]
 
 
-# Alias -> template filename. Keys are accepted from the classifier output and
-# from explicit overrides; the classifier emits research_article / review_article / book.
+# 别名 -> 模板文件名。键同时接受分类器输出与显式覆盖；
+# 分类器输出 research_article / review_article / book。
 _TEMPLATE_ALIASES: dict[str, str] = {
     "research": "research-article.md",
     "research_article": "research-article.md",
@@ -58,7 +58,7 @@ def format_template(
     doi: str = "",
     fulltext: str = "",
 ) -> str:
-    """Fill the title/authors/journal/date/doi/fulltext placeholders in a prompt template."""
+    """填充 prompt 模板中的 title/authors/journal/date/doi/fulltext 占位符。"""
     values = {
         "title": title.strip() or _MISSING,
         "authors": authors.strip() or _MISSING,
@@ -71,7 +71,7 @@ def format_template(
 
 
 def fit_text_to_prompt(template: str, text: str) -> str:
-    """Truncate untrusted prompt text so template + text stays under the hard cap."""
+    """截断不可信的 prompt 文本，使模板加文本不超过硬上限。"""
     budget = MAX_PROMPT_CHARS - len(template) - PROMPT_RESERVE_CHARS
     if budget <= 0:
         return ""

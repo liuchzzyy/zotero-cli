@@ -1,4 +1,4 @@
-"""zot zotero export: export citations as BibTeX, CSL-JSON, RIS, or JSON."""
+"""zot zotero export：将引文导出为 BibTeX、CSL-JSON、RIS 或 JSON。"""
 
 from __future__ import annotations
 
@@ -21,14 +21,14 @@ def export(
     key: str = typer.Argument(help="Zotero 条目键。"),
     fmt: str = typer.Option("bibtex", "--format", help="导出格式。"),
 ) -> None:
-    """Export citation in BibTeX, CSL-JSON, RIS, or raw JSON format.
+    """以 BibTeX、CSL-JSON、RIS 或原始 JSON 格式导出引文。
 
     \b
-    Examples:
-      zot zotero export ABC123                    BibTeX (default)
+    示例：
+      zot zotero export ABC123                    BibTeX（默认）
       zot zotero export ABC123 --format csl-json  CSL-JSON
       zot zotero export ABC123 --format ris       RIS
-      zot zotero export ABC123 --format json      Raw JSON metadata
+      zot zotero export ABC123 --format json      原始 JSON 元数据
     """
     if fmt not in {"bibtex", "csl-json", "ris", "json"}:
         raise typer.BadParameter("format 必须是 bibtex、csl-json、ris 或 json")

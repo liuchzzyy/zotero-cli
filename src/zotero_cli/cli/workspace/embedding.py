@@ -1,4 +1,4 @@
-"""Workspace embedding backfill command and batch retry helper."""
+"""workspace 的 embedding 回填命令与批量重试辅助函数。"""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ _PER_TEXT_RETRY_CAP = 2
 
 
 def _bounded_sleep(seconds: float, deadline: float | None) -> bool:
-    """Sleep up to the deadline; return True when the deadline is exhausted."""
+    """休眠至多到截止时间；截止时间耗尽时返回 True。"""
     if seconds <= 0:
         return bool(deadline is not None and time.monotonic() >= deadline)
     if deadline is None:
@@ -47,14 +47,11 @@ def _embed_batch_with_retries(
     retry_sleep: float,
     deadline: float | None = None,
 ) -> tuple[list[list[float]], bool]:
-    """Embed a batch with bounded retries; return (vectors, deadline_exhausted).
+    """在有限重试次数内对一批文本做 embedding；返回 (vectors, deadline_exhausted)。
 
-    The batch is retried at most max_retries+1 times. If it keeps failing, only
-    the first two chunks are probed individually (capped retries); when both
-    probes fail the provider is treated as systemically failing (for example a
-    permanent 4xx such as an unsupported model or exhausted account) and the
-    remaining chunks are skipped instead of retried one by one. The global
-    deadline stops all retrying regardless.
+    该批次最多重试 max_retries+1 次。若持续失败，只单独探测前两个 chunk（重试次数受限）；当两次探测都失败时，
+    将 provider 视为系统性故障（例如不支持模型或账户额度耗尽这类永久性 4xx），剩余 chunk 直接跳过，
+    而不是逐个重试。无论何种情况，全局截止时间都会终止所有重试。
     """
     for attempt in range(max_retries + 1):
         if deadline is not None and time.monotonic() >= deadline:
@@ -107,7 +104,7 @@ def workspace_embed(
     progress_lines: bool,
     dry_run: bool,
 ) -> None:
-    """Backfill embeddings for an existing workspace index (writes vectors to Qdrant)."""
+    """为已有 workspace 索引回填 embedding（将向量写入 Qdrant）。"""
     json_out = output_json(ctx)
     load_workspace_or_exit(ctx, name, context="workspace embed")
     idx_path = workspace_index_path(name)

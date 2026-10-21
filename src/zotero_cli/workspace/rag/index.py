@@ -1,6 +1,6 @@
-"""SQLite chunk index with FTS5 BM25 search for keyword retrieval.
+"""用于关键词检索的 SQLite chunk 索引，支持 FTS5 BM25 搜索。
 
-Vectors live in the Qdrant vector store keyed by the same chunk ids.
+向量存放在 Qdrant 向量 store 中，并以相同的 chunk id 作为键。
 """
 
 from __future__ import annotations
@@ -13,16 +13,15 @@ _QUERY_TOKEN_RE = re.compile(r"[^\w\u4e00-\u9fff]+", re.UNICODE)
 
 
 def _fts_query(query: str) -> str:
-    """Build a safe FTS5 MATCH expression from a free-text query."""
+    """从自由文本查询构造安全的 FTS5 MATCH 表达式。"""
     tokens = [t for t in _QUERY_TOKEN_RE.split(query.lower()) if t]
     return " OR ".join(f'"{t.replace(chr(34), chr(34) * 2)}"' for t in tokens)
 
 
 class RagIndex:
-    """SQLite term index: chunks + FTS5 for BM25 keyword retrieval.
+    """SQLite 词项索引：chunk + FTS5，用于 BM25 关键词检索。
 
-    Vectors no longer live here; they are stored in the Qdrant local vector
-    store keyed by the same chunk id.
+    向量不再存放在这里；它们存放在 Qdrant 本地向量 store 中，并以相同的 chunk id 作为键。
     """
 
     def __init__(self, db_path: Path) -> None:

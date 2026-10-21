@@ -1,4 +1,4 @@
-"""Shared types, errors, and constants for the MinerU pipeline."""
+"""MinerU 流水线共用的类型、错误与常量。"""
 
 from __future__ import annotations
 
@@ -10,9 +10,8 @@ from typing import Any
 
 ProgressCallback = Callable[[str, int, int, int], None]
 
-# Local input/output limits. MinerU rejects PDFs above 200 MB; the returned
-# archive is capped before it is buffered or extracted so a hostile or buggy
-# response cannot exhaust memory or disk.
+# 本地输入/输出限制。MinerU 拒绝大于 200 MB 的 PDF；返回的归档在缓冲或
+# 解压之前就设上限，使恶意或异常响应无法耗尽内存或磁盘。
 _MAX_FILE_BYTES = 200 * 1024 * 1024
 _MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
 _MAX_ARCHIVE_MEMBER_BYTES = 200 * 1024 * 1024
@@ -22,12 +21,12 @@ _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 
 
 class MinerUError(Exception):
-    """Raised when a cloud parse or local parse-package operation fails."""
+    """云端解析或本地解析包操作失败时抛出。"""
 
 
 @dataclass(frozen=True)
 class MinerUParseResult:
-    """One canonical MinerU parse package shared by AI notes and RAG."""
+    """一份由 AI note 与 RAG 共用的规范 MinerU 解析包。"""
 
     source_path: Path
     fingerprint: str

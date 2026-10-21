@@ -1,4 +1,4 @@
-"""zot zotero cite: format an item citation and copy it to the clipboard."""
+"""zot zotero cite：格式化条目引文并复制到剪贴板。"""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from zotero_cli.zotero.reader import ZoteroReader
 
 
 def _copy_to_clipboard(text: str) -> bool:
-    """Copy text to system clipboard. Returns True on success."""
+    """将文本复制到系统剪贴板。成功时返回 True。"""
     try:
         if sys.platform == "darwin":
             subprocess.run(["pbcopy"], input=text.encode(), check=True)
@@ -32,7 +32,7 @@ def _copy_to_clipboard(text: str) -> bool:
 
 
 def _get_year(item: Item) -> str:
-    """Extract 4-digit year from date string."""
+    """从日期字符串中提取 4 位年份。"""
     if not item.date:
         return "n.d."
     for part in item.date.replace("/", "-").split("-"):
@@ -42,7 +42,7 @@ def _get_year(item: Item) -> str:
 
 
 def _get_authors_apa(item: Item) -> str:
-    """Format authors in APA style."""
+    """按 APA 样式格式化作者。"""
     authors = [c for c in item.creators if c.creator_type == "author"]
     if not authors:
         return ""
@@ -56,7 +56,7 @@ def _get_authors_apa(item: Item) -> str:
             first_initials = ". ".join(n[0] for n in a.first_name.split() if n) + "." if a.first_name else ""
             parts.append(f"{a.last_name}, {first_initials}" if first_initials else a.last_name)
         return f"{parts[0]} & {parts[1]}"
-    # APA 7th: list up to 20 authors; above 20, show the first 19 and last.
+    # APA 第 7 版：最多列出 20 位作者；超过 20 位时列出前 19 位和最后一位。
     parts = []
     display = authors if len(authors) <= 20 else authors[:19]
     for a in display:
@@ -71,7 +71,7 @@ def _get_authors_apa(item: Item) -> str:
 
 
 def _get_authors_vancouver(item: Item) -> str:
-    """Format authors in Vancouver style."""
+    """按 Vancouver 样式格式化作者。"""
     authors = [c for c in item.creators if c.creator_type == "author"]
     if not authors:
         return ""
@@ -87,7 +87,7 @@ def _get_authors_vancouver(item: Item) -> str:
 
 
 def _format_apa(item: Item) -> str:
-    """Format citation in APA 7th edition style."""
+    """按 APA 第 7 版样式格式化引文。"""
     authors = _get_authors_apa(item)
     year = _get_year(item)
     title = item.title or ""
@@ -115,7 +115,7 @@ def _format_apa(item: Item) -> str:
 
 
 def _format_nature(item: Item) -> str:
-    """Format citation in Nature style."""
+    """按 Nature 样式格式化引文。"""
     authors = [c for c in item.creators if c.creator_type == "author"]
     if not authors:
         author_str = ""
@@ -153,7 +153,7 @@ def _format_nature(item: Item) -> str:
 
 
 def _format_vancouver(item: Item) -> str:
-    """Format citation in Vancouver style."""
+    """按 Vancouver 样式格式化引文。"""
     authors = _get_authors_vancouver(item)
     title = item.title or ""
     journal = item.extra.get("journalAbbreviation", item.extra.get("publicationTitle", ""))
@@ -195,20 +195,19 @@ def cite(
     style: str = typer.Option("apa", help="引文样式。"),
     no_copy: bool = typer.Option(False, "--no-copy", help="仅打印，不复制到剪贴板。"),
 ) -> None:
-    """Format a citation and copy it to the clipboard.
+    """格式化引文并复制到剪贴板。
 
-    Human mode prints the citation and copies it to the system clipboard unless
-    --no-copy is passed. JSON mode returns one envelope
-    {citation, style, copied} and never writes the clipboard (no hidden side
-    effects for agent callers).
+    人类模式会打印引文并复制到系统剪贴板，除非传入 --no-copy。JSON 模式返回
+    单个 envelope {citation, style, copied}，且绝不写入剪贴板（对代理程序调用方
+    不产生隐藏副作用）。
 
     \b
-    Examples:
-      zot zotero cite ABC123                    APA style (default, copies)
-      zot zotero cite ABC123 --style nature     Nature style
-      zot zotero cite ABC123 --style vancouver  Vancouver style
-      zot zotero cite ABC123 --no-copy          Print without copying
-      zot --json zotero cite ABC123             Envelope only, no clipboard write
+    示例：
+      zot zotero cite ABC123                    APA 样式（默认，会复制）
+      zot zotero cite ABC123 --style nature     Nature 样式
+      zot zotero cite ABC123 --style vancouver  Vancouver 样式
+      zot zotero cite ABC123 --no-copy          仅打印，不复制
+      zot --json zotero cite ABC123             仅输出 envelope，不写剪贴板
     """
     if style not in STYLES:
         raise typer.BadParameter("style 必须是 apa、nature 或 vancouver")
@@ -231,7 +230,7 @@ def cite(
         formatter = STYLES[style]
         citation = formatter(item)
         if json_out:
-            # Machine mode: report the citation, do not mutate the clipboard.
+            # 机器模式：只报告引文，不改动剪贴板。
             typer.echo(
                 json.dumps(
                     envelope_ok({"citation": citation, "style": style, "copied": False}),

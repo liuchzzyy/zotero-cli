@@ -1,4 +1,4 @@
-"""`zot config cache` - inspect and clear the MinerU parse-package cache."""
+"""`zot config cache` - 查看并清理 MinerU 解析包缓存。"""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def cache_clear(
     yes: bool = typer.Option(False, "--yes", help="确认删除全部缓存。"),
     dry_run: bool = typer.Option(False, "--dry-run", help="仅预览，不删除。"),
 ) -> None:
-    """Clear cached MinerU parse packages (requires --yes; --dry-run previews)."""
+    """清除缓存的 MinerU 解析包（需 --yes；--dry-run 仅预览）。"""
     from zotero_cli.ai_pdf import MinerUParseCache
 
     json_out = _json_out(ctx)
@@ -78,7 +78,7 @@ def cache_clear(
 
 @app.command("stats")
 def cache_stats(ctx: typer.Context) -> None:
-    """Show MinerU parse cache statistics."""
+    """显示 MinerU 解析缓存统计信息。"""
     from zotero_cli.ai_pdf import MinerUParseCache
 
     json_out = _json_out(ctx)
@@ -104,7 +104,7 @@ def cache_list(
     ctx: typer.Context,
     limit: int = typer.Option(100, "--limit", min=0, show_default=True, help="显示条数（0 表示全部）。"),
 ) -> None:
-    """List cached MinerU parse packages (bounded by --limit; 0 shows all)."""
+    """列出缓存的 MinerU 解析包（受 --limit 限制；0 表示全部）。"""
     from zotero_cli.ai_pdf import MinerUParseCache
 
     json_out = _json_out(ctx)
@@ -129,7 +129,7 @@ def cache_list(
     if len(visible) < total:
         typer.echo(f"Showing {len(visible)} of {total} cached package(s); use --limit N or --limit 0 to list all.")
     for entry in visible:
-        # Cache metadata comes from local PDF filenames: sanitize before echoing.
+        # 缓存元数据来自本地 PDF 文件名：输出前先做净化处理。
         typer.echo(
             f"{sanitize_text(entry.get('source_name', '?'))}  "
             f"{sanitize_text(entry.get('source_sha256', ''))[:12]}  "

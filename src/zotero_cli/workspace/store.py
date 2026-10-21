@@ -1,4 +1,4 @@
-"""Repo-local workspace manifests, index paths, and MinerU cache directories."""
+"""仓库内的 workspace manifest、索引路径与 MinerU 缓存目录。"""
 
 from __future__ import annotations
 
@@ -15,15 +15,15 @@ from pathlib import Path, PureWindowsPath
 
 from zotero_cli.config import state_dir, workspace_root
 
-# Workspace names are path components: allow Unicode/CJK names plus _ and -,
-# while requiring an alphanumeric/CJK first and last character.
+# workspace 名称是路径组件：允许 Unicode/CJK 名称以及 _ 和 -，
+# 同时要求首尾字符为字母数字或 CJK 字符。
 _NAME_RE = re.compile(r"^[a-z0-9\u4e00-\u9fff]+(?:[-_][a-z0-9\u4e00-\u9fff]+)*$")
 _MAX_NAME_BYTES = 200
 _WORKSPACE_DIRNAME = ".workspace"
 
 
 class WorkspaceManifestError(ValueError):
-    """Raised when a workspace manifest is unreadable or schema-invalid."""
+    """当 workspace manifest 不可读或不符合 schema 时抛出。"""
 
 
 def workspaces_dir() -> Path:
@@ -42,7 +42,7 @@ def _workspace_root() -> Path:
 
 
 def _contained_path(path: Path, root: Path) -> Path:
-    """Check existing and dangling links before resolving a workspace path."""
+    """在解析 workspace 路径之前检查已存在的和悬空的链接。"""
     _reject_symlink(path)
     try:
         resolved_root = root.resolve()
@@ -55,10 +55,10 @@ def _contained_path(path: Path, root: Path) -> Path:
 
 
 def workspace_dir(name: str) -> Path:
-    """Resolve one workspace component without allowing user-supplied paths.
+    """解析单个 workspace 路径组件，不允许使用用户提供的路径。
 
-    Keep legacy names (including spaces and Unicode) usable independently of
-    the stricter naming convention applied when creating workspaces in the CLI.
+    保持旧名称（包括空格和 Unicode）仍可用，且不受 CLI 创建 workspace 时采用的
+    更严格命名约定影响。
     """
     if (
         not name
@@ -82,14 +82,14 @@ def workspace_file_path(name: str) -> Path:
 def workspace_index_path(name: str) -> Path:
     directory = workspace_dir(name)
     path = _contained_path(directory / "rag.idx.sqlite", directory)
-    # SQLite can open these alongside the database, including during recovery.
+    # SQLite 会连同数据库一起打开这些文件，恢复期间也是如此。
     for suffix in ("-journal", "-wal", "-shm"):
         _contained_path(path.with_name(path.name + suffix), directory)
     return path
 
 
 def mineru_cache_dir() -> Path:
-    # Shared cloud parse packages are runtime state, not workspace definitions.
+    # 共享的云端解析包是运行时状态，而不是 workspace 定义。
     return state_dir() / "mineru"
 
 
@@ -117,7 +117,7 @@ class Workspace:
         return any(i.key == key for i in self.items)
 
     def add_item(self, key: str, title: str) -> bool:
-        """Add item. Returns False if already present."""
+        """添加条目。若已存在则返回 False。"""
         if self.has_item(key):
             return False
         self.items.append(
@@ -130,7 +130,7 @@ class Workspace:
         return True
 
     def remove_item(self, key: str) -> bool:
-        """Remove item. Returns False if not present."""
+        """移除条目。若不存在则返回 False。"""
         before = len(self.items)
         self.items = [i for i in self.items if i.key != key]
         return len(self.items) < before
@@ -141,11 +141,10 @@ def _workspace_path(name: str) -> Path:
 
 
 def _toml_string(value: str) -> str:
-    """Serialize a Python string as a TOML basic string literal.
+    """将 Python 字符串序列化为 TOML 基本字符串字面量。
 
-    JSON string escaping covers every character TOML requires to be escaped
-    (quote, backslash, control characters); non-ASCII text stays raw. DEL is the
-    one control character JSON leaves bare and TOML requires escaped.
+    JSON 字符串转义已覆盖 TOML 要求转义的所有字符（引号、反斜杠、控制字符）；非 ASCII 文本
+    保持原样。DEL 是 JSON 原样保留而 TOML 要求转义的唯一控制字符。
     """
     return json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007F")
 
@@ -166,7 +165,7 @@ def _manifest_text(ws: Workspace) -> str:
 
 
 def _write_atomic(path: Path, content: str) -> None:
-    """Write content through a same-directory temp file and atomic replace."""
+    """通过同目录临时文件与原子替换写入内容。"""
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
@@ -191,7 +190,7 @@ def save_workspace(ws: Workspace) -> None:
 def _parse_manifest(name: str, text: str) -> Workspace:
     try:
         data = tomllib.loads(text)
-    except Exception as exc:  # tomllib.TOMLDecodeError (ValueError) and friends
+    except Exception as exc:  # tomllib.TOMLDecodeError（ValueError）以及同类异常
         raise WorkspaceManifestError(f"invalid TOML manifest: {exc}") from exc
     if not isinstance(data, dict):
         raise WorkspaceManifestError("manifest must be a TOML table")
@@ -230,7 +229,7 @@ def load_workspace(name: str) -> Workspace:
 
 
 def _list_warning(path: Path, exc: Exception) -> str | None:
-    """Describe why a workspace directory was skipped; None for non-workspaces."""
+    """说明跳过某个 workspace 目录的原因；非 workspace 返回 None。"""
     if path.is_symlink():
         return f"skipping workspace '{path.name}': symbolic links are not allowed"
     manifest = path / "workspace.toml"
@@ -271,10 +270,10 @@ def delete_workspace(name: str) -> None:
 
 
 def cleanup_empty_workspace_root() -> None:
-    """Remove the workspace root directory when no workspaces remain.
+    """当不再有 workspace 时删除 workspace 根目录。
 
-    Only the standard '.workspace' root is cleaned; known prune-lock files are
-    removed first so they do not keep the root alive. Best effort only.
+    只清理标准的 '.workspace' 根目录；先删除已知的 prune 锁文件，避免它们让根目录
+    无法删除。仅为尽力而为。
     """
     root = workspaces_dir()
     try:

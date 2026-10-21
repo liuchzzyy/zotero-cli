@@ -1,4 +1,4 @@
-"""`zot config init` / `zot config show` - create and inspect the config file."""
+"""`zot config init` / `zot config show` - 创建并查看配置文件。"""
 
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ def init_command(
     api_key: str | None = typer.Option(None, "--api-key", help="Zotero API key。"),
     dry_run: bool = typer.Option(False, "--dry-run", help="仅预览合并结果，不写入。"),
 ) -> None:
-    """Initialize or update configuration, preserving existing sections and profiles."""
+    """初始化或更新配置，保留已有的配置段与 profile。"""
     json_out = _json_out(ctx)
     profile = _profile(ctx)
     no_interaction = bool(ctx.obj.get("no_interaction", False)) if ctx.obj else False
@@ -152,7 +152,7 @@ def show_command(
     ctx: typer.Context,
     config_path: str | None = typer.Option(None, "--config-path", help="配置文件路径。"),
 ) -> None:
-    """Show current configuration."""
+    """显示当前配置。"""
     json_out = _json_out(ctx)
     profile = _profile(ctx)
     try:

@@ -1,4 +1,4 @@
-"""汇总单个条目元数据: emit a compact structured summary of one item."""
+"""汇总单个条目元数据：输出紧凑的结构化摘要。"""
 
 from __future__ import annotations
 
@@ -14,10 +14,10 @@ from zotero_cli.zotero.reader import ZoteroReader
 
 
 def summarize(ctx: click.Context, key: str) -> None:
-    """Output a structured summary for AI agent consumption.
+    """输出供 AI 代理程序使用的结构化摘要。
 
     \b
-    Examples:
+    示例：
       zot metadata summarize ABC123
       zot --json metadata summarize ABC123
       zot --detail minimal metadata summarize ABC123

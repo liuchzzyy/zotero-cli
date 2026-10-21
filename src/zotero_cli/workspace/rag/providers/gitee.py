@@ -1,4 +1,4 @@
-"""Gitee AI embedding and rerank providers."""
+"""Gitee AI 的 embedding 与 rerank provider。"""
 
 from __future__ import annotations
 
@@ -13,12 +13,12 @@ from zotero_cli.workspace.rag.embeddings import EmbeddingProvider
 
 FAILOVER_HEADER = "X-Failover-Enabled"
 _VALID_INPUT_TYPES = {"document", "query"}
-# Some OpenAI-compatible deployments reject unknown request fields with 400.
+# 部分兼容 OpenAI 的部署会以 400 拒绝未知的请求字段。
 _INPUT_TYPE_REJECTED_STATUS = {400, 422}
 
-# Process-wide negative cache: once a (base_url, model) pair rejects the advisory
-# input_type field, later queries skip it instead of paying a double request on
-# every call. Keyed by the endpoint/model because rejection is a server property.
+# 进程级负缓存：一旦某个 (base_url, model) 组合拒绝了建议性的 input_type 字段，
+# 后续查询就跳过它，而不必在每次调用时额外付出一次请求。以 endpoint/model 为键，
+# 因为拒绝与否是服务器的属性。
 _rejected_input_type_endpoints: set[tuple[str, str]] = set()
 _rejected_input_type_lock = Lock()
 
@@ -34,13 +34,13 @@ def _mark_input_type_unsupported(base_url: str, model: str) -> None:
 
 
 def _reset_input_type_cache() -> None:
-    """Clear the process-wide input_type rejection cache (used by tests)."""
+    """清除进程级的 input_type 拒绝缓存（供测试使用）。"""
     with _rejected_input_type_lock:
         _rejected_input_type_endpoints.clear()
 
 
 def _auth_headers(api_key: str) -> dict[str, str]:
-    """Unified request headers for every Gitee AI call."""
+    """每次调用 Gitee AI 时统一使用的请求头。"""
     return {"Authorization": f"Bearer {api_key}", FAILOVER_HEADER: "true"}
 
 
@@ -60,7 +60,7 @@ def _validate_embedding_vector(value: Any, *, position: int) -> list[float]:
 
 
 class GiteeEmbeddingProvider(EmbeddingProvider):
-    """Embed text via Gitee AI's OpenAI-compatible /embeddings endpoint."""
+    """通过 Gitee AI 兼容 OpenAI 的 /embeddings 接口对文本做 embedding。"""
 
     def __init__(
         self,
@@ -106,8 +106,8 @@ class GiteeEmbeddingProvider(EmbeddingProvider):
         payload: dict[str, Any] = {"model": self.model, "input": batch}
         send_input_type = input_type != "document" and _input_type_supported(*endpoint)
         if send_input_type:
-            # Advisory hint for asymmetric models; sent only for non-default
-            # input types so document embedding requests stay unchanged.
+            # 面向非对称模型的建议性提示；仅对非默认 input 类型发送，
+            # 使文档 embedding 请求保持不变。
             payload["input_type"] = input_type
         response = requests.post(
             f"{self.base_url}/embeddings",
@@ -116,10 +116,9 @@ class GiteeEmbeddingProvider(EmbeddingProvider):
             timeout=self.timeout,
         )
         if send_input_type and not response.ok and response.status_code in _INPUT_TYPE_REJECTED_STATUS:
-            # The deployment does not understand the advisory field; remember
-            # that for this endpoint and retry the same batch without it instead
-            # of failing the whole embedding run (and without paying a second
-            # request on every subsequent call).
+            # 该部署不认识这个建议性字段；为这个 endpoint 记住这一点，并在不带该字段的
+            # 情况下重试同一批次，而不是让整个 embedding 运行失败（也避免在之后每次调用时
+            # 再额外付出一次请求）。
             _mark_input_type_unsupported(*endpoint)
             retry_payload = {key: value for key, value in payload.items() if key != "input_type"}
             response = requests.post(
@@ -156,7 +155,7 @@ class GiteeEmbeddingProvider(EmbeddingProvider):
 
 
 class GiteeRerankerProvider:
-    """Rerank documents against a query via Gitee AI's /rerank endpoint."""
+    """通过 Gitee AI 的 /rerank 接口按查询对文档做 rerank。"""
 
     def __init__(
         self,

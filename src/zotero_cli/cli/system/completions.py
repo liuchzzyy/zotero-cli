@@ -1,4 +1,4 @@
-"""zot completions: generate a shell completion script."""
+"""zot completions：生成 shell 补全脚本。"""
 
 from __future__ import annotations
 
@@ -10,8 +10,7 @@ import typer
 
 from zotero_cli.output.envelope import envelope_ok
 
-# Bounded wait: completion generation shells out to the installed zot and must
-# never hang a user's shell startup file silently.
+# 有界等待：补全生成会调用已安装的 zot，绝不能静默地卡住用户的 shell 启动文件。
 _COMPLETION_TIMEOUT_SECONDS = 10
 
 SHELLS = {
@@ -39,11 +38,11 @@ def _fallback_script(shell: str) -> str:
 
 
 def _generate(shell: str) -> tuple[str, str | None, str | None]:
-    """Return (script, failure_reason, warning) where a failure uses the static snippet.
+    """返回 (script, failure_reason, warning)，失败时使用静态片段。
 
-    A deterministic fallback is returned when the installed zot executable is
-    unavailable, times out, exits non-zero or produces no script; the reason is
-    surfaced on stderr (and in the JSON envelope) instead of failing silently.
+    当已安装的 zot 可执行文件不可用、超时、以非零状态退出或未产出脚本时，
+    返回确定性的回退结果；失败原因会输出到 stderr（并写入 JSON envelope），
+    而不是静默失败。
     """
     info = SHELLS[shell]
     env = os.environ.copy()
@@ -91,14 +90,13 @@ def completions_cmd(
     ctx: typer.Context,
     shell: str = typer.Argument(help="shell：bash、zsh 或 fish。"),
 ) -> None:
-    """Generate shell completion script.
+    """生成 shell 补全脚本。
 
-    Add the output to your shell profile to enable tab completions. JSON mode
-    returns one envelope {shell, script, fallback, warning} instead of the raw
-    script; warnings still go to stderr.
+    将输出加入你的 shell 配置文件即可启用 Tab 补全。JSON 模式返回单个
+    envelope {shell, script, fallback, warning}，而不是原始脚本；警告仍输出到 stderr。
 
     \b
-    Examples:
+    示例：
       zot completions bash >> ~/.bashrc
       zot completions zsh >> ~/.zshrc
       zot completions fish > ~/.config/fish/completions/zot.fish

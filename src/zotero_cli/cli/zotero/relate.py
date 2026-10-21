@@ -1,4 +1,4 @@
-"""zot zotero relate: find items related by explicit relations, collections, or tags."""
+"""zot zotero relate：查找通过显式关联、集合或标签相关的条目。"""
 
 from __future__ import annotations
 
@@ -20,10 +20,10 @@ def relate(
     key: str = typer.Argument(help="Zotero 条目键。"),
     limit: int | None = typer.Option(None, help="覆盖全局结果上限。"),
 ) -> None:
-    """Find related items via shared tags, collections, or explicit relations.
+    """通过共享标签、集合或显式关联查找相关条目。
 
     \b
-    Examples:
+    示例：
       zot zotero relate ABC123
       zot --json zotero relate ABC123
     """
@@ -45,7 +45,7 @@ def relate(
         limit = limit if limit is not None else ctx.obj.get("limit", 20)
         items = reader.get_related_items(key, limit=limit)
         if not items:
-            # Empty result is a normal outcome, not an error — exit 0 with a friendly message.
+            # 空结果是正常情况而非错误——以退出码 0 结束并给出友好提示。
             if json_out:
                 typer.echo(json.dumps(envelope_ok([], meta={"count": 0}), indent=2, ensure_ascii=False))
             else:

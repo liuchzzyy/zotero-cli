@@ -1,10 +1,9 @@
-"""Orchestrate one ai-note run: parsed PDFs in, rendered note and keywords out.
+"""编排一次 ai-note 运行：输入解析后的 PDF，输出渲染好的笔记与关键词。
 
-The flow is: resolve the item and its PDF attachments, parse them through the
-MinerU cache, classify the paper, build the prompt (with main-text figures) for
-the matching template, render the JSON sections into an HTML note, and derive the
-Extra short-note keywords. The short-note-only mode backfills those keywords from
-an existing AI note without regenerating it.
+流程是：解析条目及其 PDF 附件，经 MinerU 缓存解析，判定论文类型，为匹配
+的模板构造 prompt（含正文插图），把 JSON sections 渲染为 HTML 笔记，并推导
+Extra short-note 关键词。仅生成 short-note 的模式会从已有 AI note 回填这些
+关键词，而不重新生成笔记。
 """
 
 from __future__ import annotations
@@ -66,9 +65,8 @@ from zotero_cli.zotero.writer import ZoteroWriter
 
 _MISSING_FIELD = "未知"
 
-# Writer error codes that mean the server definitely rejected the mutation.
-# For those the write did not commit, so an idempotency reservation can be
-# released; every other writer failure has an unknown outcome.
+# 表示服务器明确拒绝该变更的 writer 错误码。对这类错误写入未提交，
+# 因此可释放幂等预占；其他 writer 失败的结果均为未知。
 _DEFINITE_REJECTION_CODES = frozenset(
     {"auth_invalid", "auth_missing", "validation_error", "not_found", "configuration_error", "confirmation_required"}
 )
@@ -81,11 +79,10 @@ def _require_ai_client(ai_client: AiClient | None) -> AiClient:
 
 
 def _writer_call(action: str, callback: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-    """Run a writer mutation, translating raw failures into typed pipeline errors.
+    """执行 writer 变更，把原始失败转换为带类型的流水线错误。
 
-    The raised error keeps the writer error code/retryable hint and marks the
-    mutation as committed, so an idempotency reservation is not released for an
-    outcome that may already have reached Zotero.
+    抛出的错误保留 writer 的错误码/可重试提示，并标记该变更为已提交，
+    使结果可能已到达 Zotero 时不会释放幂等预占。
     """
     try:
         return callback(*args, **kwargs)
@@ -110,7 +107,7 @@ def _wrap_field(value: str, label: str, max_chars: int) -> str:
 
 
 def _plain_title(title: str) -> str:
-    """Render a Zotero item title as plain text for the note h1 title."""
+    """把 Zotero 条目标题渲染为纯文本，用作笔记 h1 标题。"""
     return " ".join(clean_html(title or "").split())
 
 
@@ -122,15 +119,15 @@ def _chat_with_retry(
     allowed_models: set[str],
     progress: Callable[[str, str], None] | None,
 ) -> list[object]:
-    """Execute model chat and parse sections JSON with two-round retry for format and sparsity."""
+    """执行模型对话并解析 sections JSON，针对格式与内容稀疏各做一轮重试。"""
     answer = _chat(client, prompt, progress=progress, figures=figures, allowed_models=allowed_models)
     try:
         sections = extract_json_object(answer).get("sections", [])
     except NoteAnalysisError:
         if progress:
             progress("retry", "AI 输出无法解析为 JSON，追加格式要求重试一次")
-        # A format retry must use the same image set. Only an explicit
-        # image-capability rejection in AiClient may retry with zero images.
+        # 格式重试必须使用同一组图片。只有 AiClient 明确拒绝图像能力时，
+        # 才允许以零图片重试。
         retry_answer = _chat(
             client, prompt + PARSE_RETRY_SUFFIX, progress=progress, figures=figures, allowed_models=allowed_models
         )
@@ -169,7 +166,7 @@ def _analyze_short_note_only(
     *,
     dry_run: bool = False,
 ) -> dict:
-    """Backfill mode: generate keywords from the existing AI note and write Extra short-note."""
+    """回填模式：从已有 AI note 生成关键词，并写入 Extra short-note。"""
     notes = reader.get_notes(key)
     if not notes:
         raise NoteAnalysisError(f"条目 '{key}' 没有可用的 AI 笔记", code="validation_error")
@@ -230,7 +227,7 @@ def _analyze_short_note_only(
         error.committed = error.committed or committed
         if error.committed:
             raise error from exc
-        # Generation failed before any write: best-effort ai/no_keywords tag.
+        # 生成在任何写入之前失败：尽力打上 ai/no_keywords tag。
         result["short_note"] = "failed"
         result["short_note_error"] = str(error)[:160]
         try:
@@ -263,8 +260,7 @@ def analyze_item(
             raise NoteAnalysisError("写入凭证未配置", code="auth_missing")
         return _analyze_short_note_only(reader, writer, ai_client, item, key, progress, dry_run=dry_run)
 
-    # A dry run is a read-only preview: it must preview even an already-analyzed
-    # item instead of short-circuiting to already_analyzed.
+    # 试运行是只读预览：即使条目已分析过也必须预览，而不是短路返回 already_analyzed。
     if not dry_run and ANALYZED_TAG in item.tags and not force:
         return {"status": "already_analyzed", "item_key": key, "item_type": item.item_type}
 
@@ -292,9 +288,8 @@ def analyze_item(
         parsed = pdf_parses.get(att.path)
         if isinstance(parsed, MinerUParseResult):
             parsed_pairs.append((att, parsed))
-    # Caption numbering decides MS vs SI for the whole item at once: an SI cover
-    # usually repeats the article's title and filename, so only the comparison
-    # between the attachments is reliable (see `resolve_pdf_kinds`).
+    # 图注编号一次性决定整个条目的正文（MS）与支撑信息（SI）：SI 封面
+    # 常重复文章标题和文件名，因此只有附件之间的比较才可靠（见 `resolve_pdf_kinds`）。
     kinds = resolve_pdf_kinds(
         [
             PdfDocument(att.key, att.filename or att.key, parsed.markdown, parsed.content_list)
@@ -305,9 +300,8 @@ def analyze_item(
         (att.key, kinds[att.key], parsed) for att, parsed in parsed_pairs
     ]
     structured_docs.sort(key=lambda doc: doc[1] != "main")
-    # Drop repeated attachment copies across the whole item, not per kind: the
-    # same PDF can be attached twice, and classifying one copy as supplementary
-    # must not keep both. The survivor keeps its own kind.
+    # 在整个条目范围内而不是按类别去重重复附件：同一份 PDF 可能被附加两次，
+    # 不能因为其中一份被归为支撑信息就两份都保留。保留者维持自身类别。
     kept_indices = _kept_duplicate_indices([doc[2].markdown for doc in structured_docs])
     structured_docs = [structured_docs[index] for index in kept_indices]
     try:
@@ -317,7 +311,7 @@ def analyze_item(
     if not evidence.text.strip():
         raise NoteAnalysisError(f"条目 '{key}' 的 MinerU structured content 为空", code="runtime_error")
 
-    # Preview a metadata/default template without sending text to the model.
+    # 在不向模型发送文本的前提下预览元数据/默认模板。
     if dry_run:
         paper_type = "book" if item.item_type in BOOK_ITEM_TYPES else "research_article"
     else:
@@ -348,7 +342,7 @@ def analyze_item(
         )
 
     total_refs = evidence.main_count + evidence.si_count
-    # Preflight the entire, source-labelled prompt before any Zotero mutation.
+    # 在任何 Zotero 变更之前，对整个带来源标注的 prompt 做预先校验。
     wrapped_fulltext = wrap_untrusted(cleaned, "document")
     prompt = format_template(
         template,
@@ -397,8 +391,8 @@ def analyze_item(
         }
 
     client = _require_ai_client(ai_client)
-    # The initial plan covers only the primary route. A fallback must be able
-    # to receive this same final prompt and image set under verified limits.
+    # 初始方案只覆盖主路由。备用模型必须能在已核实的限制下接收这同一份
+    # 最终 prompt 与图片集合。
     allowed_models = {
         candidate for candidate in client.get_model_chain() if model_supports_request(candidate, prompt, len(figures))
     }
@@ -409,7 +403,7 @@ def analyze_item(
 
     sections = _chat_with_retry(client, prompt, figures=figures, allowed_models=allowed_models, progress=progress)
 
-    # An invalid/nonempty JSON list can still render only the generated title.
+    # 非法或为空的 JSON 列表也可能只渲染出生成的标题。
     if not sections or not clean_html(render_note(sections, title="")).strip():
         raise NoteAnalysisError(f"条目 '{key}' 的 AI 分析未能生成任何有效章节内容", code="runtime_error")
 

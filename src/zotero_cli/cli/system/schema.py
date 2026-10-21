@@ -1,6 +1,6 @@
-"""zot schema — emit machine-readable schema for every command.
+"""zot schema — 为每个命令输出机器可读的 schema。
 
-Derived from the Click command tree so the schema cannot drift from the actual CLI.
+schema 由 Click 命令树派生，因此不会偏离实际 CLI。
 """
 
 from __future__ import annotations
@@ -66,11 +66,11 @@ def _param_to_dict(param: click.Parameter) -> dict:
 
 
 def _command_to_dict(cmd: click.Command, path: list[str]) -> dict:
-    # Imported lazily: the cli entry point imports the command tree, and this
-    # module is part of that tree, so a module-level import would cycle.
+    # 惰性导入：cli 入口会导入命令树，而本模块属于该命令树的一部分，
+    # 模块级导入会造成循环导入。
     from zotero_cli.cli.safety import safety_tier_for_path
 
-    # The root node is the CLI binary, not the Python function name ("main").
+    # 根节点是 CLI 二进制名，而不是 Python 函数名（"main"）。
     name = " ".join(path) if path else "zot"
     data: dict[str, Any] = {
         "name": name,
@@ -118,11 +118,10 @@ def _option_flags(node: dict) -> set[str]:
 
 
 def compute_schema_diff(before: dict, after: dict) -> dict[str, Any]:
-    """Return a structural diff between two schema trees.
+    """返回两棵 schema 树之间的结构差异。
 
-    Tracks added/removed commands (by dotted path) and added/removed option
-    flags per surviving command. Type/help/default changes are intentionally
-    out of scope to keep the diff useful and short.
+    按点分路径跟踪新增/删除的命令，以及仍存在命令的新增/删除选项。
+    类型/帮助/默认值的变更刻意不在范围内，以保持 diff 简洁有用。
     """
     before_cmds = _flatten_commands(before)
     after_cmds = _flatten_commands(after)
@@ -155,11 +154,11 @@ def compute_schema_diff(before: dict, after: dict) -> dict[str, Any]:
 
 
 def _validate_cached_tree(tree: object, path: str = "(root)") -> None:
-    """Validate the shape of a cached schema tree before diffing.
+    """在 diff 之前校验缓存 schema 树的结构。
 
-    Raises ValueError with a human-actionable message for anything that is not
-    a schema tree, so the command can emit a typed validation_error instead of
-    crashing on malformed-but-valid JSON (arrays, null, scalar leaf nodes).
+    对任何不是 schema 树的内容抛出带有可操作提示的 ValueError，使命令能够
+    输出带类型的 validation_error，而不会在合法 JSON 但结构错误（数组、null、
+    标量叶子节点）时崩溃。
     """
     if not isinstance(tree, dict):
         raise ValueError(f"{path} must be a JSON object, got {type(tree).__name__}")
@@ -181,7 +180,7 @@ def _validate_cached_tree(tree: object, path: str = "(root)") -> None:
 
 
 def _load_cached_schema(path: str) -> tuple[dict, dict[str, str]]:
-    """Read a previously-emitted schema file. Accepts a full envelope or a bare data tree."""
+    """读取此前输出的 schema 文件。既接受完整 envelope，也接受裸 data 树。"""
     with open(path, encoding="utf-8") as f:
         loaded = json.load(f)
     if not isinstance(loaded, dict):
@@ -214,14 +213,14 @@ def schema_cmd(
     command_path: list[str] = typer.Argument(default=None, help="命令路径；可用点号分隔。"),
     diff_path: str | None = typer.Option(None, "--diff", help="与缓存的 schema 做结构 diff。"),
 ) -> None:
-    """Emit machine-readable schema for the CLI or one command.
+    """输出整个 CLI 或单个命令的机器可读 schema。
 
     \b
-    Examples:
-      zot schema                       # full tree
-      zot schema search                # schema for one command
-      zot schema collection add        # nested subcommand
-      zot schema --diff prev.json      # structural diff vs cached schema
+    示例：
+      zot schema                       # 完整命令树
+      zot schema search                # 单个命令的 schema
+      zot schema collection add        # 嵌套子命令
+      zot schema --diff prev.json      # 与缓存 schema 的结构 diff
     """
     command_path = tuple(command_path or ())
     root = ctx.find_root().command

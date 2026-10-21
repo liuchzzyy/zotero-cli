@@ -1,4 +1,4 @@
-"""Batch export all item summaries for AI consumption."""
+"""批量导出所有条目摘要，供 AI 使用。"""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from zotero_cli.zotero.reader import ZoteroReader
 
 
 def _writable_fields_for_item(item: Item) -> dict[str, str]:
-    """AI-safe subset of writable fields for metadata cleanup workflows."""
+    """供元数据清理流程使用的、可写入字段中对 AI 安全的子集。"""
 
     fields: dict[str, str] = {"title": item.title}
     if item.abstract is not None:
@@ -56,16 +56,16 @@ def summarize_all(
     exclude_tags: tuple[str, ...],
     exclude_collection_keys: tuple[str, ...],
 ) -> None:
-    """Export item metadata in bulk for AI classification or cleanup workflows.
+    """为 AI 分类或清理流程批量导出条目元数据。
 
     \b
-    Examples:
-      zot metadata summarize-all                   Export all items
-      zot metadata summarize-all --limit 100       First 100 items
-      zot metadata summarize-all --offset 100      Skip first 100 (pagination)
+    示例：
+      zot metadata summarize-all                   导出所有条目
+      zot metadata summarize-all --limit 100       前 100 个条目
+      zot metadata summarize-all --offset 100      跳过前 100 个（分页）
       zot metadata summarize-all --exclude-tag update/metadata
       zot metadata summarize-all --exclude-collection-key RHBNIDLJ
-      zot --detail full metadata summarize-all     Include full item metadata + writable field map
+      zot --detail full metadata summarize-all     包含完整条目元数据与可写入字段映射
     """
     cfg = load_config(profile=ctx.obj.get("profile"))
     data_dir = get_data_dir(cfg)

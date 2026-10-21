@@ -1,8 +1,8 @@
-"""NDJSON streaming and structured progress events.
+"""NDJSON 流式输出与结构化进度事件。
 
-`stream_items` emits one JSON envelope per line plus a summary line so agents can
-process long result sets incrementally. `emit_progress` writes one structured
-event per stderr line so multi-minute work is visibly alive instead of silent.
+`stream_items` 每行输出一个 JSON envelope，并追加一行摘要，使代理能够
+增量处理长结果集。`emit_progress` 在 stderr 上每行写一个结构化事件，
+让耗时数分钟的工作可见地保持活跃，而不是静默。
 """
 
 from __future__ import annotations
@@ -24,11 +24,10 @@ def emit_progress(
     total: int | None = None,
     **extra: Any,
 ) -> None:
-    """Emit a structured progress event on stderr, one JSON object per line.
+    """在 stderr 上输出结构化进度事件，每行一个 JSON 对象。
 
-    Agents read stderr to track liveness without blocking on the single final
-    stdout envelope. Silent multi-minute waits become detectable because the
-    absence of `progress` events is itself a signal.
+    代理可读取 stderr 跟踪活跃状态，而无需阻塞等待最终那个 stdout envelope。
+    静默的数分钟等待变得可检测，因为缺少 `progress` 事件本身就是一种信号。
     """
     payload: dict[str, Any] = {"event": event}
     rid = current_request_id()
@@ -57,12 +56,11 @@ def stream_items(
     total: int | None = None,
     meta: dict | None = None,
 ) -> str:
-    """Emit items as NDJSON: one JSON envelope per line, then a summary line.
+    """以 NDJSON 输出条目：每行一个 JSON envelope，最后一行摘要。
 
-    Designed for agents processing long result sets incrementally: they can
-    read one record, act on it, and keep going without loading the full
-    response into memory. The final summary line carries the emitted count;
-    has_more compares it with the total matching results when supplied.
+    面向增量处理长结果集的代理：它们可以读取一条记录、对其处理并继续，
+    而无需将完整响应载入内存。最后的摘要行携带已输出数量；当提供 total 时，
+    has_more 会将其与匹配结果总数比较。
     """
     lines: list[str] = []
     for item in items:

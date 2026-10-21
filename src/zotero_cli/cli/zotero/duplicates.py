@@ -1,4 +1,4 @@
-"""zot zotero duplicates: find likely duplicate items by DOI or title similarity."""
+"""zot zotero duplicates：按 DOI 或标题相似度查找疑似重复条目。"""
 
 from __future__ import annotations
 
@@ -21,10 +21,10 @@ def duplicates(
     threshold: float = typer.Option(0.85, help="标题相似度阈值。"),
     limit: int | None = typer.Option(None, help="覆盖全局结果上限。"),
 ) -> None:
-    """Find potential duplicate items in the library.
+    """查找库中疑似重复的条目。
 
     \b
-    Examples:
+    示例：
       zot zotero duplicates
       zot zotero duplicates --by doi
       zot zotero duplicates --by title --threshold 0.9
@@ -49,6 +49,6 @@ def duplicates(
         typer.echo(format_duplicates(groups, output_json=ctx.obj.get("json", False)))
     finally:
         reader.close()
-    # Signal "duplicates detected" via typed exit code so agents/scripts can
-    # branch on `if zot zotero duplicates ...; then ...; else act_on_duplicates; fi`.
+    # 通过带类型的退出码表示"检测到重复项"，使代理程序/脚本可以据此分支执行：
+    # `if zot zotero duplicates ...; then ...; else act_on_duplicates; fi`。
     ctx.exit(EXIT_CONFLICT)
