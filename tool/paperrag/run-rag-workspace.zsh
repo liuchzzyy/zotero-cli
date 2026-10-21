@@ -29,7 +29,7 @@ hide_diagnostics=false
 
 usage() {
   cat <<'EOF'
-Usage: tools/paperrag/run-rag-workspace.zsh [options]
+Usage: tool/paperrag/run-rag-workspace.zsh [options]
 
 Incrementally inventory, index, and embed a Zotero workspace.
 

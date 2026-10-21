@@ -56,6 +56,7 @@ class BatchAnalyzeTests(unittest.TestCase):
             loaded = ba.load_state(state_file)
             self.assertEqual(loaded, state_data)
 
+    @patch("batch_analyze.resolve_write_credentials", return_value=("123", "key"))
     @patch("batch_analyze.load_config")
     @patch("batch_analyze.load_ai_note_config")
     @patch("batch_analyze.get_data_dir")
@@ -72,6 +73,7 @@ class BatchAnalyzeTests(unittest.TestCase):
         mock_get_data_dir: MagicMock,
         mock_load_ai_cfg: MagicMock,
         mock_load_cfg: MagicMock,
+        mock_resolve_creds: MagicMock,
     ) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             state_file = Path(tmpdir) / "test_state.json"

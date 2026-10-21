@@ -1,4 +1,4 @@
-# paper2zotero tools
+# paper2zotero tool
 
 Chinese-metadata and DOI-intake helpers for the user's Zotero library. They are
 maintained scripts, not `zot` subcommands; they import `zotero_cli` from this
@@ -8,7 +8,7 @@ by readback before it is reported as done.
 
 ## Requirements
 
-- Run from the repository root with `uv run python tools/paper2zotero/<script>.py`
+- Run from the repository root with `uv run python tool/paper2zotero/<script>.py`
   on the repository's single supported interpreter, CPython 3.12, so the package
   and the repo-local config resolve.
 - `.zot/config.toml` (env overrides win: `env > profile > defaults`) with
@@ -16,7 +16,7 @@ by readback before it is reported as done.
   (`library_id` + `api_key`; `ZOT_LIBRARY_ID` / `ZOT_API_KEY` override the
   file). Relevant env vars: `ZOT_DATA_DIR`, `ZOT_LIBRARY_ID`, `ZOT_API_KEY`,
   `ZOT_PROFILE`; `ZOT_CROSSREF_MAILTO` overrides the Crossref polite-pool
-  contact (the tools resolve it through zotero-cli's shared
+  contact (the tool resolve it through zotero-cli's shared
   `resolve_crossref_mailto`, so both the file value and the env override work).
   `zot config show` prints the effective path without exposing the full key;
   never print keys or tokens.
@@ -37,13 +37,13 @@ by readback before it is reported as done.
   use `ZOT_PAPER2ZOTERO_INBOX_KEY` / `ZOT_PAPER2ZOTERO_INBOX_NAME` if the inbox
   collection is renamed. The constants are documented defaults, not secrets.
 - Checkpoints live under the git-ignored repo state dir,
-  `.zot/state/paper2zotero/`, never in the tracked tools tree:
+  `.zot/state/paper2zotero/`, never in the tracked tool tree:
   - `backfill_titles_state.json`
   - `translate_abstracts_state.json` (override per run with `--state-file`)
   - `zh_state_<collection_key>.json` (override per run with `--state-file`)
 
   Migration note: checkpoints previously written next to the scripts in
-  `tools/paper2zotero/` are **not** moved automatically. Move the old file(s) into
+  `tool/paper2zotero/` are **not** moved automatically. Move the old file(s) into
   `.zot/state/paper2zotero/` once to keep resuming an in-progress run; otherwise
   the tool starts a fresh checkpoint (only re-translation cost, no data loss).
 
@@ -68,8 +68,8 @@ deduplication. The processed CSV is deleted only after the whole run succeeds;
 a partial failure keeps it.
 
 ```bash
-uv run python tools/paper2zotero/zotero_inbox.py --dry-run
-uv run python tools/paper2zotero/zotero_inbox.py --date 2026-10-17
+uv run python tool/paper2zotero/zotero_inbox.py --dry-run
+uv run python tool/paper2zotero/zotero_inbox.py --date 2026-10-17
 ```
 
 `--dry-run` only reads the CSV and lists candidate DOIs; it does not touch the
@@ -90,8 +90,8 @@ the Zotero API credentials + network for the inventory read, but performs no
 writes); `--apply` performs the writes.
 
 ```bash
-uv run python tools/paper2zotero/backfill_titles.py
-uv run python tools/paper2zotero/backfill_titles.py --collection "00 | 收件箱" --apply
+uv run python tool/paper2zotero/backfill_titles.py
+uv run python tool/paper2zotero/backfill_titles.py --collection "00 | 收件箱" --apply
 ```
 
 ### `translate_abstracts.py` — abstract translation backfill
@@ -115,8 +115,8 @@ API credentials, but performs no model translation and no writes; `--apply`
 stages translations and writes them.
 
 ```bash
-uv run python tools/paper2zotero/translate_abstracts.py --collection "00 | 收件箱"
-uv run python tools/paper2zotero/translate_abstracts.py --key ITEMKEY --apply
+uv run python tool/paper2zotero/translate_abstracts.py --collection "00 | 收件箱"
+uv run python tool/paper2zotero/translate_abstracts.py --key ITEMKEY --apply
 ```
 
 ### `batch_translate_metadata.py` — per-collection title + abstract sync
@@ -143,8 +143,8 @@ translation and stages the state file — it is a staging run, not a free previe
 `--apply` then writes through the Web API and verifies each field by readback.
 
 ```bash
-uv run python tools/paper2zotero/batch_translate_metadata.py --collection "00 | 收件箱"
-uv run python tools/paper2zotero/batch_translate_metadata.py --collection KEY --with-titles --apply
+uv run python tool/paper2zotero/batch_translate_metadata.py --collection "00 | 收件箱"
+uv run python tool/paper2zotero/batch_translate_metadata.py --collection KEY --with-titles --apply
 ```
 
 ### `zh_text.py` — shared formatting rules
@@ -173,9 +173,9 @@ re-implementing the rules in a new script.
 ## Tests
 
 ```bash
-uv run pytest -q tools/paper2zotero
-uv run pytest -q tools/paper2zotero/test_translation_safety.py
-uv run pytest -q tools/paper2zotero/test_batch_translate_metadata.py
+uv run pytest -q tool/paper2zotero
+uv run pytest -q tool/paper2zotero/test_translation_safety.py
+uv run pytest -q tool/paper2zotero/test_batch_translate_metadata.py
 uv run pytest -q -rf          # full repository suite
 ```
 

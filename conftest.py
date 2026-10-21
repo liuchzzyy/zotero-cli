@@ -41,7 +41,7 @@ def isolate_runtime_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    """Tag standalone batch-helper tests collected from tools/ as `tools`."""
+    """Tag standalone batch-helper tests collected from tool/ as `tools`."""
     for item in items:
-        if "tools" in Path(str(item.path)).parts:
+        if "tool" in Path(str(item.path)).parts:
             item.add_marker(pytest.mark.tools)

@@ -1,7 +1,7 @@
 """Send semantically selected DOI items to the Zotero inbox using zotero-cli's Web API writer.
 
 Run this file with the repository virtualenv Python (for example
-`uv run python tools/paper2zotero/zotero_inbox.py --dry-run`).
+`uv run python tool/paper2zotero/zotero_inbox.py --dry-run`).
 The local Zotero SQLite database is never written to; readback uses the Web API.
 """
 

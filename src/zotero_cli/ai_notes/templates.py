@@ -1,8 +1,6 @@
-"""Resolve AI note prompt templates from the checkout or the installed wheel.
+"""Resolve AI note prompt templates from the package or local checkout.
 
-Prompts live in `tools/ainote/templates/` in a checkout. An installed CLI has no
-`tools/`, so the same files are force-included into the wheel at
-`zotero_cli/templates/` and probed second.
+Prompts live in `src/zotero_cli/ai_notes/templates/`.
 """
 
 from __future__ import annotations
@@ -11,19 +9,11 @@ import re
 from pathlib import Path
 
 from zotero_cli.ai_notes.constants import MAX_PROMPT_CHARS, PROMPT_RESERVE_CHARS
-from zotero_cli.config import project_root
 
 
 def _candidate_template_dirs() -> list[Path]:
-    root = project_root()
-    # ai_notes/<this file> 的上一级是 zotero_cli 包根目录，wheel 会在此放入 templates/。
-    package_dir = Path(__file__).resolve().parents[1]
-    return [
-        root / "tools" / "ainote" / "templates",
-        # Shipped inside the wheel by hatchling's force-include, so
-        # `ai-note` works when the CLI is installed outside a checkout.
-        package_dir / "templates",
-    ]
+    # 模板随包分发：src/zotero_cli/ai_notes/templates/。
+    return [Path(__file__).resolve().parent / "templates"]
 
 
 _TEMPLATES_DIR = _candidate_template_dirs()[0]

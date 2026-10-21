@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from tests.support import FIXTURES_DIR, REPO_ROOT
 
-TOOLS_DIR = (REPO_ROOT / "tools" / "paperrag") if (REPO_ROOT / "tools" / "paperrag").exists() else (REPO_ROOT / "tools")
+TOOLS_DIR = (REPO_ROOT / "tool" / "paperrag") if (REPO_ROOT / "tool" / "paperrag").exists() else (REPO_ROOT / "tool")
 ZSH_SCRIPTS = [
     TOOLS_DIR / "zotero-workflow-common.zsh",
     TOOLS_DIR / "run-rag-workspace.zsh",

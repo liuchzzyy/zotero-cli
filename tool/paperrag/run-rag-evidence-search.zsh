@@ -21,7 +21,7 @@ keep_log=false
 
 usage() {
   cat <<'EOF'
-Usage: tools/paperrag/run-rag-evidence-search.zsh --question TEXT [options]
+Usage: tool/paperrag/run-rag-evidence-search.zsh --question TEXT [options]
 
 Query a zotero-cli RAG workspace and keep structured run logs.
 

@@ -138,7 +138,7 @@ def inventory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> InventorySandb
 
     monkeypatch.setattr(socket.socket, "connect", reject_network)
     monkeypatch.setattr(socket, "create_connection", reject_network)
-    script = REPO_ROOT / "tools" / "paperrag" / "workspace_inventory.py"
+    script = REPO_ROOT / "tool" / "paperrag" / "workspace_inventory.py"
     spec = importlib.util.spec_from_file_location("offline_workspace_inventory", script)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)

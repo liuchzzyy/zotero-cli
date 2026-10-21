@@ -224,7 +224,7 @@ uv run zot ai-note ITEMKEY --idempotency-key analyze-ITEMKEY-001
 行为要点：
 
 - `--dry-run` 不调用分类模型：`paper_type` 是条目类型默认值（book 类型映射 book，其余 research_article）；它仍会按缓存/云端解析 PDF，只是跳过生成 note 的模型调用和所有写入。它也会预览已打 `ai/noted` 的条目（不因已分析而提前返回）。
-- note 按条目类型/分类选择模板（研究论文 / 综述 / 书籍），模板位于 `tools/ainote/templates/`。
+- note 按条目类型/分类选择模板（研究论文 / 综述 / 书籍），模板位于 `src/zotero_cli/ai_notes/templates/`。
 - 标题、作者、期刊、日期、DOI 和正文作为不可信数据用定界符包裹后进入 prompt，模板声明指令层级，降低论文内容注入风险；正文长度超过 `max_extracted_chars` 或整份请求超过已验证的模型预算时会报错，不截断证据（标题在渲染前先转纯文本再转义）。
 - `content_list.json` 的文字、表格、图像和图注按附件、正文/SI、PDF 页码标记。重复 PDF 跨整条目去重后编号；所有正文图像必须纳入请求，SI 最多选 30 张并优先选择正文引用的图。未发送的图号在 prompt 中列明；请求体上限 20 MiB。
 - 模型返回“不支持图片输入”类错误时只对图片/vision 能力相关提示回退到纯文本模型，不会把 payload 过大等普通错误误判为能力问题。
@@ -282,11 +282,11 @@ uv run zot --json workspace query \
 
 ## 辅助工具
 
-`tools/` 下的脚本不是 `zot` 子命令：`zot schema` 不会列出它们，它们只负责批量工作流。总览见 `tools/README.md`。
+`tool/` 下的脚本不是 `zot` 子命令：`zot schema` 不会列出它们，它们只负责批量工作流。总览见 `tool/README.md`。
 
-- `tools/paperrag/`：`run-rag-workspace.zsh`（inventory、增量索引、embedding 回填）、`run-rag-evidence-search.zsh`（检索）、`zotero-workflow-common.zsh`（共享函数）、`workspace_inventory.py`（inventory 辅助脚本）。生成物写入唯一命名的 `log/` 运行目录；详细用法见 `tools/paperrag/Instructions.md`。
-- `tools/paper2zotero/`：`zotero_inbox.py`（PaperCrossref 收件箱导入）、`backfill_titles.py`（全库译名回填）、`translate_abstracts.py`（集合与条目中文摘要批量翻译与回填）、`batch_translate_metadata.py`（按集合同步中文标题与中文摘要）、`zh_text.py`（中文格式化规则）。断点状态位于 `.zot/state/paper2zotero/`（旧 `tools/paper2zotero/*_state.json` 不会自动迁移，需要手动移动一次以继续断点续跑）。`backfill_titles.py` / `translate_abstracts.py` 的默认模式是只读预览：仍需 Zotero API 凭据读取远端库，但不会写入；`batch_translate_metadata.py` 没有免费预览——不加 `--apply` 仍会调用 AI 暂存翻译并写断点文件。机器相关的 Hermes 目录、PaperCrossref 目录与收件箱 key/name 可用 `ZOT_PAPER2ZOTERO_HERMES_HOME`、`ZOT_PAPER2ZOTERO_INBOX_DIR`、`ZOT_PAPER2ZOTERO_INBOX_KEY`、`ZOT_PAPER2ZOTERO_INBOX_NAME` 覆盖。详见 `tools/paper2zotero/README.md`。
-- `tools/ainote/`：`batch_analyze.py`（按集合批量运行 `ai-note`，`--collection` 必填，dry-run 零副作用）、`scheduled_analyze.py`（按集合增量运行，远端核验后记断点；只将重复的确定性输入预算错误停放为 `unanalyzable`）和 `templates/`（`ai-note` prompt 模板，构建 wheel 时随包发布）。
+- `tool/paperrag/`：`run-rag-workspace.zsh`（inventory、增量索引、embedding 回填）、`run-rag-evidence-search.zsh`（检索）、`zotero-workflow-common.zsh`（共享函数）、`workspace_inventory.py`（inventory 辅助脚本）。生成物写入唯一命名的 `log/` 运行目录；详细用法见 `tool/paperrag/Instructions.md`。
+- `tool/paper2zotero/`：`zotero_inbox.py`（PaperCrossref 收件箱导入）、`backfill_titles.py`（全库译名回填）、`translate_abstracts.py`（集合与条目中文摘要批量翻译与回填）、`batch_translate_metadata.py`（按集合同步中文标题与中文摘要）、`zh_text.py`（中文格式化规则）。断点状态位于 `.zot/state/paper2zotero/`（旧 `tool/paper2zotero/*_state.json` 不会自动迁移，需要手动移动一次以继续断点续跑）。`backfill_titles.py` / `translate_abstracts.py` 的默认模式是只读预览：仍需 Zotero API 凭据读取远端库，但不会写入；`batch_translate_metadata.py` 没有免费预览——不加 `--apply` 仍会调用 AI 暂存翻译并写断点文件。机器相关的 Hermes 目录、PaperCrossref 目录与收件箱 key/name 可用 `ZOT_PAPER2ZOTERO_HERMES_HOME`、`ZOT_PAPER2ZOTERO_INBOX_DIR`、`ZOT_PAPER2ZOTERO_INBOX_KEY`、`ZOT_PAPER2ZOTERO_INBOX_NAME` 覆盖。详见 `tool/paper2zotero/README.md`。
+- `tool/ainote/`：`batch_analyze.py`（按集合批量运行 `ai-note`，`--collection` 必填，dry-run 零副作用）、`scheduled_analyze.py`（按集合增量运行，远端核验后记断点；只将重复的确定性输入预算错误停放为 `unanalyzable`）和 `templates/`（`ai-note` prompt 模板，构建 wheel 时随包发布）。
 - 工具测试使用 `tools` marker，纳入默认 `testpaths`。
 
 ## 开发与验证
@@ -313,7 +313,7 @@ uv build
 - `src/zotero_cli/output/`：JSON envelope、渲染、流式输出与退出码（`envelope.py`、`renderers.py`、`streaming.py`、`exit_codes.py`）。
 - `src/zotero_cli/config/`：配置路径、模型、加载与 Zotero 解析，公共 API 位于 `__init__.py`。
 
-测试位于 `tests/`（`tools/**/test_*.py` 也纳入默认收集），Agent Skill 位于 `skill/zotero-cli/`，批量工具位于 `tools/`。
+测试位于 `tests/`（`tool/**/test_*.py` 也纳入默认收集），Agent Skill 位于 `skill/zotero-cli/`，批量工具位于 `tool/`。
 
 ## 退出码
 

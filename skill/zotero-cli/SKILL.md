@@ -80,7 +80,7 @@ Every write/destructive command (and mutating subcommand) supports zero-side-eff
 
 `zot ai-note ITEMKEY --dry-run` does not write to Zotero, needs no AI configuration (it parses via MinerU and previews the prompt), and does not require Web API write credentials. A non-dry-run analysis requires a library ID and an API key with write access.
 
-For unattended collection notes, `tools/ainote/scheduled_analyze.py` keeps each
+For unattended collection notes, `tool/ainote/scheduled_analyze.py` keeps each
 item's outcome in `.zot/state/batch_ainote_<collection>.json`. A bad item does
 not stop later items: failures remain in the run report, while a completed
 inventory exits 0 (initialization/inventory errors still fail). Prior failed
@@ -98,7 +98,7 @@ at inspection time — the fallback chain handles transient outages.
 
 The `zot ai-note` pipeline reads an item's local PDF, parses it via MinerU, classifies the document into a template (`research_article`, `review_article`, `book`), generates a structured JSON sections payload via LLM, renders it to an inline-styled HTML note in Zotero, tags the item `ai/noted`, and generates a `short-note: ...` summary in Extra with tag `ai/keywords`.
 
-Prompt templates live under `tools/ainote/templates/` in a checkout, and the same files ship inside the wheel as `zotero_cli/templates/`: `research-article.md`, `review-article.md`, `book.md`, `classify-item.md`, `short-note.md`. `core/notes/templates.py` resolves them from the checkout's `tools/ainote/templates` directory and falls back to the packaged copy, so `uv tool install` / pipx installs resolve prompts too.
+Prompt templates live under `src/zotero_cli/ai_notes/templates/` and ship inside the wheel as `zotero_cli/ai_notes/templates/`: `research-article.md`, `review-article.md`, `book.md`, `classify-item.md`, `short-note.md`. `core/notes/templates.py` resolves them from the checkout's `tool/ainote/templates` directory and falls back to the packaged copy, so `uv tool install` / pipx installs resolve prompts too.
 
 ```bash
 zot ai-note ITEMKEY --dry-run          # Parse text and preview the default-template prompt; no classification call, no writes
@@ -205,16 +205,16 @@ encode the old format — are in `references/note-text-formatting.md`.
 
 ## Automated DOI intake into a collection
 
-1. Inspect `zot schema add`, `zot schema collection move`, and `zot --json zotero collection list` to identify the target by its current key and name. Preview the actual input with `--dry-run`; validate DOI and selection fields before the first write. If the user wants this as a Zotero tool, put the implementation and tests in the Zotero repository's `tools/` tree, keep the producer's job separate, and point the downstream scheduler wrapper at the moved script. Check Git status in both repositories before committing; preserve unrelated edits.
+1. Inspect `zot schema add`, `zot schema collection move`, and `zot --json zotero collection list` to identify the target by its current key and name. Preview the actual input with `--dry-run`; validate DOI and selection fields before the first write. If the user wants this as a Zotero tool, put the implementation and tests in the Zotero repository's `tool/` tree, keep the producer's job separate, and point the downstream scheduler wrapper at the moved script. Check Git status in both repositories before committing; preserve unrelated edits.
    The producer is `/Users/liuchzzyy/CodeSpace/PaperCrossref`: `/Users/liuchzzyy/CodeSpace/PaperCrossref/fetch_crossref_updates.py` writes the CSV including the Crossref `abstract`, then `/Users/liuchzzyy/CodeSpace/PaperCrossref/semantic_enrichment.py` adds `title_zh`, `abstract_zh` and the two flags. That repository has **no git remote** — commit locally, do not look for a push target. Its tests are `python -m unittest test_*`, not pytest.
 2. Use the Zotero Web API for DOI writes and include resolved metadata; do not silently create bare records when resolution fails. When direct import without deduplication is requested, create each selected row even if the DOI already exists elsewhere. If the upstream CSV already contains a Chinese translation, reuse its `title_zh` rather than calling a model again; reject a selected row with a missing or multiline translation before any write. Put a single `translated-title: <中文标题>` line into the new item's Zotero `extra` field at creation, preserving any other Extra lines, while keeping the original English `title` and DOI unchanged. Specify the destination collection on creation where supported. Read back each returned item key and verify the exact DOI, collection, and Extra line before recording success; Zotero Desktop's local SQLite view can lag until sync.
-   The same row also carries `abstract_zh`, which replaces Crossref's English abstract in `abstractNote`. Require it whenever the row's `abstract` is non-empty and reject a non-empty `abstract_zh` when `abstract` is empty — otherwise an invented summary would be indistinguishable from a translation. `tools/paper2zotero/zh_text.py` then flattens super/subscripts (Unicode, `<sup>/<sub>`, LaTeX) and pads every CJK↔Latin boundary for both fields; read back `abstractNote` as well, because a dropped field looks exactly like a successful import.
+   The same row also carries `abstract_zh`, which replaces Crossref's English abstract in `abstractNote`. Require it whenever the row's `abstract` is non-empty and reject a non-empty `abstract_zh` when `abstract` is empty — otherwise an invented summary would be indistinguishable from a translation. `tool/paper2zotero/zh_text.py` then flattens super/subscripts (Unicode, `<sup>/<sub>`, LaTeX) and pads every CJK↔Latin boundary for both fields; read back `abstractNote` as well, because a dropped field looks exactly like a successful import.
 3. For multi-item runs, record verified progress per row so a partial failure can resume without repeating rows already confirmed by *that run*. This checkpoint is not a library-wide deduplication policy. If the remote write's result is uncertain, surface it instead of blindly retrying and risking another record. Keep the input CSV on any failure. If the user explicitly requests cleanup, retain the selected DOI/key manifest until every item has been read back, then delete **only the processed CSV** (including a valid zero-candidate run); never delete it after a partial failure. After the run, independently read the remote destination collection and compare its added keys/DOIs with the manifest—Zotero Desktop's unsynced SQLite view cannot verify a fresh Web API write. Test success, failure, resume, and dry-run paths against fixtures without mutating the real library.
 
 ## Full-library translated-title backfill
 
 1. **Inventory before writing.** Read the *remote* user library with the Web API (e.g. the configured `ZoteroWriter(...)._zot.everything(_zot.top(limit=100))`), not just a local `zot zotero list` page. Count items whose nonempty title has no case-insensitive `translated-title:` line in `data.extra`, broken down by item type; skip untitled notes. Report the scope and keep existing translations untouched. Zotero Desktop's SQLite view can lag behind Web API writes, so it cannot establish the complete live missing set.
-2. **Stage translations separately.** Batch only missing `key`/`title` pairs into a JSON-only model call; match every response back by exact key and original title, require a nonempty Chinese translation, and retry malformed batches only a bounded number of times. For Zotero titles containing JATS markup or embedded newlines, prepare a readable model input while retaining the exact original Zotero title for identity and write verification; do not turn a subscript such as `MoSe<sub>2</sub>` into a misleading formula. Persist a complete, validated translation plan before the first library mutation (checkpoint: `.zot/state/paper2zotero/backfill_titles_state.json`; the old file in `tools/paper2zotero/` is not auto-migrated). A successful first batch is not proof that the full inventory has been staged.
+2. **Stage translations separately.** Batch only missing `key`/`title` pairs into a JSON-only model call; match every response back by exact key and original title, require a nonempty Chinese translation, and retry malformed batches only a bounded number of times. For Zotero titles containing JATS markup or embedded newlines, prepare a readable model input while retaining the exact original Zotero title for identity and write verification; do not turn a subscript such as `MoSe<sub>2</sub>` into a misleading formula. Persist a complete, validated translation plan before the first library mutation (checkpoint: `.zot/state/paper2zotero/backfill_titles_state.json`; the old file in `tool/paper2zotero/` is not auto-migrated). A successful first batch is not proof that the full inventory has been staged.
 3. **Apply conservatively.** Re-read each target key immediately before updating. If an existing `translated-title:` appeared meanwhile, leave it alone; otherwise append one `translated-title: <中文标题>` line to its current Extra, preserving unrelated lines and the original title/DOI. Use the Zotero Web API writer, then read back that exact key and compare title, DOI (when present), and the Extra line. Checkpoint verified successes per key so a partial failure can resume without replacing existing translations. Do not treat an uncertain write response as permission to issue the same write blindly.
 4. **Verify completion.** Compare the preflight missing-key manifest against verified keys and a fresh remote inventory; report updated, newly-already-translated, unresolved, and untitled counts separately. If a background run is still active or stopped partway, report only confirmed progress and retain its checkpoint; never claim that all titles were translated based on a launch or a small probe.
 
@@ -224,15 +224,15 @@ Translate English abstracts into Chinese and write back to `abstractNote` for a 
 
 ```bash
 # Preview candidates and counts (dry-run by default)
-uv run python tools/paper2zotero/translate_abstracts.py --collection "00 | 收件箱"
+uv run python tool/paper2zotero/translate_abstracts.py --collection "00 | 收件箱"
 
 # Apply changes via Zotero Web API and verify readback
-uv run python tools/paper2zotero/translate_abstracts.py --collection "00 | 收件箱" --apply
+uv run python tool/paper2zotero/translate_abstracts.py --collection "00 | 收件箱" --apply
 
 # Update specific item keys. --force re-includes already-Chinese abstracts in
 # staging, but the write guard still never overwrites a different valid Chinese abstract.
-uv run python tools/paper2zotero/translate_abstracts.py --key ITEMKEY --apply
-uv run python tools/paper2zotero/translate_abstracts.py --collection "00 | 收件箱" --force
+uv run python tool/paper2zotero/translate_abstracts.py --key ITEMKEY --apply
+uv run python tool/paper2zotero/translate_abstracts.py --collection "00 | 收件箱" --force
 ```
 
 1. **Filtering policy**: Non-article items (attachments, notes) and items without `abstractNote` (or empty) are strictly skipped ("没有摘要的不管"). Items whose abstract is already Chinese are skipped unless `--force` is specified; `--force` only adds them as translation candidates, and the final write guard refuses to replace a different valid Chinese abstract (it may still report `already_up_to_date` when the text is identical).
@@ -275,15 +275,15 @@ The `zot ai-pdf` command parses through MinerU cloud; its Markdown feeds `ai-not
 
 Hard limits: 200 MiB per file/upload, 512 MiB download archive, 200 MiB per archive member, 1 GiB extracted total, 10,000 archive entries (oversize messages report MB). Cache writes use a cross-process `.locks/` directory plus hidden staging and atomic replace; lock files record the owner PID (dead owner reclaimed immediately, other waiters reclaimed after a stale window <= max wait with a waiting notice), stale hidden staging is swept on the next parse, the PDF is hashed once, only transient errors are retried, a result download that drops mid-body is retried once, and MinerU batch POST is never retried automatically. For local-only reading, use `ZoteroReader.get_pdf_attachments()` to resolve paths by attachment key, inspect the first page to classify main article versus SI even when filenames match, then open locally with a PDF reader such as PyMuPDF. Never send all attachments to MinerU just to discover which PDFs exist. Reuse an existing complete index when possible, and reindex when PDFs, notes, or item metadata change.
 
-For logged MacBook workflows, use `tools/paperrag/run-rag-workspace.zsh` and `tools/paperrag/run-rag-evidence-search.zsh`. Read `tools/paperrag/Instructions.md` before running a full collection inventory, forced rebuild, or long embedding backfill.
+For logged MacBook workflows, use `tool/paperrag/run-rag-workspace.zsh` and `tool/paperrag/run-rag-evidence-search.zsh`. Read `tool/paperrag/Instructions.md` before running a full collection inventory, forced rebuild, or long embedding backfill.
 
 ### Invariants & pitfalls for PaperRAG workflows
 
-- **Explicit profile forwarding:** When targeting a specific Zotero profile, pass `--profile NAME` to `tools/paperrag/run-rag-workspace.zsh` or `run-rag-evidence-search.zsh`; the wrapper scripts forward it to both `workspace_inventory.py` and downstream `zot` subcommands, avoiding fallback to default library credentials.
+- **Explicit profile forwarding:** When targeting a specific Zotero profile, pass `--profile NAME` to `tool/paperrag/run-rag-workspace.zsh` or `run-rag-evidence-search.zsh`; the wrapper scripts forward it to both `workspace_inventory.py` and downstream `zot` subcommands, avoiding fallback to default library credentials.
 - **Defensive vector store inspection during inventory:** In `workspace_inventory.py`, wrap Qdrant collection count in try-except. If the vector collection does not exist yet or experiences concurrent lock contention, log a warning and fall back to `vector_count = 0` rather than crashing the preflight inventory and failing the entire workflow.
 - **Log cleanup lifecycle:** Successful workflow runs remove their temporary directory under `log/` automatically (and prune `log/` itself when empty). Always pass `--keep-log` or `--keep-inventory` when running automated checks or diagnostic runs that assert on `inventory.json` or run outputs.
-- **Script permissions & path migration:** Tool entrypoints live under `tools/paperrag/` (not `tools/`). Scripts must retain POSIX executable bits (`chmod +x`), which `tests/integration/test_tool_scripts.py` strictly verifies with `os.access(..., os.X_OK)`. Ensure integration tests resolve `TOOLS_DIR` to `tools/paperrag`.
-- **Executable bits now survive Git; keep the 644/755 split.** This checkout used to carry `core.fileMode=false` while most tracked files were mode 700 on disk, so `chmod +x` never reached Git and a clone dropped the bit on the `.zsh` entrypoints. That is fixed: every file is 644, directories and the three shell entrypoints are 755, and `core.fileMode=true` records future changes. Keep new scripts at 755 (`chmod +x` then verify with `git ls-tree HEAD tools/paperrag/` showing `100755`); do not leave ordinary files mode 700.
+- **Script permissions & path migration:** Tool entrypoints live under `tool/paperrag/` (not `tool/`). Scripts must retain POSIX executable bits (`chmod +x`), which `tests/integration/test_tool_scripts.py` strictly verifies with `os.access(..., os.X_OK)`. Ensure integration tests resolve `TOOLS_DIR` to `tool/paperrag`.
+- **Executable bits now survive Git; keep the 644/755 split.** This checkout used to carry `core.fileMode=false` while most tracked files were mode 700 on disk, so `chmod +x` never reached Git and a clone dropped the bit on the `.zsh` entrypoints. That is fixed: every file is 644, directories and the three shell entrypoints are 755, and `core.fileMode=true` records future changes. Keep new scripts at 755 (`chmod +x` then verify with `git ls-tree HEAD tool/paperrag/` showing `100755`); do not leave ordinary files mode 700.
 
 ### Collection renames in repository workflows
 
@@ -294,7 +294,7 @@ For logged MacBook workflows, use `tools/paperrag/run-rag-workspace.zsh` and `to
 ## Repository documentation maintenance
 
 `README.md` (Chinese, user-facing), `AGENTS.md` (English, agent-facing),
-`tests/README.md`, `tools/README.md`, and `tools/paper2zotero/README.md` are the
+`tests/README.md`, `tool/README.md`, and `tool/paper2zotero/README.md` are the
 repository docs; no `docs/` tree exists. Derive every documented command, flag,
 config key and env var from the running CLI (`uv run zot --help`,
 `uv run zot COMMAND --help`, `grep -rho 'ZOT_[A-Z_]*' src/zotero_cli`), never
@@ -314,7 +314,7 @@ falsely report the file missing.
   recurring error.
 - A surface change must also reach `AGENTS.md`, `README.md`, the tools READMEs,
   the repo-bundled `skill/zotero-cli/SKILL.md`, and this profile's copy; grep old
-  `tools/...` paths after any directory migration.
+  `tool/...` paths after any directory migration.
 - CI is checked in at `.github/workflows/ci.yml`: lint, format check, mypy, the
   full test suite, and wheel/sdist build on Python 3.12 only, plus a
   weekly/manual best-effort `pip-audit` (network-dependent, non-blocking). Do not
@@ -322,7 +322,7 @@ falsely report the file missing.
   only CPython 3.12 (`>=3.12,<3.13`); dependencies are the latest compatible
   versions (`pyzotero>=1.16,<2`).
 - The test suite is expected fully green (0 failed, 0 skipped). Do not add skip
-  markers, and do not document a skip or failure baseline. `tools/**` tests carry
+  markers, and do not document a skip or failure baseline. `tool/**` tests carry
   the `tools` marker and run under `uv run pytest -q -rf`.
 
 Full checklist and reporting rules: `references/doc-maintenance.md`.

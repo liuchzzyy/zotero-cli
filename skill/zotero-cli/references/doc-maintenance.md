@@ -11,8 +11,8 @@ tools READMEs, or the bundled skill in `/Users/liuchzzyy/CodeSpace/zotero-cli`.
 | `AGENTS.md` | English | coding agents; architecture, invariants, validation order |
 | `skill/zotero-cli/SKILL.md` | English | the bundled agent skill, must match real CLI behavior |
 | `tests/README.md` | English | test layout, markers, and the green-suite expectation |
-| `tools/README.md` | English | overview of the non-CLI batch helpers and their tests |
-| `tools/paper2zotero/README.md` | English | per-script config, safety and test commands for the metadata tools |
+| `tool/README.md` | English | overview of the non-CLI batch helpers and their tests |
+| `tool/paper2zotero/README.md` | English | per-script config, safety and test commands for the metadata tools |
 
 No `docs/` tree or MkDocs config is checked in. A missing docs path is not
 evidence of the wrong repository — do not "restore" a docs tree.
@@ -77,13 +77,13 @@ evidence of the wrong repository — do not "restore" a docs tree.
   inventory helper and the paper2zotero batch metadata translator were renamed
   to `workspace_inventory.py` and `batch_translate_metadata.py`: a hyphen is
   not importable (tests had to load the file by path), and the old batch name
-  described only half of what the script does. Keep `tools/**` module names
+  described only half of what the script does. Keep `tool/**` module names
   snake_case and update the script references (`*.zsh`, tests, docs) together.
 - **There is no skip or failure baseline.** The suite is expected fully green
   (0 failed, 0 skipped). A docs update must not describe skipped tests,
   platform-conditional skips, or known failures as normal; if a test is
   skipped, that is a regression to fix in code, not something to document.
-  `tools/**` tests carry the `tools` marker and run in the default suite.
+  `tool/**` tests carry the `tools` marker and run in the default suite.
 - **CI exists.** `.github/workflows/ci.yml` runs lint, format check, mypy, the
   full test suite, and wheel/sdist build on Python 3.12 only; a weekly/manual
   best-effort `pip-audit` job is network-dependent and non-blocking. Do not
@@ -108,7 +108,7 @@ evidence of the wrong repository — do not "restore" a docs tree.
   normalising the working tree (644 files, 755 dirs and the three `.zsh`
   entrypoints) and enabling `core.fileMode=true`, so `chmod +x` on a tracked
   script is now recorded and survives a clone. Keep it that way: new scripts go
-  to 755, ordinary files stay 644, and `git ls-tree HEAD tools/paperrag/` must
+  to 755, ordinary files stay 644, and `git ls-tree HEAD tool/paperrag/` must
   show `100755` on the wrappers.
 - **Name the risk out loud.** When the doc pass exposes a loose credential or a
   destructive-looking behavior outside the requested scope, name the file and

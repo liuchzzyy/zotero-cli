@@ -1,4 +1,4 @@
-# Bundled tools
+# Bundled tool
 
 Scripts in this directory are maintained workflow helpers that live *outside*
 the `zotero_cli` package. They are **not** `zot` subcommands: `zot schema`
@@ -11,15 +11,15 @@ state (workspace indexes, `log/` run directories, checkpoints) as plain files;
 those live under the git-ignored `.zot/state/` or `.workspace/` trees.
 
 They run on the repository's single supported interpreter, CPython 3.12. Run them from the repository root, e.g.
-`uv run python tools/paper2zotero/translate_abstracts.py --collection "00 | 收件箱"`
-or `tools/paperrag/run-rag-workspace.zsh --help`. `uv run pytest -q` collects
-their tests too because `[tool.pytest.ini_options] testpaths = ["tests", "tools"]`;
-they carry the `tools` marker (`uv run pytest -q -m tools`). The repository suite
+`uv run python tool/paper2zotero/translate_abstracts.py --collection "00 | 收件箱"`
+or `tool/paperrag/run-rag-workspace.zsh --help`. `uv run pytest -q` collects
+their tests too because `[tool.pytest.ini_options] testpaths = ["tests", "tool"]`;
+they carry the `tool` marker (`uv run pytest -q -m tool`). The repository suite
 is expected fully green (0 failed, 0 skipped).
 
-## `tools/ainote/`
+## `tool/ainote/`
 
-Batch runner and prompt templates for `zot ai_analyze`. `batch_analyze.py`
+Batch runners for `zot ai-note`. Prompt templates live in `src/zotero_cli/ai_notes/templates/`. `batch_analyze.py`
 requires `--collection` (name or key) and walks it, including subcollections
 unless `--no-recursive`. It skips items already tagged `ai/noted` or
 `ai/uncertain` (unless `--force`) and items marked done in the checkpoint, then
@@ -49,7 +49,7 @@ advisory lock prevents overlapping scheduler runs; empty/all-skipped runs
 emit no stdout. Reports live in the specified output directory, and the
 collection checkpoint remains under `.zot/state/`.
 
-Because `ai_analyze` now fails closed on input it cannot fit (structured text
+Because `zot ai-note` now fails closed on input it cannot fit (structured text
 over `max_extracted_chars`, or more main figures than the token budget allows),
 only an explicitly marked input-budget failure is treated as permanent: after
 `MAX_ATTEMPTS` (3) the item is parked as `unanalyzable`, listed in the run's
@@ -60,12 +60,12 @@ an uncertain write is never parked, since the note may already exist.
 `--retry-parked` clears parked checkpoints so they are attempted again
 after you fix the cause (raise the cap, split the PDF).
 
-`templates/` holds the prompts `ai_analyze` loads at runtime
-(`classify-item`, `research-article`, `review-article`, `book`,
-`short-note`); `pyproject.toml` force-includes that directory into the wheel as
-`zotero_cli/templates/`, so moving it changes the build, not just docs.
+`src/zotero_cli/ai_notes/templates/` holds the prompts `zot ai-note` loads at
+runtime (`classify-item`, `research-article`, `review-article`, `book`,
+`short-note`). They ship inside the `zotero_cli` package, so changing them is
+a library change rather than a tool-script change.
 
-## `tools/paper2zotero/`
+## `tool/paper2zotero/`
 
 Chinese-metadata and DOI-intake helpers: `zotero_inbox.py` (import screened
 PaperCrossref rows into the inbox collection), `backfill_titles.py`
@@ -83,7 +83,7 @@ are overridable without editing code: `ZOT_PAPER2ZOTERO_HERMES_HOME`,
 `ZOT_PAPER2ZOTERO_INBOX_NAME`. Required configuration, per-script behavior and
 test commands: [paper2zotero/README.md](paper2zotero/README.md).
 
-## `tools/paperrag/`
+## `tool/paperrag/`
 
 Logged end-to-end workspace RAG entrypoints: `run-rag-workspace.zsh`
 (inventory -> incremental index -> embedding backfill) and

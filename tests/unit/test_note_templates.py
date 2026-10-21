@@ -40,13 +40,12 @@ class TestNoteTemplates:
         assert template_path("book").name == "book.md"
 
     def test_package_data_dir_is_a_fallback(self):
-        """An installed CLI has no `tools/`, so the wheel must carry the prompts."""
+        """Prompt templates resolve from the package directory."""
         from zotero_cli.ai_notes import templates as note_templates
 
-        # The wheel force-includes tools/ainote/templates at zotero_cli/templates.
-        package_data = Path(note_templates.__file__).resolve().parents[1] / "templates"
-        assert package_data.parent.name == "zotero_cli"
-        assert package_data in note_templates._candidate_template_dirs()
+        package_data = Path(note_templates.__file__).resolve().parent / "templates"
+        assert package_data.name == "templates"
+        assert note_templates._candidate_template_dirs() == [package_data]
 
     def test_every_prompt_template_resolves(self):
         for name in ("research-article", "review-article", "book", "classify-item", "short-note"):
