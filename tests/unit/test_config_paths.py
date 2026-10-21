@@ -159,6 +159,6 @@ def test_checkout_config_path_stays_repo_local(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_version_check_cache_file_is_isolated(tmp_path: Path) -> None:
-    from zotero_cli.core import version_check
+    from zotero_cli.cli import version_check
 
     assert version_check._cache_file() == tmp_path / ".zot" / "state" / "version-check.json"

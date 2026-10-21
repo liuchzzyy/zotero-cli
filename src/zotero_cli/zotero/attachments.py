@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from zotero_cli.core.platform_paths import is_wsl_environment, windows_to_wsl_path
+from zotero_cli.zotero.platform_paths import is_wsl_environment, windows_to_wsl_path
 
 _WINDOWS_DRIVE_PATH_RE = re.compile(r"^[A-Za-z]:[\\/]")
 _WINDOWS_UNC_PATH_RE = re.compile(r"^\\\\[^\\/]+[\\/]")
