@@ -238,15 +238,15 @@ class TestEmbedding:
         return resp
 
     def test_embed_texts_not_configured(self):
-        cfg = EmbeddingConfig(url="", api_key="", model="")
-        result = embed_texts(["hello"], cfg)
+        config = EmbeddingConfig(url="", api_key="", model="")
+        result = embed_texts(["hello"], config)
         assert result is None
 
     def test_embed_texts_gitee_api_call(self):
-        cfg = EmbeddingConfig(url="https://ai.gitee.com/v1", api_key="key", model="bge-m3")
+        config = EmbeddingConfig(url="https://ai.gitee.com/v1", api_key="key", model="bge-m3")
         resp = self._gitee_response([[0.1, 0.2, 0.3]])
         with patch("zotero_cli.workspace.rag.providers.gitee.requests.post", return_value=resp) as mock_post:
-            result = embed_texts(["hello world"], cfg)
+            result = embed_texts(["hello world"], config)
 
         assert result == [[0.1, 0.2, 0.3]]
         args, kwargs = mock_post.call_args
@@ -258,12 +258,12 @@ class TestEmbedding:
         assert headers["X-Failover-Enabled"] == "true"
 
     def test_embed_texts_surfaces_provider_error(self, capsys):
-        cfg = EmbeddingConfig(url="https://ai.gitee.com/v1", api_key="key", model="bge-m3")
+        config = EmbeddingConfig(url="https://ai.gitee.com/v1", api_key="key", model="bge-m3")
         with patch(
             "zotero_cli.workspace.rag.providers.gitee.requests.post",
             side_effect=RuntimeError("boom"),
         ):
-            result = embed_texts(["hello"], cfg)
+            result = embed_texts(["hello"], config)
         assert result is None
         captured = capsys.readouterr()
         assert "WARN" in captured.err
@@ -271,8 +271,8 @@ class TestEmbedding:
         assert "boom" in captured.err
 
     def test_embed_texts_silent_when_not_configured(self, capsys):
-        cfg = EmbeddingConfig(url="", api_key="", model="")
-        result = embed_texts(["hello"], cfg)
+        config = EmbeddingConfig(url="", api_key="", model="")
+        result = embed_texts(["hello"], config)
         assert result is None
         captured = capsys.readouterr()
         assert captured.err == ""
@@ -334,43 +334,43 @@ class TestEmbeddingInputType:
         return resp
 
     def test_query_input_type_is_sent_to_the_provider(self):
-        cfg = EmbeddingConfig(url="https://ai.gitee.com/v1", api_key="key", model="bge-m3")
+        config = EmbeddingConfig(url="https://ai.gitee.com/v1", api_key="key", model="bge-m3")
         with patch(
             "zotero_cli.workspace.rag.providers.gitee.requests.post",
             return_value=self._response([[1.0, 2.0]]),
         ) as mock_post:
-            assert embed_texts(["query text"], cfg, input_type="query") == [[1.0, 2.0]]
+            assert embed_texts(["query text"], config, input_type="query") == [[1.0, 2.0]]
         payload = mock_post.call_args.kwargs["json"]
         assert payload["input_type"] == "query"
         assert payload["input"] == ["query text"]
 
     def test_document_input_type_keeps_request_shape(self):
-        cfg = EmbeddingConfig(url="https://ai.gitee.com/v1", api_key="key", model="bge-m3")
+        config = EmbeddingConfig(url="https://ai.gitee.com/v1", api_key="key", model="bge-m3")
         with patch(
             "zotero_cli.workspace.rag.providers.gitee.requests.post",
             return_value=self._response([[1.0]]),
         ) as mock_post:
-            assert embed_texts(["document text"], cfg) == [[1.0]]
+            assert embed_texts(["document text"], config) == [[1.0]]
         payload = mock_post.call_args.kwargs["json"]
         assert "input_type" not in payload
         assert payload["input"] == ["document text"]
 
     def test_query_input_type_falls_back_when_provider_rejects_field(self):
-        cfg = EmbeddingConfig(url="https://ai.gitee.com/v1", api_key="key", model="bge-m3")
+        config = EmbeddingConfig(url="https://ai.gitee.com/v1", api_key="key", model="bge-m3")
         rejected = MagicMock(ok=False, status_code=400, text="unknown field input_type")
         accepted = self._response([[0.5]])
         with patch(
             "zotero_cli.workspace.rag.providers.gitee.requests.post",
             side_effect=[rejected, accepted],
         ) as mock_post:
-            assert embed_texts(["query text"], cfg, input_type="query") == [[0.5]]
+            assert embed_texts(["query text"], config, input_type="query") == [[0.5]]
         assert mock_post.call_count == 2
         assert "input_type" not in mock_post.call_args_list[1].kwargs["json"]
 
     def test_unsupported_provider_is_not_silently_sent_to_gitee(self, capsys):
-        cfg = EmbeddingConfig(url="https://example.invalid/v1", api_key="key", model="model", provider="other")
+        config = EmbeddingConfig(url="https://example.invalid/v1", api_key="key", model="model", provider="other")
         with patch("zotero_cli.workspace.rag.providers.gitee.requests.post") as mock_post:
-            assert embed_texts(["text"], cfg) is None
+            assert embed_texts(["text"], config) is None
         mock_post.assert_not_called()
         assert "Unsupported embedding provider" in capsys.readouterr().err
 
@@ -381,15 +381,15 @@ class TestEmbeddingInputType:
             GiteeEmbeddingProvider(api_key="key").embed(["text"], input_type="other")
 
     def test_input_type_rejection_is_remembered_across_calls(self):
-        cfg = EmbeddingConfig(url="https://ai.gitee.com/v1", api_key="key", model="strict-model")
+        config = EmbeddingConfig(url="https://ai.gitee.com/v1", api_key="key", model="strict-model")
         rejected = MagicMock(ok=False, status_code=400, text="unknown field input_type")
         accepted = self._response([[0.5]])
         with patch(
             "zotero_cli.workspace.rag.providers.gitee.requests.post",
             side_effect=[rejected, accepted, accepted],
         ) as mock_post:
-            assert embed_texts(["q1"], cfg, input_type="query") == [[0.5]]
-            assert embed_texts(["q2"], cfg, input_type="query") == [[0.5]]
+            assert embed_texts(["q1"], config, input_type="query") == [[0.5]]
+            assert embed_texts(["q2"], config, input_type="query") == [[0.5]]
 
         assert mock_post.call_count == 3
         assert mock_post.call_args_list[0].kwargs["json"]["input_type"] == "query"

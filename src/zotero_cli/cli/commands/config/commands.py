@@ -91,7 +91,7 @@ def init_command(
     if data_dir:
         data_dir = str(Path(data_dir).expanduser().resolve())
 
-    cfg = AppConfig(
+    config = AppConfig(
         data_dir=data_dir or "",
         library_id=library_id or "",
         api_key=api_key or "",
@@ -104,8 +104,8 @@ def init_command(
     )
 
     warnings: list[str] = []
-    if cfg.data_dir:
-        dd = Path(cfg.data_dir)
+    if config.data_dir:
+        dd = Path(config.data_dir)
         if not dd.exists():
             warnings.append(f"Directory does not exist: {dd}")
         elif not (dd / "zotero.sqlite").exists():
@@ -113,7 +113,7 @@ def init_command(
 
     backup: Path | None = None
     try:
-        merged, changed = merge_config_data(existing_data, cfg, profile=profile, allow_new_profile=True)
+        merged, changed = merge_config_data(existing_data, config, profile=profile, allow_new_profile=True)
         if not dry_run:
             backup = write_config_data(path, merged)
     except ConfigError as exc:
@@ -127,9 +127,9 @@ def init_command(
     payload = {
         "config_path": str(path),
         "profile": effective_profile,
-        "data_dir": cfg.data_dir,
-        "library_id": cfg.library_id,
-        "api_key_set": bool(cfg.api_key),
+        "data_dir": config.data_dir,
+        "library_id": config.library_id,
+        "api_key_set": bool(config.api_key),
         "changed": changed,
         "backup_path": str(backup) if backup is not None else "",
         "warnings": warnings,
@@ -143,7 +143,7 @@ def init_command(
     typer.echo(f"{prefix} {path}")
     if effective_profile:
         typer.echo(f"  Profile: {effective_profile}")
-    typer.echo(f"  Data directory: {cfg.data_dir or '(auto-detect)'}")
+    typer.echo(f"  Data directory: {config.data_dir or '(auto-detect)'}")
     for warning in warnings:
         typer.echo(typer.style(f"  WARNING: {warning}", fg="yellow"))
 
@@ -157,26 +157,26 @@ def show_command(
     profile = _profile(ctx)
     try:
         path = resolve_config_path(config_path, must_exist=config_path is not None)
-        cfg = load_config(path, profile=profile)
+        config = load_config(path, profile=profile)
     except ConfigError as exc:
         _emit_config_error(ctx, exc)
         return
 
-    data_dir = get_data_dir(cfg)
+    data_dir = get_data_dir(config)
     db_file = data_dir / "zotero.sqlite"
     data_dir_exists = data_dir.exists()
     database_ok = db_file.exists()
     data = {
         "config_path": str(path),
         "profile": profile or "",
-        "library_id": cfg.library_id,
-        "api_key_set": bool(cfg.api_key),
-        "api_key_tail": cfg.api_key[-4:] if len(cfg.api_key) > 4 else "",
-        "data_dir": cfg.data_dir or "(auto-detect)",
+        "library_id": config.library_id,
+        "api_key_set": bool(config.api_key),
+        "api_key_tail": config.api_key[-4:] if len(config.api_key) > 4 else "",
+        "data_dir": config.data_dir or "(auto-detect)",
         "resolved_data_dir": str(data_dir),
-        "default_format": cfg.default_format,
-        "default_limit": cfg.default_limit,
-        "default_export_style": cfg.default_export_style,
+        "default_format": config.default_format,
+        "default_limit": config.default_limit,
+        "default_export_style": config.default_export_style,
         "database_path": str(db_file),
         "data_dir_exists": data_dir_exists,
         "database_ok": database_ok,
@@ -188,18 +188,18 @@ def show_command(
     typer.echo(f"Config:     {path}")
     if profile:
         typer.echo(f"Profile:    {profile}")
-    typer.echo(f"Library ID: {cfg.library_id}")
-    if len(cfg.api_key) > 4:
-        api_key_display = "***" + cfg.api_key[-4:]
-    elif cfg.api_key:
+    typer.echo(f"Library ID: {config.library_id}")
+    if len(config.api_key) > 4:
+        api_key_display = "***" + config.api_key[-4:]
+    elif config.api_key:
         api_key_display = "***"
     else:
         api_key_display = "(not set)"
     typer.echo(f"API Key:    {api_key_display}")
-    typer.echo(f"Data Dir:   {cfg.data_dir or '(auto-detect)'}")
-    typer.echo(f"Format:     {cfg.default_format}")
-    typer.echo(f"Limit:      {cfg.default_limit}")
-    typer.echo(f"Export:     {cfg.default_export_style}")
+    typer.echo(f"Data Dir:   {config.data_dir or '(auto-detect)'}")
+    typer.echo(f"Format:     {config.default_format}")
+    typer.echo(f"Limit:      {config.default_limit}")
+    typer.echo(f"Export:     {config.default_export_style}")
 
     if not data_dir_exists:
         typer.echo(typer.style(f"\nWARNING: Data directory not found: {data_dir}", fg="yellow"))

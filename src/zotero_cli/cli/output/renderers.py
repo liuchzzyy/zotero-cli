@@ -12,7 +12,7 @@ envelope 的构造位于 zotero_cli.cli.output.envelope。
 from __future__ import annotations
 
 import json
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from io import StringIO
 from typing import Any
 
@@ -22,9 +22,19 @@ from rich.text import Text
 from rich.tree import Tree
 
 from zotero_cli.cli.output.envelope import envelope_error, envelope_ok
-from zotero_cli.cli.output.models import ErrorInfo
 from zotero_cli.cli.output.sanitize import sanitize_text
 from zotero_cli.zotero.models import Collection, DuplicateGroup, Item, Note
+
+
+@dataclass
+class ErrorInfo:
+    """人类可读错误展示所需的字段。"""
+
+    message: str
+    context: str = ""
+    hint: str = ""
+    code: str = "runtime_error"
+    retryable: bool = False
 
 
 def _text(value: object) -> Text:

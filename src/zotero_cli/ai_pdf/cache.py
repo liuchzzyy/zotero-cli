@@ -25,8 +25,8 @@ from pathlib import Path
 from typing import Any
 
 from zotero_cli.ai_pdf.client import MinerUClient, _RemoteParse, _safe_extract_zip
-from zotero_cli.ai_pdf.models import MinerUError, MinerUParseResult, ProgressCallback
-from zotero_cli.ai_pdf.utils import _as_mineru_error, _validated_model_version, file_sha256
+from zotero_cli.ai_pdf.request_utils import _as_mineru_error, _validated_model_version, file_sha256
+from zotero_cli.ai_pdf.types import MinerUError, MinerUParseResult, ProgressCallback
 from zotero_cli.config import load_pdf_config
 from zotero_cli.workspace.store import mineru_cache_dir
 

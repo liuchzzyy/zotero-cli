@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from . import loaders, models, paths, zotero
+from . import loaders, paths, zotero
 from .errors import ConfigError
 from .loaders import (
     get_default_profile,
@@ -21,15 +21,6 @@ from .loaders import (
     save_config,
     write_config_data,
 )
-from .models import (
-    AiNoteConfig,
-    AppConfig,
-    EmbeddingConfig,
-    PdfConfig,
-    RerankConfig,
-    SemanticSearchConfig,
-    VectorStoreConfig,
-)
 from .paths import (
     APP_DIRNAME,
     CONFIG_FILENAME,
@@ -45,6 +36,15 @@ from .paths import (
     state_dir,
     state_root,
     workspace_root,
+)
+from .sections import (
+    AiNoteConfig,
+    AppConfig,
+    EmbeddingConfig,
+    PdfConfig,
+    RerankConfig,
+    SemanticSearchConfig,
+    VectorStoreConfig,
 )
 from .zotero import (
     LibraryResolutionError,

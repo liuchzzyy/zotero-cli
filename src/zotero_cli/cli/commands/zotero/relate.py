@@ -27,9 +27,9 @@ def relate(
       zot zotero relate ABC123
       zot --json zotero relate ABC123
     """
-    cfg = load_config(profile=ctx.obj.get("profile"))
+    config = load_config(profile=ctx.obj.get("profile"))
     json_out = ctx.obj.get("json", False)
-    data_dir = get_data_dir(cfg)
+    data_dir = get_data_dir(config)
     db_path = data_dir / "zotero.sqlite"
     library_id = resolve_library_id(db_path, ctx.obj)
     reader = ZoteroReader(db_path, library_id=library_id)

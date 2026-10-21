@@ -42,8 +42,8 @@ _ADD_HINT = "Use 'zot workspace new' to create it first"
 
 
 def _open_reader(ctx: typer.Context) -> ZoteroReader:
-    cfg = load_config(profile=ctx.obj.get("profile"))
-    data_dir = get_data_dir(cfg)
+    config = load_config(profile=ctx.obj.get("profile"))
+    data_dir = get_data_dir(config)
     db_path = data_dir / "zotero.sqlite"
     library_id = resolve_library_id(db_path, ctx.obj)
     return ZoteroReader(db_path, library_id=library_id)

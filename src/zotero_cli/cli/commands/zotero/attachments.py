@@ -31,7 +31,7 @@ def attach(
     idempotency_key: str | None = typer.Option(None, help="重复请求复用已确认的结果；未知写入需先核对。"),
 ) -> None:
     """将本地文件上传为 Zotero 条目附件；非预览模式会写入库。"""
-    cfg = load_config(profile=ctx.obj.get("profile"))
+    config = load_config(profile=ctx.obj.get("profile"))
     json_out = ctx.obj.get("json", False)
 
     fp = Path(file_path)
@@ -47,7 +47,7 @@ def attach(
 
     library_type = ctx.obj.get("library_type", "user")
     group_id = ctx.obj.get("group_id")
-    library_id, api_key = resolve_write_credentials(cfg, library_type=library_type, group_id=group_id)
+    library_id, api_key = resolve_write_credentials(config, library_type=library_type, group_id=group_id)
     if not library_id or not api_key:
         emit_error(
             "auth_missing",

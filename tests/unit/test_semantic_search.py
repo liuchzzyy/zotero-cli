@@ -59,14 +59,14 @@ def test_qdrant_empty_collection_search(tmp_path):
 
 def test_resolve_vector_store_path_relative(tmp_path, monkeypatch):
     monkeypatch.setattr("zotero_cli.workspace.rag.vector_store.data_root", lambda: tmp_path)
-    cfg = VectorStoreConfig(path=".workspace/_qdrant")
-    assert resolve_vector_store_path(cfg) == tmp_path / ".workspace" / "_qdrant"
+    config = VectorStoreConfig(path=".workspace/_qdrant")
+    assert resolve_vector_store_path(config) == tmp_path / ".workspace" / "_qdrant"
 
 
 def test_resolve_vector_store_path_absolute(tmp_path):
     absolute = str(tmp_path / "qdrant")
-    cfg = VectorStoreConfig(path=absolute)
-    assert resolve_vector_store_path(cfg) == tmp_path / "qdrant"
+    config = VectorStoreConfig(path=absolute)
+    assert resolve_vector_store_path(config) == tmp_path / "qdrant"
 
 
 def test_hybrid_retrieval_fts5_plus_qdrant(tmp_path):

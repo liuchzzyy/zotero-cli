@@ -132,8 +132,8 @@ class AiClient:
 
             try:
                 return self._send(**create_kwargs)
-            except Exception as e:
-                err_str = str(e).lower()
+            except Exception as error:
+                err_str = str(error).lower()
                 # 纯文本模型会拒绝图像部分；改用不带图片的方式重试该模型，
                 # 而不是让整次分析失败。
                 if attempt_figures and any(hint in err_str for hint in _IMAGE_REJECTION_HINTS):
@@ -157,17 +157,17 @@ class AiClient:
                     try:
                         return self._send(**{k: v for k, v in create_kwargs.items() if k != "reasoning_effort"})
                     except Exception as inner_e:
-                        e = inner_e
+                        error = inner_e
 
-                last_error = e
+                last_error = error
                 next_model = models[idx + 1] if idx + 1 < len(models) else None
                 if next_model:
-                    msg = f"模型 {model} 调用失败 ({type(e).__name__}: {str(e)[:80]})，切换到备用模型 {next_model}"
+                    msg = f"模型 {model} 调用失败 ({type(error).__name__}: {str(error)[:80]})，切换到备用模型 {next_model}"
                     logger.warning(msg)
                     if progress:
                         progress("fallback", msg)
                 else:
-                    msg = f"模型 {model} 调用失败: {type(e).__name__}: {str(e)[:120]}"
+                    msg = f"模型 {model} 调用失败: {type(error).__name__}: {str(error)[:120]}"
                     logger.error(msg)
 
         if last_error is not None:

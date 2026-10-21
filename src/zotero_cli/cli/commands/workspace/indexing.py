@@ -91,8 +91,8 @@ def _compute_content_hash(item: Item, notes: list[tuple[str, str]]) -> str:
 
 
 def _vector_store_for(name: str) -> QdrantVectorStore:
-    cfg = load_vector_store_config()
-    return QdrantVectorStore(resolve_vector_store_path(cfg), f"ws_{name}")
+    config = load_vector_store_config()
+    return QdrantVectorStore(resolve_vector_store_path(config), f"ws_{name}")
 
 
 def drop_workspace_vector_collection(name: str) -> bool:
@@ -264,11 +264,11 @@ def _index_workspace(
         )
         return
 
-    cfg = load_config(profile=ctx.obj.get("profile"))
-    data_dir = get_data_dir(cfg)
+    config = load_config(profile=ctx.obj.get("profile"))
+    data_dir = get_data_dir(config)
     db_path = data_dir / "zotero.sqlite"
     library_id = resolve_library_id(db_path, ctx.obj)
-    reader = ZoteroReader(db_path, library_id=library_id, prefs_js_path=get_prefs_js_path(cfg))
+    reader = ZoteroReader(db_path, library_id=library_id, prefs_js_path=get_prefs_js_path(config))
     try:
         entries: list[tuple[WorkspaceItem, Item, list[tuple[str, str, Path]], list[tuple[str, str]]]] = []
         missing_keys: list[str] = []

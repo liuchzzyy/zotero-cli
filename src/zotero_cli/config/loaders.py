@@ -22,7 +22,7 @@ from typing import Any
 
 from . import paths
 from .errors import ConfigError
-from .models import (
+from .sections import (
     AiNoteConfig,
     AppConfig,
     EmbeddingConfig,

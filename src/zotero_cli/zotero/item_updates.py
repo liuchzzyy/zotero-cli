@@ -39,8 +39,8 @@ def _parse_inline_fields(
 def _load_updates_from_jsonl(file_path: Path) -> list[BatchUpdateRow]:
     try:
         raw_lines = file_path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError) as e:
-        raise UpdateInputError(f"Could not read JSONL file '{file_path}': {e}")
+    except (OSError, UnicodeDecodeError) as error:
+        raise UpdateInputError(f"Could not read JSONL file '{file_path}': {error}")
 
     updates: list[BatchUpdateRow] = []
     for line_no, raw_line in enumerate(raw_lines, 1):
@@ -49,8 +49,8 @@ def _load_updates_from_jsonl(file_path: Path) -> list[BatchUpdateRow]:
             continue
         try:
             payload = json.loads(line)
-        except json.JSONDecodeError as e:
-            raise UpdateInputError(f"Invalid JSON on line {line_no} of '{file_path}': {e.msg}")
+        except json.JSONDecodeError as error:
+            raise UpdateInputError(f"Invalid JSON on line {line_no} of '{file_path}': {error.msg}")
         if not isinstance(payload, dict):
             raise UpdateInputError(f"Line {line_no} of '{file_path}' must be a JSON object")
 

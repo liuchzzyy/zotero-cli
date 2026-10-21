@@ -209,10 +209,10 @@ def upload(
         else:
             typer.echo(f"[dry-run] Would upload {file_path} ({size} bytes) as PDF attachment to '{key}'")
         return
-    cfg = load_config(profile=ctx.obj.get("profile"))
+    config = load_config(profile=ctx.obj.get("profile"))
     library_type = ctx.obj.get("library_type", "user")
     group_id = ctx.obj.get("group_id")
-    library_id, api_key = resolve_write_credentials(cfg, library_type=library_type, group_id=group_id)
+    library_id, api_key = resolve_write_credentials(config, library_type=library_type, group_id=group_id)
     if not library_id or not api_key:
         emit_error("auth_missing", "Write credentials not configured", output_json=json_out, context="pdf upload")
     cache_scope = (

@@ -225,8 +225,8 @@ def test_real_client_rejects_truncated_output(monkeypatch):
     from zotero_cli.ai_notes.client import AiClient
     from zotero_cli.config import AiNoteConfig
 
-    cfg = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="deepseek-flash")
-    client = AiClient(cfg)
+    config = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="deepseek-flash")
+    client = AiClient(config)
     response = SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(content='{"sections": []}'), finish_reason="length")],
         usage=SimpleNamespace(prompt_tokens=123, completion_tokens=9),
@@ -240,8 +240,8 @@ def test_real_client_records_usage_without_exposing_the_payload(monkeypatch):
     from zotero_cli.ai_notes.client import AiClient
     from zotero_cli.config import AiNoteConfig
 
-    cfg = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="deepseek-flash")
-    client = AiClient(cfg)
+    config = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="deepseek-flash")
+    client = AiClient(config)
     response = SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(content="OK"), finish_reason="stop")],
         usage=SimpleNamespace(prompt_tokens=123, completion_tokens=9),
@@ -255,13 +255,13 @@ def test_long_note_fallback_uses_only_preflighted_routes(monkeypatch):
     from zotero_cli.ai_notes.client import AiClient
     from zotero_cli.ai_notes.structured_input import model_supports_request
 
-    cfg = AiNoteConfig(
+    config = AiNoteConfig(
         api_key="test",
         base_url="http://127.0.0.1:1/v1",
         model="deepseek-flash",
         fallback_models=["unverified-model", "gemini-3.8-flash-high"],
     )
-    client = AiClient(cfg)
+    client = AiClient(config)
     attempted: list[str] = []
 
     def fake_create(**kwargs):
@@ -284,8 +284,8 @@ def test_image_rejection_drops_all_images_but_keeps_the_whole_text(monkeypatch):
     from zotero_cli.ai_notes.client import AiClient
     from zotero_cli.config import AiNoteConfig
 
-    cfg = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="deepseek-flash", fallback_models=[])
-    client = AiClient(cfg)
+    config = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="deepseek-flash", fallback_models=[])
+    client = AiClient(config)
     calls: list[dict] = []
 
     def fake_create(**kwargs):
@@ -310,8 +310,8 @@ def test_usage_history_records_every_call(monkeypatch):
     from zotero_cli.ai_notes.client import AiClient
     from zotero_cli.config import AiNoteConfig
 
-    cfg = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="deepseek-flash", fallback_models=[])
-    client = AiClient(cfg)
+    config = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="deepseek-flash", fallback_models=[])
+    client = AiClient(config)
     responses = [
         SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content="one"), finish_reason="stop")],

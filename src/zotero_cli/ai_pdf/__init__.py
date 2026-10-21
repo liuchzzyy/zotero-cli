@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from zotero_cli.ai_pdf.cache import MinerUParseCache
 from zotero_cli.ai_pdf.client import MinerUClient
-from zotero_cli.ai_pdf.models import MinerUError, MinerUParseResult, ProgressCallback
-from zotero_cli.ai_pdf.utils import extract_doi_from_markdown, file_sha256
+from zotero_cli.ai_pdf.request_utils import extract_doi_from_markdown, file_sha256
+from zotero_cli.ai_pdf.types import MinerUError, MinerUParseResult, ProgressCallback
 
 __all__ = [
     "MinerUClient",

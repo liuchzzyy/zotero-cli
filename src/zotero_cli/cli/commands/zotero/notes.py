@@ -26,7 +26,7 @@ def note(
     idempotency_key: str | None = typer.Option(None, help="重复请求复用已确认的结果；未知写入需先核对。"),
 ) -> None:
     """读取或新增条目笔记；新增操作会写入 Zotero 库。"""
-    cfg = load_config(profile=ctx.obj.get("profile"))
+    config = load_config(profile=ctx.obj.get("profile"))
     json_out = ctx.obj.get("json", False)
 
     if content is not None:
@@ -48,7 +48,7 @@ def note(
 
         library_type = ctx.obj.get("library_type", "user")
         group_id = ctx.obj.get("group_id")
-        write_library_id, api_key = resolve_write_credentials(cfg, library_type=library_type, group_id=group_id)
+        write_library_id, api_key = resolve_write_credentials(config, library_type=library_type, group_id=group_id)
         if not write_library_id or not api_key:
             emit_error(
                 "auth_missing",
@@ -71,10 +71,10 @@ def note(
         if idempotency_key:
             try:
                 cached = begin_mutation(cache_scope, idempotency_key)
-            except PendingMutationError as e:
+            except PendingMutationError as error:
                 emit_error(
                     "conflict",
-                    str(e),
+                    str(error),
                     output_json=json_out,
                     retryable=False,
                     hint="Reconcile the remote parent's notes before proceeding; do not bypass this with a new key",
@@ -157,7 +157,7 @@ def note(
             typer.echo(f"Note added: {note_key}")
             typer.echo(SYNC_REMINDER, err=True)
     else:
-        data_dir = get_data_dir(cfg)
+        data_dir = get_data_dir(config)
         db_path = data_dir / "zotero.sqlite"
         library_id = resolve_library_id(db_path, ctx.obj)
         reader = ZoteroReader(db_path, library_id=library_id)

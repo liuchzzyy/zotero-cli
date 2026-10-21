@@ -113,10 +113,10 @@ def _validate_collection_key(ctx: typer.Context, key: str, *, context: str) -> N
         )
 
 
-def _write_credentials(ctx: typer.Context, cfg: Any) -> tuple[str, str, str]:
+def _write_credentials(ctx: typer.Context, config: Any) -> tuple[str, str, str]:
     library_type = ctx.obj.get("library_type", "user")
     group_id = ctx.obj.get("group_id")
-    library_id, api_key = resolve_write_credentials(cfg, library_type=library_type, group_id=group_id)
+    library_id, api_key = resolve_write_credentials(config, library_type=library_type, group_id=group_id)
     if not library_id or not api_key:
         emit_error(
             "auth_missing",
@@ -162,13 +162,13 @@ def collection_create(
             human_text=f"[dry-run] Would create collection '{name}'" + (f" under parent {parent}" if parent else ""),
         )
         return
-    cfg = load_config(profile=ctx.obj.get("profile"))
-    library_id, api_key, library_type = _write_credentials(ctx, cfg)
+    config = load_config(profile=ctx.obj.get("profile"))
+    library_id, api_key, library_type = _write_credentials(ctx, config)
     writer = ZoteroWriter(library_id=library_id, api_key=api_key, library_type=library_type)
     try:
         key = writer.create_collection(name, parent_key=parent)
-    except ZoteroWriteError as e:
-        emit_write_error("collection create", e, output_json=json_out, hint="Check API credentials and network")
+    except ZoteroWriteError as error:
+        emit_write_error("collection create", error, output_json=json_out, hint="Check API credentials and network")
     _emit_sync_success(
         {"key": key, "name": name, "parent_key": parent, "sync_required": True},
         output_json=json_out,
@@ -205,13 +205,13 @@ def collection_move(
             human_text=human,
         )
         return
-    cfg = load_config(profile=ctx.obj.get("profile"))
-    library_id, api_key, library_type = _write_credentials(ctx, cfg)
+    config = load_config(profile=ctx.obj.get("profile"))
+    library_id, api_key, library_type = _write_credentials(ctx, config)
     writer = ZoteroWriter(library_id=library_id, api_key=api_key, library_type=library_type)
     try:
         writer.move_to_collection(item_key, collection_key, source_collection_key=source_collection)
-    except ZoteroWriteError as e:
-        emit_write_error("collection move", e, output_json=json_out, hint="Check item and collection keys")
+    except ZoteroWriteError as error:
+        emit_write_error("collection move", error, output_json=json_out, hint="Check item and collection keys")
     action = "moved" if source_collection else "added"
     human_text = (
         f"Item {item_key} moved from collection {source_collection} to {collection_key}"
@@ -250,7 +250,7 @@ def collection_delete(
             human += f" and {len(descendants)} nested collection(s): {names}"
         _emit_dry_run(ctx, data, human_text=human)
         return
-    cfg = load_config(profile=ctx.obj.get("profile"))
+    config = load_config(profile=ctx.obj.get("profile"))
     no_interaction = bool(ctx.obj.get("no_interaction", False))
     if not yes:
         if no_interaction or not sys.stdin.isatty():
@@ -268,12 +268,12 @@ def collection_delete(
         if not typer.confirm(prompt):
             _emit_json_or_text({"key": key, "cancelled": True}, output_json=json_out, human_text="Cancelled.")
             return
-    library_id, api_key, library_type = _write_credentials(ctx, cfg)
+    library_id, api_key, library_type = _write_credentials(ctx, config)
     writer = ZoteroWriter(library_id=library_id, api_key=api_key, library_type=library_type)
     try:
         writer.delete_collection(key)
-    except ZoteroWriteError as e:
-        emit_write_error("collection delete", e, output_json=json_out, hint="Check collection key")
+    except ZoteroWriteError as error:
+        emit_write_error("collection delete", error, output_json=json_out, hint="Check collection key")
     human = f"Collection {key} deleted"
     if descendants:
         human += f" (with {len(descendants)} nested collection(s))"
@@ -300,13 +300,13 @@ def collection_rename(
             human_text=f"[dry-run] Would rename collection {key} to '{new_name}'",
         )
         return
-    cfg = load_config(profile=ctx.obj.get("profile"))
-    library_id, api_key, library_type = _write_credentials(ctx, cfg)
+    config = load_config(profile=ctx.obj.get("profile"))
+    library_id, api_key, library_type = _write_credentials(ctx, config)
     writer = ZoteroWriter(library_id=library_id, api_key=api_key, library_type=library_type)
     try:
         writer.rename_collection(key, new_name)
-    except ZoteroWriteError as e:
-        emit_write_error("collection rename", e, output_json=json_out, hint="Check collection key")
+    except ZoteroWriteError as error:
+        emit_write_error("collection rename", error, output_json=json_out, hint="Check collection key")
     _emit_sync_success(
         {"key": key, "new_name": new_name, "sync_required": True},
         output_json=json_out,

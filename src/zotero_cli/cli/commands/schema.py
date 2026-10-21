@@ -257,10 +257,10 @@ def schema_cmd(
     if diff_path is not None:
         try:
             before, before_versions = _load_cached_schema(diff_path)
-        except (OSError, ValueError, json.JSONDecodeError) as e:
+        except (OSError, ValueError, json.JSONDecodeError) as error:
             _emit_schema_error(
                 "validation_error",
-                f"Could not read cached schema at {diff_path!r}: {e}",
+                f"Could not read cached schema at {diff_path!r}: {error}",
                 hint="Provide a JSON file produced by 'zot schema'",
                 exit_code=3,
             )

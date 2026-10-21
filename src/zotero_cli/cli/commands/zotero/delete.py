@@ -38,7 +38,7 @@ def delete_cmd(
     idempotency_key: str | None = typer.Option(None, help="防止结果未知时重复删除的幂等键。"),
 ) -> None:
     """通过 Web API 永久删除条目，不会移入回收站，也无法恢复。"""
-    cfg = load_config(profile=ctx.obj.get("profile"))
+    config = load_config(profile=ctx.obj.get("profile"))
     json_out = ctx.obj.get("json", False)
     if dry_run:
         data = {"would_delete": list(keys), "count": len(keys), "permanent": True}
@@ -50,7 +50,7 @@ def delete_cmd(
         return
     library_type = ctx.obj.get("library_type", "user")
     group_id = ctx.obj.get("group_id")
-    library_id, api_key = resolve_write_credentials(cfg, library_type=library_type, group_id=group_id)
+    library_id, api_key = resolve_write_credentials(config, library_type=library_type, group_id=group_id)
     if not library_id or not api_key:
         emit_error(
             "auth_missing",
@@ -117,29 +117,29 @@ def delete_cmd(
             succeeded.append(key)
             if not json_out:
                 typer.echo(f"Item '{key}' permanently deleted.")
-        except ZoteroWriteError as e:
+        except ZoteroWriteError as error:
             rejected = False
             if idempotency_key:
                 rejected = failure_definitely_rejected(
                     response=writer._zot.request,
-                    code=e.code,
-                    retryable=e.retryable,
-                    committed=e.committed,
+                    code=error.code,
+                    retryable=error.retryable,
+                    committed=error.committed,
                 )
                 if rejected:
                     rejected_count += 1
             failed.append(
                 {
                     "key": key,
-                    "code": e.code,
-                    "message": str(e),
-                    "retryable": e.retryable,
-                    "committed": e.committed,
-                    "definitely_rejected": rejected or not e.committed,
+                    "code": error.code,
+                    "message": str(error),
+                    "retryable": error.retryable,
+                    "committed": error.committed,
+                    "definitely_rejected": rejected or not error.committed,
                 }
             )
             if not json_out:
-                typer.echo(f"Error: permanent delete failed for '{key}': {e}", err=True)
+                typer.echo(f"Error: permanent delete failed for '{key}': {error}", err=True)
     retry_blocked = bool(
         idempotency_key and failed and not (rejected_count == len(failed) and all(not f["committed"] for f in failed))
     )

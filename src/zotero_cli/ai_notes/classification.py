@@ -131,8 +131,8 @@ def _chat(
         )
     except NoteAnalysisError:
         raise
-    except Exception as e:
-        raise _chat_error(e) from e
+    except Exception as error:
+        raise _chat_error(error) from error
 
 
 def _classify(

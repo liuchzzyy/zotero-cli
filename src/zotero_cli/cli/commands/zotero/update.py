@@ -33,7 +33,7 @@ def update_cmd(
     idempotency_key: str | None = typer.Option(None, help="单条写入的幂等键。"),
 ) -> None:
     """通过 Zotero Web API 更新条目元数据。"""
-    cfg = load_config(profile=ctx.obj.get("profile"))
+    config = load_config(profile=ctx.obj.get("profile"))
     json_out = ctx.obj.get("json", False)
     try:
         fields = _parse_inline_fields(title=title, date=date, field=field)
@@ -101,7 +101,7 @@ def update_cmd(
 
         library_type = ctx.obj.get("library_type", "user")
         group_id = ctx.obj.get("group_id")
-        library_id, api_key = resolve_write_credentials(cfg, library_type=library_type, group_id=group_id)
+        library_id, api_key = resolve_write_credentials(config, library_type=library_type, group_id=group_id)
         if not library_id or not api_key:
             emit_error(
                 "auth_missing",
@@ -127,17 +127,17 @@ def update_cmd(
                 succeeded.append({"line": row_line, "key": row_key, "fields": row_fields, "tags_added": list(add_tags)})
                 if not json_out:
                     typer.echo(f"  [{index}/{len(updates)}] Updated: {row_key}", err=True)
-            except ZoteroWriteError as e:
+            except ZoteroWriteError as error:
                 failed.append(
                     {
                         "line": row_line,
                         "key": row_key,
                         "fields": row_fields,
-                        "error": {"code": e.code, "message": str(e), "retryable": e.retryable},
+                        "error": {"code": error.code, "message": str(error), "retryable": error.retryable},
                     }
                 )
                 if not json_out:
-                    typer.echo(f"  [{index}/{len(updates)}] Failed: {row_key} ({e})", err=True)
+                    typer.echo(f"  [{index}/{len(updates)}] Failed: {row_key} ({error})", err=True)
 
         emit_progress(
             "complete",
@@ -187,7 +187,7 @@ def update_cmd(
 
     library_type = ctx.obj.get("library_type", "user")
     group_id = ctx.obj.get("group_id")
-    library_id, api_key = resolve_write_credentials(cfg, library_type=library_type, group_id=group_id)
+    library_id, api_key = resolve_write_credentials(config, library_type=library_type, group_id=group_id)
     if not library_id or not api_key:
         emit_error(
             "auth_missing",
@@ -240,14 +240,14 @@ def update_cmd(
         writer.update_item(key, fields)
         if add_tags:
             writer.add_tags(key, list(add_tags))
-    except ZoteroWriteError as e:
+    except ZoteroWriteError as error:
         rejected = False
         if idempotency_key:
             rejected = failure_definitely_rejected(
                 response=writer._zot.request,
-                code=e.code,
-                retryable=e.retryable,
-                committed=e.committed,
+                code=error.code,
+                retryable=error.retryable,
+                committed=error.committed,
             )
             if rejected:
                 try:
@@ -255,15 +255,15 @@ def update_cmd(
                 except (OSError, sqlite3.Error):
                     pass
         emit_error(
-            e.code,
-            str(e),
+            error.code,
+            str(error),
             output_json=json_out,
-            retryable=False if (e.committed or (idempotency_key and not rejected)) else e.retryable,
-            committed=e.committed,
+            retryable=False if (error.committed or (idempotency_key and not rejected)) else error.retryable,
+            committed=error.committed,
             context="update",
             hint=(
                 "The write outcome is unknown. Reconcile the item before retrying; do not reuse this key blindly"
-                if e.committed or (idempotency_key and not rejected)
+                if error.committed or (idempotency_key and not rejected)
                 else f"Failed to update '{key}'"
             ),
         )

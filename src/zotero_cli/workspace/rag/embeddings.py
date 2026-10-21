@@ -51,10 +51,10 @@ def embed_texts(
     )
     try:
         return provider.embed(texts, progress_callback, input_type=input_type)
-    except Exception as e:
+    except Exception as error:
         sys.stderr.write(
             f"\r{' ' * 60}\r"
             f"  [WARN] Embedding provider '{config.provider}' failed: "
-            f"{type(e).__name__}: {e}. Falling back to BM25-only.\n"
+            f"{type(error).__name__}: {error}. Falling back to BM25-only.\n"
         )
         return None

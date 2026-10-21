@@ -28,13 +28,13 @@ app.add_typer(trash_app, name="trash")
 @trash_app.command(name="list")
 def trash_list_cmd(ctx: typer.Context, limit: int | None = typer.Option(None, help="覆盖全局结果上限。")) -> None:
     """列出已同步到本地数据库的回收站条目。"""
-    cfg = load_config(profile=ctx.obj.get("profile"))
-    data_dir = get_data_dir(cfg)
+    config = load_config(profile=ctx.obj.get("profile"))
+    data_dir = get_data_dir(config)
     db_path = data_dir / "zotero.sqlite"
     library_id = resolve_library_id(db_path, ctx.obj)
     reader = ZoteroReader(db_path, library_id=library_id)
     try:
-        limit = limit if limit is not None else ctx.obj.get("limit", cfg.default_limit)
+        limit = limit if limit is not None else ctx.obj.get("limit", config.default_limit)
         items = reader.get_trash_items(limit=limit)
         if not items:
             if ctx.obj.get("json"):
@@ -55,7 +55,7 @@ def trash_restore_cmd(
     dry_run: bool = typer.Option(False, "--dry-run", help="只预览，不发起写入。"),
 ) -> None:
     """通过 Web API 恢复回收站条目；永久删除的条目无法恢复。"""
-    cfg = load_config(profile=ctx.obj.get("profile"))
+    config = load_config(profile=ctx.obj.get("profile"))
     json_out = ctx.obj.get("json", False)
     if dry_run:
         data = {"would_restore": list(keys), "count": len(keys)}
@@ -67,7 +67,7 @@ def trash_restore_cmd(
         return
     library_type = ctx.obj.get("library_type", "user")
     group_id = ctx.obj.get("group_id")
-    library_id, api_key = resolve_write_credentials(cfg, library_type=library_type, group_id=group_id)
+    library_id, api_key = resolve_write_credentials(config, library_type=library_type, group_id=group_id)
     if not library_id or not api_key:
         emit_error(
             "auth_missing",
@@ -86,18 +86,18 @@ def trash_restore_cmd(
             restored.append(key)
             if not json_out:
                 typer.echo(f"Restored: {key}")
-        except ZoteroWriteError as e:
+        except ZoteroWriteError as error:
             failed.append(
                 {
                     "key": key,
-                    "code": e.code,
-                    "message": str(e),
-                    "retryable": e.retryable,
-                    "committed": e.committed,
+                    "code": error.code,
+                    "message": str(error),
+                    "retryable": error.retryable,
+                    "committed": error.committed,
                 }
             )
             if not json_out:
-                typer.echo(f"Error: restore failed for '{key}': {e}", err=True)
+                typer.echo(f"Error: restore failed for '{key}': {error}", err=True)
 
     if not failed:
         if json_out:

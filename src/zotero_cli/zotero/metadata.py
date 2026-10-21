@@ -219,8 +219,8 @@ def resolve_doi(doi: str, *, timeout: float = REQUEST_TIMEOUT) -> dict[str, Any]
 
     try:
         payload = resp.json()
-    except ValueError as e:
-        raise MetadataResolveError(f"Crossref returned invalid JSON: {e}") from e
+    except ValueError as error:
+        raise MetadataResolveError(f"Crossref returned invalid JSON: {error}") from error
 
     if not isinstance(payload, dict):
         raise MetadataResolveError("Crossref response must be an object")

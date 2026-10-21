@@ -32,13 +32,13 @@ def duplicates(
     """
     if strategy not in {"doi", "title", "both"}:
         raise typer.BadParameter("by 必须是 doi、title 或 both")
-    cfg = load_config(profile=ctx.obj.get("profile"))
-    data_dir = get_data_dir(cfg)
+    config = load_config(profile=ctx.obj.get("profile"))
+    data_dir = get_data_dir(config)
     db_path = data_dir / "zotero.sqlite"
     library_id = resolve_library_id(db_path, ctx.obj)
     reader = ZoteroReader(db_path, library_id=library_id)
     try:
-        limit = limit if limit is not None else ctx.obj.get("limit", cfg.default_limit)
+        limit = limit if limit is not None else ctx.obj.get("limit", config.default_limit)
         groups = reader.find_duplicates(strategy=strategy, threshold=threshold, limit=limit)
         if not groups:
             if ctx.obj.get("json"):

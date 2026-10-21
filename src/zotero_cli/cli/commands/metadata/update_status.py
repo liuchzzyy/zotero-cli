@@ -75,18 +75,18 @@ def update_status(
             hint="Use --dry-run to preview; omit it with --apply to write",
             context="update-status",
         )
-    cfg = load_config(profile=ctx.obj.get("profile"))
+    config = load_config(profile=ctx.obj.get("profile"))
     json_out = ctx.obj.get("json", False)
     limit = limit if limit is not None else ctx.obj.get("limit", 50)
 
-    api_key = resolve_semantic_scholar_api_key(cfg, explicit=ss_api_key)
+    api_key = resolve_semantic_scholar_api_key(config, explicit=ss_api_key)
     if not api_key:
         rate_msg = "No API key — rate limited to ~1 request/3s. Set semantic_scholar_api_key in .zot/config.toml."
         if not json_out:
             click.echo(rate_msg, err=True)
 
     # 从本地数据库读取条目
-    data_dir = get_data_dir(cfg)
+    data_dir = get_data_dir(config)
     db_path = data_dir / "zotero.sqlite"
     library_id = resolve_library_id(db_path, ctx.obj)
     reader = ZoteroReader(db_path, library_id=library_id)
@@ -106,10 +106,10 @@ def update_status(
         else:
             try:
                 items = reader.get_arxiv_preprints(collection=collection, limit=limit)
-            except ValueError as e:
+            except ValueError as error:
                 emit_error(
                     "not_found",
-                    str(e),
+                    str(error),
                     output_json=json_out,
                     hint="Run 'zot zotero collection list' to find valid collection keys",
                     context="update-status",
@@ -234,7 +234,7 @@ def update_status(
         # 通过 Zotero Web API 应用更新
         library_type = ctx.obj.get("library_type", "user")
         group_id = ctx.obj.get("group_id")
-        zot_library_id, zot_api_key = resolve_write_credentials(cfg, library_type=library_type, group_id=group_id)
+        zot_library_id, zot_api_key = resolve_write_credentials(config, library_type=library_type, group_id=group_id)
 
         if not zot_library_id or not zot_api_key:
             emit_error(
@@ -266,13 +266,13 @@ def update_status(
                 updated += 1
                 if not json_out:
                     click.echo(f"  Updated {r['key']}: {sanitize_text(r['title'])[:50]}...")
-            except ZoteroWriteError as e:
-                error = {"code": e.code, "message": str(e), "retryable": e.retryable}
+            except ZoteroWriteError as error:
+                failure = {"code": error.code, "message": str(error), "retryable": error.retryable}
                 r["updated"] = False
-                r["update_error"] = error
-                update_failed.append({"key": r["key"], "error": error})
+                r["update_error"] = failure
+                update_failed.append({"key": r["key"], "error": failure})
                 if not json_out:
-                    click.echo(f"  Failed {r['key']}: {e}", err=True)
+                    click.echo(f"  Failed {r['key']}: {error}", err=True)
 
     data = {
         "results": results,

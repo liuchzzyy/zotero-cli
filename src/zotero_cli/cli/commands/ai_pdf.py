@@ -64,11 +64,11 @@ def ai_pdf(
 
     reader: ZoteroReader | None = None
     try:
-        cfg = load_config(profile=ctx.obj.get("profile"))
-        data_dir = get_data_dir(cfg)
+        config = load_config(profile=ctx.obj.get("profile"))
+        data_dir = get_data_dir(config)
         db_path = data_dir / "zotero.sqlite"
         library_id = resolve_library_id(db_path, ctx.obj)
-        reader = ZoteroReader(db_path, library_id=library_id, prefs_js_path=get_prefs_js_path(cfg))
+        reader = ZoteroReader(db_path, library_id=library_id, prefs_js_path=get_prefs_js_path(config))
         attachments = reader.get_pdf_attachments(key)
         if not attachments:
             if reader.get_item(key) is None:

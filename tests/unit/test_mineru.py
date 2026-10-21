@@ -26,7 +26,7 @@ from zotero_cli.ai_pdf.client import (
     _RemoteParse,
     _safe_extract_zip,
 )
-from zotero_cli.ai_pdf.utils import _retry
+from zotero_cli.ai_pdf.request_utils import _retry
 
 
 def _archive(markdown: str = "# Paper\nBody", content: list[dict] | None = None) -> bytes:
@@ -211,7 +211,7 @@ def test_download_archive_reads_body_with_cap() -> None:
 
 
 def test_retry_retries_transient_errors_only(monkeypatch) -> None:
-    monkeypatch.setattr("zotero_cli.ai_pdf.utils.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("zotero_cli.ai_pdf.request_utils.time.sleep", lambda _seconds: None)
     attempts = {"count": 0}
 
     def flaky() -> str:
@@ -234,7 +234,7 @@ def test_retry_retries_transient_errors_only(monkeypatch) -> None:
 
 
 def test_retry_gives_up_after_three_transient_failures(monkeypatch) -> None:
-    monkeypatch.setattr("zotero_cli.ai_pdf.utils.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("zotero_cli.ai_pdf.request_utils.time.sleep", lambda _seconds: None)
     attempts = {"count": 0}
 
     def down() -> str:

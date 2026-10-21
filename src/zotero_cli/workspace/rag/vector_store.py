@@ -32,13 +32,13 @@ _QDRANT_STORE_ENTRIES = frozenset({"meta.json", "collection", ".lock", "raft_sta
 _MANAGED_ENTRIES = _QDRANT_STORE_ENTRIES | {MANAGED_STORE_MARKER}
 
 
-def resolve_vector_store_path(cfg: VectorStoreConfig) -> Path:
+def resolve_vector_store_path(config: VectorStoreConfig) -> Path:
     """相对于状态数据根目录解析配置的向量 store 目录。
 
     在源码检出中即为仓库根目录（保持原样）；对于已安装的 CLI，则是确定性的状态根目录，
     而不再是当前目录。
     """
-    path = Path(cfg.path)
+    path = Path(config.path)
     return path if path.is_absolute() else data_root() / path
 
 

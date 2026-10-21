@@ -37,18 +37,18 @@ from zotero_cli.config.loaders import _split_models
 
 
 def test_default_config():
-    cfg = AppConfig()
-    assert cfg.library_id == ""
-    assert cfg.api_key == ""
-    assert cfg.default_format == "table"
-    assert cfg.default_limit == 50
-    assert cfg.default_export_style == "bibtex"
+    config = AppConfig()
+    assert config.library_id == ""
+    assert config.api_key == ""
+    assert config.default_format == "table"
+    assert config.default_limit == 50
+    assert config.default_export_style == "bibtex"
 
 
 def test_save_and_load_config(tmp_path):
     config_path = tmp_path / "config.toml"
-    cfg = AppConfig(library_id="123", api_key="abc")
-    save_config(cfg, config_path)
+    config = AppConfig(library_id="123", api_key="abc")
+    save_config(config, config_path)
     loaded = load_config(config_path)
     assert loaded.library_id == "123"
     assert loaded.api_key == "abc"
@@ -56,15 +56,15 @@ def test_save_and_load_config(tmp_path):
 
 def test_load_missing_config(tmp_path):
     config_path = tmp_path / "nonexistent.toml"
-    cfg = load_config(config_path)
-    assert cfg.library_id == ""
+    config = load_config(config_path)
+    assert config.library_id == ""
 
 
 def test_detect_zotero_data_dir_with_override(tmp_path):
     db = tmp_path / "zotero.sqlite"
     db.touch()
-    cfg = AppConfig(data_dir=str(tmp_path))
-    result = detect_zotero_data_dir(cfg)
+    config = AppConfig(data_dir=str(tmp_path))
+    result = detect_zotero_data_dir(config)
     assert result == tmp_path
 
 
@@ -80,8 +80,8 @@ def test_get_data_dir_env_override(tmp_path, monkeypatch):
     from zotero_cli.config import get_data_dir
 
     monkeypatch.setenv("ZOT_DATA_DIR", str(tmp_path))
-    cfg = AppConfig(data_dir="/some/other/path")
-    result = get_data_dir(cfg)
+    config = AppConfig(data_dir="/some/other/path")
+    result = get_data_dir(config)
     assert result == tmp_path
 
 
@@ -89,8 +89,8 @@ def test_get_data_dir_falls_back_to_config(monkeypatch, tmp_path):
     from zotero_cli.config import get_data_dir
 
     monkeypatch.delenv("ZOT_DATA_DIR", raising=False)
-    cfg = AppConfig(data_dir=str(tmp_path))
-    result = get_data_dir(cfg)
+    config = AppConfig(data_dir=str(tmp_path))
+    result = get_data_dir(config)
     assert result == tmp_path
 
 
@@ -124,10 +124,10 @@ data_dir = "/shared/zotero"
 library_id = "222"
 api_key = "bbb"
 """)
-    cfg = load_config(config_file, profile="lab")
-    assert cfg.library_id == "222"
-    assert cfg.api_key == "bbb"
-    assert cfg.data_dir == "/shared/zotero"
+    config = load_config(config_file, profile="lab")
+    assert config.library_id == "222"
+    assert config.api_key == "bbb"
+    assert config.data_dir == "/shared/zotero"
 
 
 def test_load_config_default_profile(tmp_path):
@@ -140,8 +140,8 @@ profile = "personal"
 library_id = "111"
 api_key = "aaa"
 """)
-    cfg = load_config(config_file)
-    assert cfg.library_id == "111"
+    config = load_config(config_file)
+    assert config.library_id == "111"
 
 
 def test_empty_profile_behaves_like_default_profile(tmp_path):
@@ -160,8 +160,8 @@ def test_load_config_no_profiles_backward_compat(tmp_path):
 library_id = "old"
 api_key = "old_key"
 """)
-    cfg = load_config(config_file)
-    assert cfg.library_id == "old"
+    config = load_config(config_file)
+    assert config.library_id == "old"
 
 
 def test_list_profiles_func(tmp_path):
@@ -196,8 +196,8 @@ def test_save_and_load_config_with_backslashes(tmp_path):
     """Ensure Windows-style paths with backslashes survive save/load round-trip."""
     config_path = tmp_path / "config.toml"
     windows_path = r"C:\Users\testuser\Zotero"
-    cfg = AppConfig(data_dir=windows_path, library_id="123", api_key="abc")
-    save_config(cfg, config_path)
+    config = AppConfig(data_dir=windows_path, library_id="123", api_key="abc")
+    save_config(config, config_path)
     loaded = load_config(config_path)
     assert loaded.data_dir == windows_path
     assert loaded.library_id == "123"
@@ -206,16 +206,16 @@ def test_save_and_load_config_with_backslashes(tmp_path):
 
 def test_save_and_load_config_escapes_toml_strings(tmp_path):
     config_path = tmp_path / "config.toml"
-    cfg = AppConfig(
+    config = AppConfig(
         data_dir="/tmp/O'Brien/Zotero\\library",
         library_id='user"123',
         api_key="key'with\"quotes",
     )
-    save_config(cfg, config_path)
+    save_config(config, config_path)
     loaded = load_config(config_path)
-    assert loaded.data_dir == cfg.data_dir
-    assert loaded.library_id == cfg.library_id
-    assert loaded.api_key == cfg.api_key
+    assert loaded.data_dir == config.data_dir
+    assert loaded.library_id == config.library_id
+    assert loaded.api_key == config.api_key
 
 
 # --- Embedding config (Gitee API only) ---
@@ -231,13 +231,13 @@ api_key = "test-key"
 model = "bge-m3"
 batch_size = 50
 """)
-    cfg = load_embedding_config(path=config_file)
-    assert cfg.provider == "gitee"
-    assert cfg.url == "https://ai.gitee.com/v1"
-    assert cfg.api_key == "test-key"
-    assert cfg.model == "bge-m3"
-    assert cfg.batch_size == 50
-    assert cfg.is_configured is True
+    config = load_embedding_config(path=config_file)
+    assert config.provider == "gitee"
+    assert config.url == "https://ai.gitee.com/v1"
+    assert config.api_key == "test-key"
+    assert config.model == "bge-m3"
+    assert config.batch_size == 50
+    assert config.is_configured is True
 
 
 def test_load_embedding_config_from_active_profile(tmp_path):
@@ -253,25 +253,25 @@ api_key = "gitee-key"
 model = "bge-m3"
 batch_size = 10
 """)
-    cfg = load_embedding_config(path=config_file)
-    assert cfg.active == "api.gitee"
-    assert cfg.provider == "gitee"
-    assert cfg.url == "https://ai.gitee.com/v1"
-    assert cfg.api_key == "gitee-key"
-    assert cfg.model == "bge-m3"
-    assert cfg.batch_size == 10
+    config = load_embedding_config(path=config_file)
+    assert config.active == "api.gitee"
+    assert config.provider == "gitee"
+    assert config.url == "https://ai.gitee.com/v1"
+    assert config.api_key == "gitee-key"
+    assert config.model == "bge-m3"
+    assert config.batch_size == 10
 
 
 def test_load_embedding_config_defaults(tmp_path):
     config_file = tmp_path / "config.toml"
     config_file.write_text("[zotero]\ndata_dir = '/tmp'\n")
-    cfg = load_embedding_config(path=config_file)
-    assert cfg.provider == "gitee"
-    assert cfg.url == "https://ai.gitee.com/v1"
-    assert cfg.api_key == ""
-    assert cfg.model == "bge-m3"
-    assert cfg.batch_size == 50
-    assert cfg.is_configured is False
+    config = load_embedding_config(path=config_file)
+    assert config.provider == "gitee"
+    assert config.url == "https://ai.gitee.com/v1"
+    assert config.api_key == ""
+    assert config.model == "bge-m3"
+    assert config.batch_size == 50
+    assert config.is_configured is False
 
 
 def test_load_embedding_config_env_override(tmp_path, monkeypatch):
@@ -282,12 +282,12 @@ def test_load_embedding_config_env_override(tmp_path, monkeypatch):
     monkeypatch.setenv("ZOT_EMBEDDING_KEY", "env-key")
     monkeypatch.setenv("ZOT_EMBEDDING_MODEL", "custom-model")
     monkeypatch.setenv("ZOT_EMBEDDING_BATCH_SIZE", "3")
-    cfg = load_embedding_config(path=config_file, apply_env_overrides=True)
-    assert cfg.provider == "gitee"
-    assert cfg.url == "https://ai.gitee.com/v1"
-    assert cfg.api_key == "env-key"
-    assert cfg.model == "custom-model"
-    assert cfg.batch_size == 3
+    config = load_embedding_config(path=config_file, apply_env_overrides=True)
+    assert config.provider == "gitee"
+    assert config.url == "https://ai.gitee.com/v1"
+    assert config.api_key == "env-key"
+    assert config.model == "custom-model"
+    assert config.batch_size == 3
 
 
 def test_embedding_config_is_configured():
@@ -309,13 +309,13 @@ api_key = "rerank-key"
 model = "bge-reranker-v2-m3"
 batch_size = 16
 """)
-    cfg = load_rerank_config(path=config_file)
-    assert cfg.provider == "gitee"
-    assert cfg.url == "https://ai.gitee.com/v1/rerank"
-    assert cfg.api_key == "rerank-key"
-    assert cfg.model == "bge-reranker-v2-m3"
-    assert cfg.batch_size == 16
-    assert cfg.is_configured is True
+    config = load_rerank_config(path=config_file)
+    assert config.provider == "gitee"
+    assert config.url == "https://ai.gitee.com/v1/rerank"
+    assert config.api_key == "rerank-key"
+    assert config.model == "bge-reranker-v2-m3"
+    assert config.batch_size == 16
+    assert config.is_configured is True
 
 
 def test_load_rerank_config_from_active_profile(tmp_path):
@@ -331,14 +331,14 @@ api_key = "gitee-key"
 model = "bge-reranker-v2-m3"
 batch_size = 16
 """)
-    cfg = load_rerank_config(path=config_file)
-    assert cfg.active == "api.gitee"
-    assert cfg.provider == "gitee"
-    assert cfg.url == "https://ai.gitee.com/v1/rerank"
-    assert cfg.api_key == "gitee-key"
-    assert cfg.model == "bge-reranker-v2-m3"
-    assert cfg.batch_size == 16
-    assert cfg.is_configured is True
+    config = load_rerank_config(path=config_file)
+    assert config.active == "api.gitee"
+    assert config.provider == "gitee"
+    assert config.url == "https://ai.gitee.com/v1/rerank"
+    assert config.api_key == "gitee-key"
+    assert config.model == "bge-reranker-v2-m3"
+    assert config.batch_size == 16
+    assert config.is_configured is True
 
 
 def test_load_rerank_config_env_override(tmp_path, monkeypatch):
@@ -349,20 +349,20 @@ def test_load_rerank_config_env_override(tmp_path, monkeypatch):
     monkeypatch.setenv("ZOT_RERANK_KEY", "rerank-key")
     monkeypatch.setenv("ZOT_RERANK_MODEL", "custom-reranker")
     monkeypatch.setenv("ZOT_RERANK_BATCH_SIZE", "3")
-    cfg = load_rerank_config(path=config_file, apply_env_overrides=True)
-    assert cfg.provider == "gitee"
-    assert cfg.url == "https://ai.gitee.com/v1/rerank"
-    assert cfg.api_key == "rerank-key"
-    assert cfg.model == "custom-reranker"
-    assert cfg.batch_size == 3
+    config = load_rerank_config(path=config_file, apply_env_overrides=True)
+    assert config.provider == "gitee"
+    assert config.url == "https://ai.gitee.com/v1/rerank"
+    assert config.api_key == "rerank-key"
+    assert config.model == "custom-reranker"
+    assert config.batch_size == 3
 
 
 def test_rerank_config_defaults():
-    cfg = RerankConfig()
-    assert cfg.provider == "gitee"
-    assert cfg.url == "https://ai.gitee.com/v1/rerank"
-    assert cfg.model == "bge-reranker-v2-m3"
-    assert cfg.batch_size == 16
+    config = RerankConfig()
+    assert config.provider == "gitee"
+    assert config.url == "https://ai.gitee.com/v1/rerank"
+    assert config.model == "bge-reranker-v2-m3"
+    assert config.batch_size == 16
 
 
 # --- Vector store + semantic search config ---
@@ -375,17 +375,17 @@ def test_load_vector_store_config(tmp_path):
 provider = "qdrant_local"
 path = ".workspace/_qdrant"
 """)
-    cfg = load_vector_store_config(config_file)
-    assert cfg.provider == "qdrant_local"
-    assert cfg.path == ".workspace/_qdrant"
+    config = load_vector_store_config(config_file)
+    assert config.provider == "qdrant_local"
+    assert config.path == ".workspace/_qdrant"
 
 
 def test_load_vector_store_config_defaults(tmp_path):
     config_file = tmp_path / "config.toml"
     config_file.write_text("[zotero]\ndata_dir = '/tmp'\n")
-    cfg = load_vector_store_config(config_file)
-    assert cfg.provider == "qdrant_local"
-    assert cfg.path == ".workspace/_qdrant"
+    config = load_vector_store_config(config_file)
+    assert config.provider == "qdrant_local"
+    assert config.path == ".workspace/_qdrant"
 
 
 def test_load_semantic_search_config(tmp_path):
@@ -398,23 +398,23 @@ rrf_k = 30
 semantic_weight = 0.7
 bm25_weight = 0.3
 """)
-    cfg = load_semantic_search_config(config_file)
-    assert cfg.candidate_k == 200
-    assert cfg.top_k == 10
-    assert cfg.rrf_k == 30
-    assert cfg.semantic_weight == 0.7
-    assert cfg.bm25_weight == 0.3
+    config = load_semantic_search_config(config_file)
+    assert config.candidate_k == 200
+    assert config.top_k == 10
+    assert config.rrf_k == 30
+    assert config.semantic_weight == 0.7
+    assert config.bm25_weight == 0.3
 
 
 def test_load_semantic_search_config_defaults(tmp_path):
     config_file = tmp_path / "config.toml"
     config_file.write_text("[zotero]\ndata_dir = '/tmp'\n")
-    cfg = load_semantic_search_config(config_file)
-    assert cfg.candidate_k == 150
-    assert cfg.top_k == 20
-    assert cfg.rrf_k == 60
-    assert cfg.semantic_weight == 0.8
-    assert cfg.bm25_weight == 0.2
+    config = load_semantic_search_config(config_file)
+    assert config.candidate_k == 150
+    assert config.top_k == 20
+    assert config.rrf_k == 60
+    assert config.semantic_weight == 0.8
+    assert config.bm25_weight == 0.2
 
 
 def test_repo_local_config_path():
@@ -441,18 +441,18 @@ max_extracted_chars = 1234
 timeout_seconds = 90.5
 max_retries = 4
 """)
-    cfg = load_ai_note_config(config_file, apply_env_overrides=False)
-    assert cfg.api_key == "test-key"
-    assert cfg.base_url == "https://api.example.com/v1"
-    assert cfg.model == "deepseek-v4-pro"
-    assert cfg.reasoning_effort == "max"
-    assert cfg.temperature == 0.3
-    assert cfg.max_tokens == 16384
-    assert cfg.max_extracted_chars == 1234
-    assert cfg.timeout_seconds == 90.5
-    assert cfg.max_retries == 4
-    assert not hasattr(cfg, "api_mode")
-    assert not hasattr(cfg, "chat_token_param")
+    config = load_ai_note_config(config_file, apply_env_overrides=False)
+    assert config.api_key == "test-key"
+    assert config.base_url == "https://api.example.com/v1"
+    assert config.model == "deepseek-v4-pro"
+    assert config.reasoning_effort == "max"
+    assert config.temperature == 0.3
+    assert config.max_tokens == 16384
+    assert config.max_extracted_chars == 1234
+    assert config.timeout_seconds == 90.5
+    assert config.max_retries == 4
+    assert not hasattr(config, "api_mode")
+    assert not hasattr(config, "chat_token_param")
 
 
 def test_load_ai_note_config_env_override(tmp_path, monkeypatch):
@@ -470,21 +470,21 @@ def test_load_ai_note_config_env_override(tmp_path, monkeypatch):
     monkeypatch.setenv("ZOT_AI_TIMEOUT", "12.5")
     monkeypatch.setenv("ZOT_AI_MAX_RETRIES", "5")
 
-    cfg = load_ai_note_config(config_file)
-    assert cfg.api_key == "env-key"
-    assert cfg.base_url == "http://env/v1"
-    assert cfg.model == "env-model"
-    assert cfg.fallback_models == ["a-1", "b-2"]
-    assert cfg.reasoning_effort == "low"
-    assert cfg.max_extracted_chars == 500
-    assert cfg.timeout_seconds == 12.5
-    assert cfg.max_retries == 5
+    config = load_ai_note_config(config_file)
+    assert config.api_key == "env-key"
+    assert config.base_url == "http://env/v1"
+    assert config.model == "env-model"
+    assert config.fallback_models == ["a-1", "b-2"]
+    assert config.reasoning_effort == "low"
+    assert config.max_extracted_chars == 500
+    assert config.timeout_seconds == 12.5
+    assert config.max_retries == 5
 
 
 def test_ai_note_config_timing_defaults():
-    cfg = AiNoteConfig()
-    assert cfg.timeout_seconds == 300.0
-    assert cfg.max_retries == 2
+    config = AiNoteConfig()
+    assert config.timeout_seconds == 300.0
+    assert config.max_retries == 2
 
 
 def test_load_ai_note_config_env_overrides_without_config_file(tmp_path, monkeypatch):
@@ -492,10 +492,10 @@ def test_load_ai_note_config_env_overrides_without_config_file(tmp_path, monkeyp
     monkeypatch.setenv("ZOT_AI_API_KEY", "env-key")
     monkeypatch.setenv("ZOT_AI_MODEL", "env-model")
 
-    cfg = load_ai_note_config(tmp_path / "absent.toml")
-    assert cfg.api_key == "env-key"
-    assert cfg.model == "env-model"
-    assert cfg.fallback_models  # defaults survive an unset variable
+    config = load_ai_note_config(tmp_path / "absent.toml")
+    assert config.api_key == "env-key"
+    assert config.model == "env-model"
+    assert config.fallback_models  # defaults survive an unset variable
 
 
 def test_split_models_accepts_array_string_and_junk():
@@ -512,9 +512,9 @@ def test_load_pdf_config_is_mineru_only(tmp_path):
         '[pdf]\nmineru_token = "token"\nmineru_model_version = "vlm"\n',
         encoding="utf-8",
     )
-    cfg = load_pdf_config(config_file, apply_env_overrides=False)
-    assert cfg.mineru_token == "token"
-    assert cfg.mineru_model_version == "vlm"
+    config = load_pdf_config(config_file, apply_env_overrides=False)
+    assert config.mineru_token == "token"
+    assert config.mineru_model_version == "vlm"
 
 
 # --- H-04: merge-preserving atomic saves -------------------------------------

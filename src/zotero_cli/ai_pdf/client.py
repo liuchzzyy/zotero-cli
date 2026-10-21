@@ -19,7 +19,14 @@ from urllib.parse import urljoin
 
 from requests import Session
 
-from zotero_cli.ai_pdf.models import (
+from zotero_cli.ai_pdf.request_utils import (
+    _RETRYABLE_EXCEPTIONS,
+    _as_mineru_error,
+    _retry,
+    _url_origin,
+    _validated_model_version,
+)
+from zotero_cli.ai_pdf.types import (
     _MAX_ARCHIVE_BYTES,
     _MAX_ARCHIVE_ENTRIES,
     _MAX_ARCHIVE_MEMBER_BYTES,
@@ -27,13 +34,6 @@ from zotero_cli.ai_pdf.models import (
     _MAX_FILE_BYTES,
     MinerUError,
     ProgressCallback,
-)
-from zotero_cli.ai_pdf.utils import (
-    _RETRYABLE_EXCEPTIONS,
-    _as_mineru_error,
-    _retry,
-    _url_origin,
-    _validated_model_version,
 )
 
 

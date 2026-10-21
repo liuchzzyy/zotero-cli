@@ -62,14 +62,14 @@ def ai_note(
             context="ai-note",
         )
 
-    cfg = load_config(profile=ctx.obj.get("profile"))
-    data_dir = get_data_dir(cfg)
+    config = load_config(profile=ctx.obj.get("profile"))
+    data_dir = get_data_dir(config)
     db_path = data_dir / "zotero.sqlite"
     library_id = resolve_library_id(db_path, ctx.obj)
-    reader = ZoteroReader(db_path, library_id=library_id, prefs_js_path=get_prefs_js_path(cfg))
+    reader = ZoteroReader(db_path, library_id=library_id, prefs_js_path=get_prefs_js_path(config))
 
     writer_library_id, writer_api_key = resolve_write_credentials(
-        cfg,
+        config,
         library_type=ctx.obj.get("library_type", "user"),
         group_id=ctx.obj.get("group_id"),
     )

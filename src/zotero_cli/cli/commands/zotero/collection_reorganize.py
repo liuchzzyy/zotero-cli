@@ -24,7 +24,7 @@ def collection_reorganize(
     """根据 JSON 计划批量创建集合并替换条目所属集合。"""
     from pathlib import Path
 
-    cfg = load_config(profile=ctx.obj.get("profile"))
+    config = load_config(profile=ctx.obj.get("profile"))
     json_out = ctx.obj.get("json", False)
 
     plan_path = Path(plan_file)
@@ -98,7 +98,7 @@ def collection_reorganize(
 
     library_type = ctx.obj.get("library_type", "user")
     group_id = ctx.obj.get("group_id")
-    library_id, api_key = resolve_write_credentials(cfg, library_type=library_type, group_id=group_id)
+    library_id, api_key = resolve_write_credentials(config, library_type=library_type, group_id=group_id)
     if not library_id or not api_key:
         emit_error(
             "auth_missing",

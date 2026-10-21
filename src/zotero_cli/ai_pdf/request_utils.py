@@ -19,7 +19,7 @@ from requests.exceptions import (
     ConnectionError as RequestsConnectionError,
 )
 
-from zotero_cli.ai_pdf.models import MinerUError
+from zotero_cli.ai_pdf.types import MinerUError
 
 # 只重试明显属于瞬时的错误；确定性错误（错误 URL、非法载荷、文件缺失）
 # 必须立即失败，而不是放大请求量或重复非幂等操作。

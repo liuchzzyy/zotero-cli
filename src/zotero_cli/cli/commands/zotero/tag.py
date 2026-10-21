@@ -10,8 +10,7 @@ import typer
 from zotero_cli.cli.commands.zotero.reading import app
 from zotero_cli.cli.output.envelope import envelope_error, envelope_ok, envelope_partial
 from zotero_cli.cli.output.exit_codes import EXIT_NOT_FOUND, emit_error, exit_code_for
-from zotero_cli.cli.output.models import ErrorInfo
-from zotero_cli.cli.output.renderers import print_error
+from zotero_cli.cli.output.renderers import ErrorInfo, print_error
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id, resolve_write_credentials
 from zotero_cli.zotero.reader import ZoteroReader
 from zotero_cli.zotero.writer import SYNC_REMINDER, ZoteroWriter
@@ -29,7 +28,7 @@ def tag_cmd(
     """查看或批量管理条目标签。"""
     if not keys:
         raise typer.BadParameter("至少提供一个条目键")
-    cfg = load_config(profile=ctx.obj.get("profile"))
+    config = load_config(profile=ctx.obj.get("profile"))
     json_out = ctx.obj.get("json", False)
 
     if dry_run and (add_tag or remove_tag):
@@ -51,7 +50,7 @@ def tag_cmd(
     if add_tag or remove_tag:
         library_type = ctx.obj.get("library_type", "user")
         group_id = ctx.obj.get("group_id")
-        write_library_id, api_key = resolve_write_credentials(cfg, library_type=library_type, group_id=group_id)
+        write_library_id, api_key = resolve_write_credentials(config, library_type=library_type, group_id=group_id)
         if not write_library_id or not api_key:
             emit_error(
                 "auth_missing",
@@ -75,24 +74,24 @@ def tag_cmd(
                     succeeded.append({"key": key, "tags_removed": [remove_tag]})
                     if not json_out:
                         typer.echo(f"Tag '{remove_tag}' removed from '{key}'.")
-            except ZoteroWriteError as e:
+            except ZoteroWriteError as error:
                 failed.append(
                     {
                         "key": key,
                         "error": {
-                            "code": e.code,
-                            "message": str(e),
-                            "retryable": e.retryable,
-                            "committed": e.committed,
+                            "code": error.code,
+                            "message": str(error),
+                            "retryable": error.retryable,
+                            "committed": error.committed,
                         },
                     }
                 )
                 if not json_out:
                     print_error(
                         ErrorInfo(
-                            message=str(e),
+                            message=str(error),
                             context="tag",
-                            hint=f"Failed for key '{key}'" + (" (write may have committed)" if e.committed else ""),
+                            hint=f"Failed for key '{key}'" + (" (write may have committed)" if error.committed else ""),
                         ),
                         output_json=False,
                     )
@@ -140,7 +139,7 @@ def tag_cmd(
             raise SystemExit(exit_code)
     else:
         # 读取模式逐条展示标签
-        data_dir = get_data_dir(cfg)
+        data_dir = get_data_dir(config)
         db_path = data_dir / "zotero.sqlite"
         library_id = resolve_library_id(db_path, ctx.obj)
         reader = ZoteroReader(db_path, library_id=library_id)

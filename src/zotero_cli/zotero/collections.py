@@ -83,19 +83,19 @@ def execute_reorganization(
                     committed=False,
                 )
             col_key = writer.create_collection(name, parent_key=parent_key)
-        except ZoteroWriteError as e:
+        except ZoteroWriteError as error:
             failed_results.append(
                 {
                     "operation": "create_collection",
                     "name": name,
                     "parent_name": parent_name,
                     "parent_key": parent_key,
-                    "code": e.code,
-                    "message": str(e),
-                    "committed": e.committed,
+                    "code": error.code,
+                    "message": str(error),
+                    "committed": error.committed,
                 }
             )
-            report(f"Failed to create collection '{name}': {e}", True)
+            report(f"Failed to create collection '{name}': {error}", True)
             continue
         created_collections[name] = col_key
         created_results.append({"name": name, "key": col_key, "parent_name": parent_name, "parent_key": parent_key})
@@ -116,19 +116,19 @@ def execute_reorganization(
         target_keys = [col_key for _name, col_key in entries]
         try:
             writer.set_item_collections(item_key, target_keys)
-        except ZoteroWriteError as e:
+        except ZoteroWriteError as error:
             failed_results.append(
                 {
                     "operation": "move_item",
                     "item_key": item_key,
                     "collection_names": [name for name, _key in entries],
                     "collection_keys": target_keys,
-                    "code": e.code,
-                    "message": str(e),
-                    "committed": e.committed,
+                    "code": error.code,
+                    "message": str(error),
+                    "committed": error.committed,
                 }
             )
-            report(f"Failed to move {item_key}: {e}", True)
+            report(f"Failed to move {item_key}: {error}", True)
             continue
         for name, col_key in entries:
             moved_results.append(

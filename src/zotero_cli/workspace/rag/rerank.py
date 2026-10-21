@@ -44,11 +44,11 @@ def rerank_chunks(
     )
     try:
         scores = provider.score(query, [str(chunk["content"]) for _cid, _score, chunk in selected], progress_callback)
-    except Exception as e:
+    except Exception as error:
         sys.stderr.write(
             "\r" + (" " * 60) + "\r"
             f"  [WARN] Reranker provider '{config.provider}' failed: "
-            f"{type(e).__name__}: {e}. Returning retrieval ranking.\n"
+            f"{type(error).__name__}: {error}. Returning retrieval ranking.\n"
         )
         return None
 

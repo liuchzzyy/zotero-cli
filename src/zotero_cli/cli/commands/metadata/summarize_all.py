@@ -67,8 +67,8 @@ def summarize_all(
       zot metadata summarize-all --exclude-collection-key RHBNIDLJ
       zot --detail full metadata summarize-all     包含完整条目元数据与可写入字段映射
     """
-    cfg = load_config(profile=ctx.obj.get("profile"))
-    data_dir = get_data_dir(cfg)
+    config = load_config(profile=ctx.obj.get("profile"))
+    data_dir = get_data_dir(config)
     db_path = data_dir / "zotero.sqlite"
     limit = limit if limit is not None else ctx.obj.get("limit", 10000)
     detail = ctx.obj.get("detail", "standard")

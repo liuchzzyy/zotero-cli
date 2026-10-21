@@ -141,10 +141,10 @@ class ZoteroWriter:
             raise ZoteroWriteError(
                 f"Parent item '{parent_key}' not found", code="not_found", retryable=False, committed=False
             )
-        except httpx2.HTTPError as e:
-            raise self._network_error(e) from e
-        except PyZoteroError as e:
-            raise _friendly_api_error(e) from e
+        except httpx2.HTTPError as error:
+            raise self._network_error(error) from error
+        except PyZoteroError as error:
+            raise _friendly_api_error(error) from error
 
     def add_item(
         self,
@@ -176,10 +176,10 @@ class ZoteroWriter:
                     template["title"] = url
             resp = self._zot.create_items([template])
             return self._check_response(resp)
-        except httpx2.HTTPError as e:
-            raise self._network_error(e) from e
-        except PyZoteroError as e:
-            raise _friendly_api_error(e) from e
+        except httpx2.HTTPError as error:
+            raise self._network_error(error) from error
+        except PyZoteroError as error:
+            raise _friendly_api_error(error) from error
 
     def update_short_note(self, key: str, short_note: str) -> None:
         """通过 Web API 把 short-note 行合并进条目的 Extra 字段。"""
@@ -190,10 +190,10 @@ class ZoteroWriter:
             self._zot.update_item(item)
         except ResourceNotFoundError:
             raise ZoteroWriteError(f"Item '{key}' not found", code="not_found", retryable=False, committed=False)
-        except httpx2.HTTPError as e:
-            raise self._network_error(e) from e
-        except PyZoteroError as e:
-            raise _friendly_api_error(e) from e
+        except httpx2.HTTPError as error:
+            raise self._network_error(error) from error
+        except PyZoteroError as error:
+            raise _friendly_api_error(error) from error
 
     def update_item(self, key: str, fields: dict[str, str], *, expected_version: int | None = None) -> None:
         """更新字段；可选地在派生负载准备好之后拒绝已发生的变更。"""
@@ -211,10 +211,10 @@ class ZoteroWriter:
             self._zot.update_item(item)
         except ResourceNotFoundError:
             raise ZoteroWriteError(f"Item '{key}' not found", code="not_found", retryable=False, committed=False)
-        except httpx2.HTTPError as e:
-            raise self._network_error(e) from e
-        except PyZoteroError as e:
-            raise _friendly_api_error(e) from e
+        except httpx2.HTTPError as error:
+            raise self._network_error(error) from error
+        except PyZoteroError as error:
+            raise _friendly_api_error(error) from error
 
     def restore_from_trash(self, key: str) -> None:
         """通过 PATCH deleted=0 恢复被 Zotero Desktop 移入回收站的条目。
@@ -227,10 +227,10 @@ class ZoteroWriter:
             item = self._zot.item(key)
         except ResourceNotFoundError:
             raise ZoteroWriteError(f"Item '{key}' not found", code="not_found", retryable=False, committed=False)
-        except httpx2.HTTPError as e:
-            raise self._network_error(e) from e
-        except PyZoteroError as e:
-            raise _friendly_api_error(e) from e
+        except httpx2.HTTPError as error:
+            raise self._network_error(error) from error
+        except PyZoteroError as error:
+            raise _friendly_api_error(error) from error
         version = item.get("version")
         if not isinstance(version, int):
             raise ZoteroWriteError(
@@ -248,8 +248,8 @@ class ZoteroWriter:
                 headers=self._write_headers(version=version, json_body=True),
                 json={"deleted": 0},
             )
-        except httpx2.HTTPError as e:
-            raise self._network_error(e) from e
+        except httpx2.HTTPError as error:
+            raise self._network_error(error) from error
         if response.status_code >= 300:
             raise self._response_error(response)
 
@@ -297,10 +297,10 @@ class ZoteroWriter:
                 retryable=True,
                 committed=True,
             )
-        except httpx2.HTTPError as e:
-            raise self._network_error(e) from e
-        except PyZoteroError as e:
-            raise _friendly_api_error(e) from e
+        except httpx2.HTTPError as error:
+            raise self._network_error(error) from error
+        except PyZoteroError as error:
+            raise _friendly_api_error(error) from error
 
     def delete_item(self, key: str) -> None:
         """通过 Web API 的 DELETE 端点永久删除条目。"""
@@ -309,10 +309,10 @@ class ZoteroWriter:
             self._zot.delete_item(item)
         except ResourceNotFoundError:
             raise ZoteroWriteError(f"Item '{key}' not found", code="not_found", retryable=False, committed=False)
-        except httpx2.HTTPError as e:
-            raise self._network_error(e) from e
-        except PyZoteroError as e:
-            raise _friendly_api_error(e) from e
+        except httpx2.HTTPError as error:
+            raise self._network_error(error) from error
+        except PyZoteroError as error:
+            raise _friendly_api_error(error) from error
 
     def add_tags(self, key: str, tags: list[str]) -> None:
         """为条目添加标签，并保留已有的标签名。"""
@@ -324,10 +324,10 @@ class ZoteroWriter:
             self._zot.update_item(item)
         except ResourceNotFoundError:
             raise ZoteroWriteError(f"Item '{key}' not found", code="not_found", retryable=False, committed=False)
-        except httpx2.HTTPError as e:
-            raise self._network_error(e) from e
-        except PyZoteroError as e:
-            raise _friendly_api_error(e) from e
+        except httpx2.HTTPError as error:
+            raise self._network_error(error) from error
+        except PyZoteroError as error:
+            raise _friendly_api_error(error) from error
 
     def remove_tags(self, key: str, tags: list[str]) -> None:
         """从条目中移除标签。"""
@@ -337,10 +337,10 @@ class ZoteroWriter:
             self._zot.update_item(item)
         except ResourceNotFoundError:
             raise ZoteroWriteError(f"Item '{key}' not found", code="not_found", retryable=False, committed=False)
-        except httpx2.HTTPError as e:
-            raise self._network_error(e) from e
-        except PyZoteroError as e:
-            raise _friendly_api_error(e) from e
+        except httpx2.HTTPError as error:
+            raise self._network_error(error) from error
+        except PyZoteroError as error:
+            raise _friendly_api_error(error) from error
 
     # --- 集合 ------------------------------------------------------
 
@@ -354,10 +354,10 @@ class ZoteroWriter:
             raise ZoteroWriteError(
                 f"Parent collection '{parent_key}' not found", code="not_found", retryable=False, committed=False
             )
-        except httpx2.HTTPError as e:
-            raise self._network_error(e) from e
-        except PyZoteroError as e:
-            raise _friendly_api_error(e) from e
+        except httpx2.HTTPError as error:
+            raise self._network_error(error) from error
+        except PyZoteroError as error:
+            raise _friendly_api_error(error) from error
 
     def add_to_collection(self, item_key: str, collection_key: str) -> None:
         """把条目加入集合，且不移除其已有的集合归属。"""
@@ -365,10 +365,10 @@ class ZoteroWriter:
             self._zot.addto_collection(collection_key, self._zot.item(item_key))
         except ResourceNotFoundError:
             raise ZoteroWriteError("Item or collection not found", code="not_found", retryable=False, committed=False)
-        except httpx2.HTTPError as e:
-            raise self._network_error(e) from e
-        except PyZoteroError as e:
-            raise _friendly_api_error(e) from e
+        except httpx2.HTTPError as error:
+            raise self._network_error(error) from error
+        except PyZoteroError as error:
+            raise _friendly_api_error(error) from error
 
     def move_to_collection(self, item_key: str, collection_key: str, source_collection_key: str | None = None) -> None:
         """把条目移动到集合。
@@ -398,10 +398,10 @@ class ZoteroWriter:
             self._zot.update_item(item)
         except ResourceNotFoundError:
             raise ZoteroWriteError("Item or collection not found", code="not_found", retryable=False, committed=False)
-        except httpx2.HTTPError as e:
-            raise self._network_error(e) from e
-        except PyZoteroError as e:
-            raise _friendly_api_error(e) from e
+        except httpx2.HTTPError as error:
+            raise self._network_error(error) from error
+        except PyZoteroError as error:
+            raise _friendly_api_error(error) from error
 
     def set_item_collections(self, item_key: str, collection_keys: list[str]) -> None:
         """把条目的集合归属替换为恰好给定的这些键。"""
@@ -411,10 +411,10 @@ class ZoteroWriter:
             self._zot.update_item(item)
         except ResourceNotFoundError:
             raise ZoteroWriteError("Item or collection not found", code="not_found", retryable=False, committed=False)
-        except httpx2.HTTPError as e:
-            raise self._network_error(e) from e
-        except PyZoteroError as e:
-            raise _friendly_api_error(e) from e
+        except httpx2.HTTPError as error:
+            raise self._network_error(error) from error
+        except PyZoteroError as error:
+            raise _friendly_api_error(error) from error
 
     def delete_collection(self, key: str) -> None:
         """永久删除集合（其中的嵌套集合也会被删除）。"""
@@ -423,10 +423,10 @@ class ZoteroWriter:
             self._zot.delete_collection(coll)
         except ResourceNotFoundError:
             raise ZoteroWriteError(f"Collection '{key}' not found", code="not_found", retryable=False, committed=False)
-        except httpx2.HTTPError as e:
-            raise self._network_error(e) from e
-        except PyZoteroError as e:
-            raise _friendly_api_error(e) from e
+        except httpx2.HTTPError as error:
+            raise self._network_error(error) from error
+        except PyZoteroError as error:
+            raise _friendly_api_error(error) from error
 
     def rename_collection(self, key: str, new_name: str) -> None:
         """重命名集合，保留其父集合和其他字段。"""
@@ -436,7 +436,7 @@ class ZoteroWriter:
             self._zot.update_collection(coll)
         except ResourceNotFoundError:
             raise ZoteroWriteError(f"Collection '{key}' not found", code="not_found", retryable=False, committed=False)
-        except httpx2.HTTPError as e:
-            raise self._network_error(e) from e
-        except PyZoteroError as e:
-            raise _friendly_api_error(e) from e
+        except httpx2.HTTPError as error:
+            raise self._network_error(error) from error
+        except PyZoteroError as error:
+            raise _friendly_api_error(error) from error

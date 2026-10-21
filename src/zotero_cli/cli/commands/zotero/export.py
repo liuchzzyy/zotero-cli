@@ -32,8 +32,8 @@ def export(
     """
     if fmt not in {"bibtex", "csl-json", "ris", "json"}:
         raise typer.BadParameter("format 必须是 bibtex、csl-json、ris 或 json")
-    cfg = load_config(profile=ctx.obj.get("profile"))
-    data_dir = get_data_dir(cfg)
+    config = load_config(profile=ctx.obj.get("profile"))
+    data_dir = get_data_dir(config)
     db_path = data_dir / "zotero.sqlite"
     library_id = resolve_library_id(db_path, ctx.obj)
     reader = ZoteroReader(db_path, library_id=library_id)

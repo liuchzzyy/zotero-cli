@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 
-from .models import AppConfig
+from .sections import AppConfig
 
 
 class LibraryResolutionError(Exception):

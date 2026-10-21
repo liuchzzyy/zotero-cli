@@ -22,8 +22,8 @@ def _resolve_metadata(doi: str) -> tuple[dict | None, str | None]:
     """解析 DOI 元数据；查询失败时返回警告，不中断条目创建以避免重复写入。"""
     try:
         fields = resolve_doi(doi)
-    except MetadataResolveError as e:
-        return None, str(e)
+    except MetadataResolveError as error:
+        return None, str(error)
     if fields is None:
         return None, "no_match"
     return fields, None
@@ -70,7 +70,7 @@ def add_cmd(
             hint="Idempotent retries are supported for single --doi, --url, and --pdf inputs",
             context="add",
         )
-    cfg = load_config(profile=ctx.obj.get("profile"))
+    config = load_config(profile=ctx.obj.get("profile"))
 
     if dry_run:
         would: dict = {}
@@ -98,7 +98,7 @@ def add_cmd(
 
     library_type = ctx.obj.get("library_type", "user")
     group_id = ctx.obj.get("group_id")
-    library_id, api_key = resolve_write_credentials(cfg, library_type=library_type, group_id=group_id)
+    library_id, api_key = resolve_write_credentials(config, library_type=library_type, group_id=group_id)
     if not library_id or not api_key:
         emit_error(
             "auth_missing",
@@ -209,14 +209,14 @@ def add_cmd(
     writer = ZoteroWriter(library_id=library_id, api_key=api_key, library_type=library_type)
     try:
         key = writer.add_item(doi=doi, url=url, extra_fields=extra_fields)
-    except ZoteroWriteError as e:
+    except ZoteroWriteError as error:
         rejected = False
         if idempotency_key:
             rejected = failure_definitely_rejected(
                 response=writer._zot.request,
-                code=e.code,
-                retryable=e.retryable,
-                committed=e.committed,
+                code=error.code,
+                retryable=error.retryable,
+                committed=error.committed,
             )
             if rejected:
                 try:
@@ -224,14 +224,14 @@ def add_cmd(
                 except (OSError, sqlite3.Error):
                     pass
         emit_error(
-            e.code,
-            str(e),
+            error.code,
+            str(error),
             output_json=json_out,
-            retryable=False if (e.committed or (idempotency_key and not rejected)) else e.retryable,
-            committed=e.committed,
+            retryable=False if (error.committed or (idempotency_key and not rejected)) else error.retryable,
+            committed=error.committed,
             hint=(
                 "The write outcome is unknown. Reconcile the library before retrying; do not reuse this key blindly"
-                if e.committed or (idempotency_key and not rejected)
+                if error.committed or (idempotency_key and not rejected)
                 else "Check API credentials and network"
             ),
             context="add",
@@ -381,26 +381,26 @@ def _add_from_pdf(
     writer = ZoteroWriter(library_id=library_id, api_key=api_key, library_type=library_type)
     try:
         key = writer.add_item(doi=doi, extra_fields=extra_fields)
-    except ZoteroWriteError as e:
+    except ZoteroWriteError as error:
         rejected = False
         if idempotency_key:
             rejected = failure_definitely_rejected(
                 response=writer._zot.request,
-                code=e.code,
-                retryable=e.retryable,
-                committed=e.committed,
+                code=error.code,
+                retryable=error.retryable,
+                committed=error.committed,
             )
             if rejected:
                 _release()
         emit_error(
-            e.code,
-            str(e),
+            error.code,
+            str(error),
             output_json=json_out,
-            retryable=False if (e.committed or (idempotency_key and not rejected)) else e.retryable,
-            committed=e.committed,
+            retryable=False if (error.committed or (idempotency_key and not rejected)) else error.retryable,
+            committed=error.committed,
             hint=(
                 "The write outcome is unknown. Reconcile the library before retrying; do not reuse this key blindly"
-                if e.committed or (idempotency_key and not rejected)
+                if error.committed or (idempotency_key and not rejected)
                 else "Check API credentials and network"
             ),
             context="add",
@@ -410,8 +410,8 @@ def _add_from_pdf(
     attach_error: ZoteroWriteError | None = None
     try:
         att_key = writer.upload_attachment(key, pdf_path)
-    except ZoteroWriteError as e:
-        attach_error = e
+    except ZoteroWriteError as error:
+        attach_error = error
 
     data: dict = {"key": key, "doi": doi, "sync_required": True}
     if resolved_summary is not None:
@@ -519,20 +519,20 @@ def _add_from_file(
                 succeeded.append({"entry": entry, "key": key})
             if not json_out:
                 typer.echo(f"  [{i}/{len(lines)}] Added: {key} ({entry})", err=True)
-        except ZoteroWriteError as e:
+        except ZoteroWriteError as error:
             failed.append(
                 {
                     "entry": entry,
                     "error": {
-                        "code": e.code,
-                        "message": str(e),
-                        "retryable": e.retryable,
-                        "committed": e.committed,
+                        "code": error.code,
+                        "message": str(error),
+                        "retryable": error.retryable,
+                        "committed": error.committed,
                     },
                 }
             )
             if not json_out:
-                typer.echo(f"  [{i}/{len(lines)}] Failed: {entry} ({e})", err=True)
+                typer.echo(f"  [{i}/{len(lines)}] Failed: {entry} ({error})", err=True)
 
     emit_progress(
         "complete", phase="batch_add", done=len(lines), total=len(lines), succeeded=len(succeeded), failed=len(failed)
