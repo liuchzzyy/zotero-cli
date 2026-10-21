@@ -6,6 +6,7 @@ from typing import Annotated
 
 import typer
 
+from zotero_cli.cli.app.group import TieredGroup
 from zotero_cli.cli.commands.pdf_rag.embedding import pdf_rag_embed
 from zotero_cli.cli.commands.pdf_rag.indexing import pdf_rag_index, pdf_rag_reindex
 from zotero_cli.cli.commands.pdf_rag.operations import (
@@ -22,6 +23,7 @@ from zotero_cli.cli.commands.pdf_rag.operations import (
 from zotero_cli.cli.commands.pdf_rag.query import pdf_rag_query
 
 pdf_rag_app = typer.Typer(
+    cls=TieredGroup,
     help="管理本地工作区及其检索索引。",
     invoke_without_command=True,
     no_args_is_help=False,
@@ -42,6 +44,7 @@ def new(
     description: Annotated[str, typer.Option("--description", "-d")] = "",
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
 ) -> None:
+    """创建新的本地文献 RAG 工作区。"""
     pdf_rag_new(ctx, name, description, dry_run)
 
 
@@ -52,6 +55,7 @@ def delete(
     yes: Annotated[bool, typer.Option("--yes", "-y")] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
 ) -> None:
+    """永久删除指定的工作区及其索引。"""
     pdf_rag_delete(ctx, name, yes, dry_run)
 
 
@@ -62,6 +66,7 @@ def add(
     keys: Annotated[list[str], typer.Argument()],
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
 ) -> None:
+    """向工作区添加文献条目。"""
     pdf_rag_add(ctx, name, tuple(keys), dry_run)
 
 
@@ -72,16 +77,19 @@ def remove(
     keys: Annotated[list[str], typer.Argument()],
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
 ) -> None:
+    """从工作区移除文献条目。"""
     pdf_rag_remove(ctx, name, tuple(keys), dry_run)
 
 
 @pdf_rag_app.command("list")
 def list_(ctx: typer.Context) -> None:
+    """列出全部已创建的 RAG 工作区。"""
     pdf_rag_list(ctx)
 
 
 @pdf_rag_app.command("show")
 def show(ctx: typer.Context, name: Annotated[str, typer.Argument()]) -> None:
+    """查看工作区包含的文献条目与元数据。"""
     pdf_rag_show(ctx, name)
 
 
@@ -91,6 +99,7 @@ def export(
     name: Annotated[str, typer.Argument()],
     fmt: Annotated[str, typer.Option("--format")] = "markdown",
 ) -> None:
+    """将工作区清单导出为独立文件。"""
     pdf_rag_export(ctx, name, fmt)
 
 
@@ -103,6 +112,7 @@ def import_(
     search_query: Annotated[str | None, typer.Option("--search")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
 ) -> None:
+    """从集合、标签或检索词导入条目到工作区。"""
     pdf_rag_import_cmd(ctx, name, collection, tag, search_query, dry_run)
 
 
@@ -110,6 +120,7 @@ def import_(
 def search(
     ctx: typer.Context, query: Annotated[str, typer.Argument()], pdf_rag_name: Annotated[str, typer.Option("--pdf-rag")]
 ) -> None:
+    """对工作区已索引内容进行快速词条检索。"""
     pdf_rag_search(ctx, query, pdf_rag_name)
 
 
@@ -123,6 +134,7 @@ def index(
     no_embed: Annotated[bool, typer.Option("--no-embed")] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
 ) -> None:
+    """为工作区文献建立词条倒排索引。"""
     pdf_rag_index(ctx, name, force, progress_lines, item_progress, no_embed, dry_run)
 
 
@@ -134,6 +146,7 @@ def reindex(
     no_embed: Annotated[bool, typer.Option("--no-embed")] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
 ) -> None:
+    """强制重新解析并完全重建工作区索引。"""
     pdf_rag_reindex(ctx, name, progress_lines, no_embed, dry_run)
 
 
@@ -150,6 +163,7 @@ def embed(
     progress_lines: Annotated[bool, typer.Option("--progress-lines")] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
 ) -> None:
+    """为工作区未嵌入切片批量计算向量。"""
     pdf_rag_embed(
         ctx,
         name,
@@ -175,4 +189,5 @@ def query(
     rerank: Annotated[bool, typer.Option("--rerank")] = False,
     rerank_top_n: Annotated[int, typer.Option("--rerank-top-n")] = 50,
 ) -> None:
+    """结合 BM25、语义向量与重排的多路混合检索问答。"""
     pdf_rag_query(ctx, question, pdf_rag_name, top_k, mode, pdf_kind, rerank, rerank_top_n)

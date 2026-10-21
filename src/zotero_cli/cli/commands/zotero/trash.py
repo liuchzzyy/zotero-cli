@@ -6,6 +6,7 @@ import json
 
 import typer
 
+from zotero_cli.cli.app.group import TieredGroup
 from zotero_cli.cli.commands.zotero.items import app
 from zotero_cli.cli.renderers import format_items
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id, resolve_write_credentials
@@ -21,7 +22,12 @@ RESTORE_SYNC_NOTE = (
 )
 
 
-trash_app = typer.Typer(help="查看本地回收站快照并通过 Web API 恢复条目。", no_args_is_help=True)
+trash_app = typer.Typer(
+    cls=TieredGroup,
+    help="查看本地回收站快照并通过 Web API 恢复条目。",
+    no_args_is_help=True,
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
 app.add_typer(trash_app, name="trash")
 
 

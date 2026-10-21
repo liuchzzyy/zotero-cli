@@ -8,6 +8,7 @@ from pathlib import Path
 
 import typer
 
+from zotero_cli.cli.app.group import TieredGroup
 from zotero_cli.cli.commands.zotero.items import app as zotero_app
 from zotero_cli.config import (
     get_data_dir,
@@ -31,7 +32,12 @@ from zotero_cli.zotero.pdf import (
     upload_attachment_protected,
 )
 
-app = typer.Typer(help="列出并定位本地 PDF 附件。", no_args_is_help=True)
+app = typer.Typer(
+    cls=TieredGroup,
+    help="列出并定位本地 PDF 附件。",
+    no_args_is_help=True,
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
 zotero_app.add_typer(app, name="pdf")
 
 

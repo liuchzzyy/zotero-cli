@@ -7,6 +7,7 @@ from pathlib import Path
 
 import typer
 
+from zotero_cli.cli.app.group import TieredGroup
 from zotero_cli.cli.commands.config.commands import _emit_config_error, _json_out
 from zotero_cli.config import (
     ConfigError,
@@ -21,6 +22,7 @@ from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
 
 app = typer.Typer(
+    cls=TieredGroup,
     help="管理配置 profile。",
     invoke_without_command=True,
     no_args_is_help=False,
