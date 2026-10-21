@@ -297,14 +297,13 @@ uv build
 
 源码布局：
 
-- `src/zotero_cli/cli/app/`：Typer 根入口、全局选项提升、错误边界与安全分级。
+- `src/zotero_cli/cli/app/`：Typer 根入口、全局选项提升、错误边界、安全分级与版本更新提示。
 - `src/zotero_cli/cli/commands/`：全部子命令；命令组各占一个子包。
 - `src/zotero_cli/cli/output/`：命令层渲染（Rich）与错误展示模型。
 - `src/zotero_cli/zotero/`：Zotero 基础能力，包括只读 SQLite/WAL 读取、Web API 写入、附件、集合与引文。
 - `src/zotero_cli/ai_pdf/`、`ai_notes/`、`workspace/`：区块二各派生功能实现。
 - `src/zotero_cli/metadata/`：`zot metadata` 命令组与其 `summarize`/`summarize-all`/`update-status` 实现，以及 Semantic Scholar 查询逻辑。
 - `src/zotero_cli/workspace/`：工作区清单存储、索引与检索实现（`workspace/rag/`）；旧 `core/rag` 与 `core/workspace_store.py` 已退役。
-- `src/zotero_cli/cli/version_check.py`：交互式版本更新提示。
 - `src/zotero_cli/zotero/platform_paths.py`：WSL/Windows 路径转换；`core/` 包已删除。
 - `src/zotero_cli/output/`：跨层输出契约（`envelope.py`、`exit_codes.py`、`streaming.py`、`sanitize.py`）。
 - `src/zotero_cli/config/`：配置路径、模型、加载与 Zotero 解析，公共 API 位于 `__init__.py`。

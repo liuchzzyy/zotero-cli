@@ -105,7 +105,7 @@ def _after_command(_result: object, **options: object) -> None:
     """仅在交互模式下显示更新提示。"""
     if options.get("output_json") or options.get("no_interaction") or not sys.stderr.isatty():
         return
-    from zotero_cli.cli.version_check import check_for_update, update_check_disabled, upgrade_command
+    from zotero_cli.cli.app.version_check import check_for_update, update_check_disabled, upgrade_command
 
     if update_check_disabled():
         return
