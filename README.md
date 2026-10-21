@@ -143,7 +143,7 @@ uv run zot schema zotero search
 uv run zot schema --diff prev.json   # 与缓存 schema 做结构 diff
 ```
 
-程序化调用统一使用 `--json`。Zotero 基础命令使用 `zot zotero` 分组：条目检索、读取、统计、最近记录、重复项、引文、PDF 附件定位和基础读写。MinerU 解析、AI 笔记和 workspace/RAG 已分别迁移至 `ai_pdf`、`ai_notes` 和 `workspace` 包，并由 Typer 的 `zot ai-pdf`、`zot ai-note`、`zot workspace` 提供；元数据流水线仍待后续阶段迁移。命令按安全等级分组：read / write / destructive，分组结果同时反映在 `zot --help` 和 `zot schema` 中；嵌套的 workspace/config 变更子命令也分别归入 write/destructive。
+程序化调用统一使用 `--json`。Zotero 基础命令使用 `zot zotero` 分组：条目检索、读取、统计、最近记录、重复项、引文、PDF 附件定位和基础读写。MinerU 解析、AI 笔记和 workspace/RAG 已分别迁移至 `ai_pdf`、`ai_notes` 和 `workspace` 包，并由 Typer 的 `zot ai-pdf`、`zot ai-note`、`zot workspace` 提供；元数据流水线由 `zot metadata` 提供。命令按安全等级分组：read / write / destructive，分组结果同时反映在 `zot --help` 和 `zot schema` 中；嵌套的 workspace/config 变更子命令也分别归入 write/destructive。
 
 `zot schema --diff prev.json` 输出结构 diff；缓存文件结构非法返回 `validation_error`（exit 3）。不支持的本地 Zotero userdata schema 返回 `configuration_error`（exit 3，附修复提示）。
 
@@ -287,7 +287,7 @@ uv run zot --json workspace query \
 - `tool/paperrag/`：`run-rag-workspace.zsh`（inventory、增量索引、embedding 回填）、`run-rag-evidence-search.zsh`（检索）、`zotero-workflow-common.zsh`（共享函数）、`workspace_inventory.py`（inventory 辅助脚本）。生成物写入唯一命名的 `log/` 运行目录；详细用法见 `tool/paperrag/Instructions.md`。
 - `tool/paper2zotero/`：`zotero_inbox.py`（PaperCrossref 收件箱导入）、`backfill_titles.py`（全库译名回填）、`translate_abstracts.py`（集合与条目中文摘要批量翻译与回填）、`batch_translate_metadata.py`（按集合同步中文标题与中文摘要）、`zh_text.py`（中文格式化规则）。断点状态位于 `.zot/state/paper2zotero/`（旧 `tool/paper2zotero/*_state.json` 不会自动迁移，需要手动移动一次以继续断点续跑）。`backfill_titles.py` / `translate_abstracts.py` 的默认模式是只读预览：仍需 Zotero API 凭据读取远端库，但不会写入；`batch_translate_metadata.py` 没有免费预览——不加 `--apply` 仍会调用 AI 暂存翻译并写断点文件。机器相关的 Hermes 目录、PaperCrossref 目录与收件箱 key/name 可用 `ZOT_PAPER2ZOTERO_HERMES_HOME`、`ZOT_PAPER2ZOTERO_INBOX_DIR`、`ZOT_PAPER2ZOTERO_INBOX_KEY`、`ZOT_PAPER2ZOTERO_INBOX_NAME` 覆盖。详见 `tool/paper2zotero/README.md`。
 - `tool/ainote/`：`batch_analyze.py`（按集合批量运行 `ai-note`，`--collection` 必填，dry-run 零副作用）、`scheduled_analyze.py`（按集合增量运行，远端核验后记断点；只将重复的确定性输入预算错误停放为 `unanalyzable`）和 `templates/`（`ai-note` prompt 模板，构建 wheel 时随包发布）。
-- 工具测试使用 `tools` marker，纳入默认 `testpaths`。
+- 工具测试使用 `tools` marker，纳入默认 `testpaths`（`tests` 与 `tool`）。
 
 ## 开发与验证
 
@@ -295,7 +295,7 @@ uv run zot --json workspace query \
 uv sync --dev
 uv run ruff check .
 uv run ruff format --check .   # ruff 0.17 也会格式化 Markdown 代码块
-uv run python -m mypy src/zotero_cli tools --exclude '(^|/)test_[^/]*\.py$'
+uv run python -m mypy src/zotero_cli tool --exclude '(^|/)test_[^/]*\.py$'
 uv run pytest -q -rf
 uv build
 ```
@@ -306,10 +306,12 @@ uv build
 
 源码布局：
 
-- `src/zotero_cli/cli/`：Click 根命令、全局选项、安全分级（`safety.py`）、错误边界与命令注册。
+- `src/zotero_cli/cli/`：Typer 根入口（`root.py`）、安全分级（`safety.py`）、错误边界与命令注册。
+- `src/zotero_cli/zotero/`：Zotero 基础能力，包括只读 SQLite/WAL 读取、Web API 写入、附件、集合与引文。
+- `src/zotero_cli/ai_pdf/`、`ai_notes/`、`workspace/`、`metadata/`：区块二各派生功能实现。
 - `src/zotero_cli/cli/workspace/`：`zot workspace` 的 Typer 命令与工作区命令实现；旧 `commands/workspace` 已退役。
 - `src/zotero_cli/workspace/`：工作区清单存储、索引与检索实现（`workspace/rag/`）；旧 `core/rag` 与 `core/workspace_store.py` 已退役。
-- `src/zotero_cli/core/`：尚未迁移的通用领域逻辑，例如 `platform_paths.py`、`version_check.py`。
+- `src/zotero_cli/core/`：跨功能共享的通用逻辑，例如 `platform_paths.py`、`version_check.py`。
 - `src/zotero_cli/output/`：JSON envelope、渲染、流式输出与退出码（`envelope.py`、`renderers.py`、`streaming.py`、`exit_codes.py`）。
 - `src/zotero_cli/config/`：配置路径、模型、加载与 Zotero 解析，公共 API 位于 `__init__.py`。
 

@@ -10,8 +10,8 @@ from click.testing import CliRunner
 from tests.support import FIXTURES_DIR, invoke_cli, parse_json_output
 
 from zotero_cli.cli import main
-from zotero_cli.core.zotero.writer import ZoteroWriter
-from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
+from zotero_cli.zotero.writer import ZoteroWriter
+from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
 
 def _invoke(args: list[str], json_output: bool = False):
@@ -235,7 +235,7 @@ class TestUpdateCommand:
 
 
 class TestWriterUpdateItem:
-    @patch("zotero_cli.core.zotero.writer.zotero.Zotero")
+    @patch("zotero_cli.zotero.writer.zotero.Zotero")
     def test_update_item_calls_api(self, mock_zotero_cls):
         mock_zot = MagicMock()
         mock_zotero_cls.return_value = mock_zot
@@ -250,7 +250,7 @@ class TestWriterUpdateItem:
         call_arg = mock_zot.update_item.call_args[0][0]
         assert call_arg["data"]["title"] == "New Title"
 
-    @patch("zotero_cli.core.zotero.writer.zotero.Zotero")
+    @patch("zotero_cli.zotero.writer.zotero.Zotero")
     def test_update_item_not_found(self, mock_zotero_cls):
         from pyzotero.zotero_errors import ResourceNotFoundError
 

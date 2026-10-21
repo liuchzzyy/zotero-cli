@@ -34,9 +34,9 @@ from zotero_cli.config import (
 from zotero_cli.config import (
     state_dir as default_state_dir,
 )
-from zotero_cli.core.zotero.writer import ZoteroWriter
 from zotero_cli.models import Collection, Item
 from zotero_cli.zotero.reader import ZoteroReader
+from zotero_cli.zotero.writer import ZoteroWriter
 
 logging.basicConfig(
     level=logging.INFO,

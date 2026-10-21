@@ -10,8 +10,6 @@ import typer
 
 from zotero_cli.cli.zotero.reading import app
 from zotero_cli.config import load_config, resolve_write_credentials
-from zotero_cli.core.zotero.idempotency import PendingMutationError
-from zotero_cli.core.zotero.writer import SYNC_REMINDER, ZoteroWriter
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.zotero.attachment_upload import (
@@ -20,6 +18,8 @@ from zotero_cli.zotero.attachment_upload import (
     cache_attachment_upload,
     upload_attachment_protected,
 )
+from zotero_cli.zotero.idempotency import PendingMutationError
+from zotero_cli.zotero.writer import SYNC_REMINDER, ZoteroWriter
 
 
 @app.command(name="attach")

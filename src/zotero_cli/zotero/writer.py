@@ -16,8 +16,8 @@ import httpx2
 from pyzotero import zotero
 from pyzotero.zotero_errors import PyZoteroError, ResourceNotFoundError
 
-from zotero_cli.core.zotero.short_note_merge import merge_short_note_into_extra
-from zotero_cli.core.zotero.writer_errors import (
+from zotero_cli.zotero.short_note_merge import merge_short_note_into_extra
+from zotero_cli.zotero.writer_errors import (
     ZoteroWriteError,
     _friendly_api_error,
     error_for_http_status,

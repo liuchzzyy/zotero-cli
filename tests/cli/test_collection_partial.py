@@ -5,8 +5,8 @@ from click.testing import CliRunner
 from tests.support import FIXTURES_DIR
 
 from zotero_cli.cli import main
-from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
 from zotero_cli.zotero.reader import ZoteroReader
+from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
 
 def test_reorganize_partial_failure_is_not_success(tmp_path):

@@ -16,8 +16,8 @@ import translate_abstracts as abstracts
 import zotero_inbox as inbox
 from pyzotero import zotero
 
-from zotero_cli.core.zotero.writer import ZoteroWriter
-from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
+from zotero_cli.zotero.writer import ZoteroWriter
+from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
 KEY = "PAPER001"
 TITLE = "A fixture paper about cathodes"

@@ -1,6 +1,6 @@
 # `zotero-cli` 重构方案
 
-> 状态：区块一与区块二 A/B/C/D 已完成；实际用户数据重建、迁移与清理均未执行。
+> 状态：计划内区块一与区块二 A/B/C/D 全部完成；实际用户数据重建、迁移与清理均未执行。本计划不含区块三。
 >
 > 审查日期：2026-10-20
 
@@ -178,7 +178,7 @@ tests/
 | --- | --- | --- |
 | `commands/items/`：条目读写、搜索、统计、重复项 | 区块一 `zot zotero` | 逐命令迁移，完成后退役旧顶层命令 |
 | `commands/collections/`、标签和关系命令 | 区块一 `zot zotero` | 随集合/标签功能迁移 |
-| `core/zotero/reader.py`、`writer.py` | 区块一 Zotero Python 能力 | 保留 SQLite 只读/WAL 与 Web API 写入边界；按功能整理 |
+| `zotero/reader.py`、`writer.py`（原 `core/zotero/`） | 区块一 Zotero Python 能力 | 已并入 `zotero/` 包；保留 SQLite 只读/WAL 与 Web API 写入边界 |
 | `commands/attachments/attach.py`、附件定位 | 区块一 `zot zotero` | 基础附件定位、添加、删除与关联 |
 | 基础 PDF 选择、读取、导出与附加写入 | 区块一 `zot zotero pdf ...` | 不调用 MinerU，不进行 AI PDF 内容解析 |
 | `commands/notes/note.py` | 区块一基础笔记 | 不含模型生成 |

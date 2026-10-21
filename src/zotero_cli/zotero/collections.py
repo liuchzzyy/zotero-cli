@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from zotero_cli.core.zotero.writer import ZoteroWriter
-from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
+from zotero_cli.zotero.writer import ZoteroWriter
+from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
 
 def validate_reorganization_plan(plan: Any) -> list[dict[str, Any]]:

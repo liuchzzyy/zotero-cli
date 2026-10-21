@@ -9,9 +9,9 @@ import pytest
 from tests.support import FIXTURES_DIR
 from tests.support import invoke_cli as _invoke
 
-from zotero_cli.core.zotero.writer import ZoteroWriter
-from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
 from zotero_cli.zotero.reader import ZoteroReader
+from zotero_cli.zotero.writer import ZoteroWriter
+from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
 _WRITE_ENV = {"ZOT_LIBRARY_ID": "123", "ZOT_API_KEY": "fake"}
 
@@ -56,7 +56,7 @@ class TestTrashReader:
 
 
 class TestTrashWriter:
-    @patch("zotero_cli.core.zotero.writer.zotero.Zotero")
+    @patch("zotero_cli.zotero.writer.zotero.Zotero")
     def test_restore_from_trash(self, mock_zotero_cls):
         mock_zot = MagicMock()
         mock_zotero_cls.return_value = mock_zot
@@ -77,7 +77,7 @@ class TestTrashWriter:
         # RESTORE must not go through pyzotero update_item (it rejects 'deleted').
         mock_zot.update_item.assert_not_called()
 
-    @patch("zotero_cli.core.zotero.writer.zotero.Zotero")
+    @patch("zotero_cli.zotero.writer.zotero.Zotero")
     def test_restore_not_found(self, mock_zotero_cls):
         from pyzotero.zotero_errors import ResourceNotFoundError
 

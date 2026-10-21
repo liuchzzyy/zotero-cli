@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from zotero_cli.core.zotero.writer import ZoteroWriter
+    from zotero_cli.zotero.writer import ZoteroWriter
 
 import zh_text
 
@@ -63,7 +63,7 @@ def select_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
 
 def resolve_metadata(doi: str) -> dict:
     """Use zotero-cli's Crossref mapper; never create a bare record on resolution failure."""
-    from zotero_cli.core.zotero.metadata import resolve_doi
+    from zotero_cli.zotero.metadata import resolve_doi
 
     fields = resolve_doi(doi)
     if not isinstance(fields, dict) or not fields.get("title"):
@@ -236,7 +236,7 @@ def sync_csv(path: Path, api: Any, writer: ZoteroWriter) -> int:
 def open_zotero() -> tuple[Any, ZoteroWriter]:
     """Open the configured Zotero user library through zotero-cli's Web API writer."""
     from zotero_cli.config import load_config, resolve_write_credentials
-    from zotero_cli.core.zotero.writer import ZoteroWriter
+    from zotero_cli.zotero.writer import ZoteroWriter
 
     config = load_config()
     library_id, api_key = resolve_write_credentials(config, library_type="user", group_id=None)

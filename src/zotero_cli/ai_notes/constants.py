@@ -13,7 +13,7 @@ MIN_SECTIONS = 10
 # Hard ceiling for the *short-note* prompt (template + the AI note it condenses).
 # The analysis prompt is bounded instead by `[ai_notes].max_extracted_chars`
 # (default 250,000, 0 = no limit) and by the 500k-token image budget in
-# `core/notes/structured_input.py`; the two limits are independent.
+# `ai_notes/structured_input.py`; the two limits are independent.
 MAX_PROMPT_CHARS = 220_000
 PROMPT_RESERVE_CHARS = 2_000
 

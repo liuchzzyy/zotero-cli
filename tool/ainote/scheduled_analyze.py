@@ -247,8 +247,8 @@ def main() -> int:
         resolve_library_id,
         state_dir,
     )
-    from zotero_cli.core.zotero.writer import ZoteroWriter
     from zotero_cli.zotero.reader import ZoteroReader
+    from zotero_cli.zotero.writer import ZoteroWriter
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     with (args.output_dir / f"{args.collection}.lock").open("a") as lock:

@@ -10,7 +10,9 @@ import typer
 
 from zotero_cli.cli.zotero.reading import app
 from zotero_cli.config import load_config, resolve_write_credentials
-from zotero_cli.core.zotero.idempotency import (
+from zotero_cli.output.envelope import envelope_error, envelope_ok, envelope_partial_data
+from zotero_cli.output.exit_codes import emit_error, exit_code_for
+from zotero_cli.zotero.idempotency import (
     PendingMutationError,
     begin_mutation,
     failure_definitely_rejected,
@@ -18,10 +20,8 @@ from zotero_cli.core.zotero.idempotency import (
     request_scope,
     store_cached,
 )
-from zotero_cli.core.zotero.writer import SYNC_REMINDER, ZoteroWriter
-from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
-from zotero_cli.output.envelope import envelope_error, envelope_ok, envelope_partial_data
-from zotero_cli.output.exit_codes import emit_error, exit_code_for
+from zotero_cli.zotero.writer import SYNC_REMINDER, ZoteroWriter
+from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
 PERMANENT_DELETE_WARNING = (
     "Permanently deleted remotely. Zotero's Web API DELETE is irreversible: the item is not moved to "

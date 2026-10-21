@@ -33,7 +33,7 @@ between 4 and 6 for the same reason — a phrase like `supporting information`
 this early is a cover, whereas the same phrase thousands of characters in is a
 main text citing its own SI (see the guardrail below).
 
-`core/notes/pipeline.py` then overrides: a first-2500-char span containing both
+`ai_notes/pipeline.py` then overrides: a first-2500-char span containing both
 `this pdf file includes:` and `figures s1` forces `supplementary`. That override
 exists because a same-named SI can carry the article title and byline, which
 trips rule 3 — for some items it is the only thing that saves the pair.
@@ -202,7 +202,7 @@ outlast a two-minute budget.
 ```python
 from pathlib import Path
 from zotero_cli.config import load_config
-from zotero_cli.core.zotero.reader import ZoteroReader
+from zotero_cli.zotero.reader import ZoteroReader
 
 reader = ZoteroReader(Path(load_config().data_dir) / "zotero.sqlite")
 conn = reader._connect()

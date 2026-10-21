@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 from tests.support import invoke_agent_cli as _run
 
-from zotero_cli.core.zotero import idempotency
 from zotero_cli.output.exit_codes import EXIT_OK
+from zotero_cli.zotero import idempotency
 
 
 class TestDryRunCoverage:
@@ -166,7 +166,7 @@ class TestHelpTiers:
 class TestRetryableFlag:
     @patch("zotero_cli.cli.zotero.update.ZoteroWriter")
     def test_network_error_flagged_retryable(self, mock_writer_cls):
-        from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
+        from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
         mock_writer_cls.return_value.update_item.side_effect = ZoteroWriteError(
             "Network error: boom", code="network_error", retryable=True
@@ -180,7 +180,7 @@ class TestRetryableFlag:
 
     @patch("zotero_cli.cli.zotero.update.ZoteroWriter")
     def test_not_found_flagged_not_retryable(self, mock_writer_cls):
-        from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
+        from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
         mock_writer_cls.return_value.update_item.side_effect = ZoteroWriteError(
             "Item 'X' not found", code="not_found", retryable=False

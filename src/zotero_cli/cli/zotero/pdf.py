@@ -16,8 +16,6 @@ from zotero_cli.config import (
     resolve_library_id,
     resolve_write_credentials,
 )
-from zotero_cli.core.zotero.idempotency import PendingMutationError
-from zotero_cli.core.zotero.writer import SYNC_REMINDER, ZoteroWriter
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.output.renderers import sanitize_text
@@ -27,8 +25,10 @@ from zotero_cli.zotero.attachment_upload import (
     cache_attachment_upload,
     upload_attachment_protected,
 )
+from zotero_cli.zotero.idempotency import PendingMutationError
 from zotero_cli.zotero.pdf import export_pdf, select_pdf_attachment
 from zotero_cli.zotero.reader import ZoteroReader
+from zotero_cli.zotero.writer import SYNC_REMINDER, ZoteroWriter
 
 app = typer.Typer(help="列出并定位本地 PDF 附件。", no_args_is_help=True)
 zotero_app.add_typer(app, name="pdf")

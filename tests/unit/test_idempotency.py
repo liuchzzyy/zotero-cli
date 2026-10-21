@@ -6,7 +6,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from zotero_cli.core.zotero import idempotency
+from zotero_cli.zotero import idempotency
 
 
 @pytest.mark.parametrize("operation", ["store", "get", "clear", "failed_store"])

@@ -28,10 +28,10 @@ from zotero_cli.ai_notes.short_note import normalize_short_note, validate_short_
 from zotero_cli.ai_pdf import MinerUParseResult
 from zotero_cli.cli import main
 from zotero_cli.config import AiNoteConfig
-from zotero_cli.core.zotero.idempotency import PendingMutationError
-from zotero_cli.core.zotero.short_note_merge import merge_short_note_into_extra
-from zotero_cli.core.zotero.writer import ZoteroWriteError
 from zotero_cli.models import Attachment, Creator, Item, Note
+from zotero_cli.zotero.idempotency import PendingMutationError
+from zotero_cli.zotero.short_note_merge import merge_short_note_into_extra
+from zotero_cli.zotero.writer import ZoteroWriteError
 
 _REAL_FORMAT_TEMPLATE = pipeline_module.format_template
 

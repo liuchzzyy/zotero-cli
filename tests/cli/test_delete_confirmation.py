@@ -71,7 +71,7 @@ def test_delete_dry_run_payload_is_explicitly_permanent() -> None:
 
 
 def test_delete_partial_failure_is_typed_partial_envelope() -> None:
-    from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
+    from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
     with patch("zotero_cli.cli.zotero.delete.ZoteroWriter") as writer:
         writer.return_value.delete_item.side_effect = [None, ZoteroWriteError("gone", code="not_found")]
@@ -88,10 +88,10 @@ def test_delete_partial_failure_is_typed_partial_envelope() -> None:
 def test_delete_definite_rejection_releases_idempotency_reservation(tmp_path) -> None:
     from unittest.mock import patch as patch_obj
 
-    from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
+    from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
     with (
-        patch_obj("zotero_cli.core.zotero.idempotency.state_dir", return_value=tmp_path),
+        patch_obj("zotero_cli.zotero.idempotency.state_dir", return_value=tmp_path),
         patch("zotero_cli.cli.zotero.delete.ZoteroWriter") as writer,
     ):
         writer.return_value.delete_item.side_effect = ZoteroWriteError("gone", code="not_found")

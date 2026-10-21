@@ -9,13 +9,13 @@ import typer
 
 from zotero_cli.cli.zotero.reading import app
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id, resolve_write_credentials
-from zotero_cli.core.zotero.writer import SYNC_REMINDER, ZoteroWriter
-from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
 from zotero_cli.models import ErrorInfo
 from zotero_cli.output.envelope import envelope_error, envelope_ok, envelope_partial
 from zotero_cli.output.exit_codes import EXIT_NOT_FOUND, emit_error, exit_code_for
 from zotero_cli.output.renderers import print_error
 from zotero_cli.zotero.reader import ZoteroReader
+from zotero_cli.zotero.writer import SYNC_REMINDER, ZoteroWriter
+from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
 
 @app.command("tag")

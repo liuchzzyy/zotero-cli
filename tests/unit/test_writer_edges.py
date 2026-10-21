@@ -24,10 +24,10 @@ from pyzotero.zotero_errors import (
     UserNotAuthorisedError,
 )
 
-from zotero_cli.core.zotero import writer as writer_module
-from zotero_cli.core.zotero.short_note_merge import merge_short_note_into_extra
-from zotero_cli.core.zotero.writer import ZoteroWriter
-from zotero_cli.core.zotero.writer_errors import (
+from zotero_cli.zotero import writer as writer_module
+from zotero_cli.zotero.short_note_merge import merge_short_note_into_extra
+from zotero_cli.zotero.writer import ZoteroWriter
+from zotero_cli.zotero.writer_errors import (
     ZoteroWriteError,
     _friendly_api_error,
     error_for_http_status,

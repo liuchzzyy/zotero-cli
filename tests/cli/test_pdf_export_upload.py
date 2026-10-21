@@ -8,9 +8,9 @@ from unittest.mock import patch
 
 from tests.support import invoke_agent_cli
 
-from zotero_cli.core.zotero import idempotency
-from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
 from zotero_cli.models import Attachment
+from zotero_cli.zotero import idempotency
+from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
 
 def _pdf(path: Path, content: bytes = b"%PDF-1.7\ncontent") -> Path:
@@ -85,7 +85,7 @@ def test_pdf_upload_replays_idempotent_result_and_blocks_unknown_retry(tmp_path)
     pdf = _pdf(tmp_path / "paper.pdf")
     env = {"ZOT_LIBRARY_ID": "123", "ZOT_API_KEY": "secret"}
     with (
-        patch("zotero_cli.core.zotero.idempotency.state_dir", return_value=tmp_path),
+        patch("zotero_cli.zotero.idempotency.state_dir", return_value=tmp_path),
         patch("zotero_cli.cli.zotero.pdf.ZoteroWriter") as writer,
     ):
         idempotency.clear()
@@ -98,7 +98,7 @@ def test_pdf_upload_replays_idempotent_result_and_blocks_unknown_retry(tmp_path)
     assert json.loads(second.output)["data"]["attachment_key"] == "PDF00001"
 
     with (
-        patch("zotero_cli.core.zotero.idempotency.state_dir", return_value=tmp_path),
+        patch("zotero_cli.zotero.idempotency.state_dir", return_value=tmp_path),
         patch("zotero_cli.cli.zotero.pdf.ZoteroWriter") as writer,
     ):
         idempotency.clear()

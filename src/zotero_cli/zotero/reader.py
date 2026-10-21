@@ -21,7 +21,6 @@ from collections.abc import Iterator
 from difflib import SequenceMatcher
 from pathlib import Path
 
-from zotero_cli.core.zotero.citations import CitationExportMixin
 from zotero_cli.models import (
     Attachment,
     Collection,
@@ -31,6 +30,7 @@ from zotero_cli.models import (
     Note,
     SearchResult,
 )
+from zotero_cli.zotero.citations import CitationExportMixin
 
 # Excluded type names (looked up dynamically per database)
 _EXCLUDED_TYPE_NAMES = ("attachment", "note", "annotation")
@@ -90,7 +90,7 @@ class ZoteroReader(CitationExportMixin):
         self._tmp_dir_obj: tempfile.TemporaryDirectory[str] | None = None
         self._fulltext_mode: str | None = None
         self._schema_checked = False
-        from zotero_cli.core.zotero.attachments import AttachmentResolver
+        from zotero_cli.zotero.attachments import AttachmentResolver
 
         self._resolver = AttachmentResolver(db_path, prefs_js_path)
 

@@ -6,8 +6,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from zotero_cli.core.zotero.writer import ZoteroWriter
-from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
+from zotero_cli.zotero.writer import ZoteroWriter
+from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
 
 def test_expected_version_rejects_a_newer_remote_item() -> None:

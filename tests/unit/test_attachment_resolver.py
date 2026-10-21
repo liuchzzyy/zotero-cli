@@ -1,7 +1,7 @@
 from pathlib import Path, PureWindowsPath
 from unittest.mock import patch
 
-from zotero_cli.core.zotero.attachments import AttachmentResolver
+from zotero_cli.zotero.attachments import AttachmentResolver
 
 
 class TestAttachmentResolver:
@@ -56,9 +56,9 @@ class TestAttachmentResolver:
         # Patch the platform boundary and Path factory so this also runs on Python 3.10
         # (3.10 pathlib raises when os.name is patched to nt on a POSIX host).
         with (
-            patch("zotero_cli.core.zotero.attachments.os.name", "nt"),
-            patch("zotero_cli.core.zotero.attachments.Path", PureWindowsPath),
-            patch("zotero_cli.core.zotero.attachments.is_wsl_environment", return_value=False),
+            patch("zotero_cli.zotero.attachments.os.name", "nt"),
+            patch("zotero_cli.zotero.attachments.Path", PureWindowsPath),
+            patch("zotero_cli.zotero.attachments.is_wsl_environment", return_value=False),
         ):
             result = resolver.resolve("ABC123", "file:///C:/Users/test/file.pdf")
         assert result is not None
@@ -68,9 +68,9 @@ class TestAttachmentResolver:
         assert not resolved.startswith("/C:")
 
         with (
-            patch("zotero_cli.core.zotero.attachments.os.name", "nt"),
-            patch("zotero_cli.core.zotero.attachments.Path", PureWindowsPath),
-            patch("zotero_cli.core.zotero.attachments.is_wsl_environment", return_value=True),
+            patch("zotero_cli.zotero.attachments.os.name", "nt"),
+            patch("zotero_cli.zotero.attachments.Path", PureWindowsPath),
+            patch("zotero_cli.zotero.attachments.is_wsl_environment", return_value=True),
         ):
             wsl_result = resolver.resolve("ABC123", "file:///C:/Users/test/file.pdf")
         assert wsl_result is not None
@@ -98,7 +98,7 @@ class TestAttachmentResolver:
         prefs.write_text(f'user_pref("extensions.zotero.baseAttachmentPath", "{attach_base}");')
 
         resolver = AttachmentResolver(db_path)
-        with patch("zotero_cli.core.zotero.attachments.is_wsl_environment", return_value=False):
+        with patch("zotero_cli.zotero.attachments.is_wsl_environment", return_value=False):
             result = resolver.resolve("ABC123", "attachments:papers/file.pdf")
         assert result == attach_base / "papers" / "file.pdf"
 
@@ -127,7 +127,7 @@ class TestAttachmentResolver:
         )
 
         resolver = AttachmentResolver(db_path)
-        with patch("zotero_cli.core.zotero.attachments.Path.home", return_value=home):
+        with patch("zotero_cli.zotero.attachments.Path.home", return_value=home):
             result = resolver.resolve("ABC123", "attachments:papers/file.pdf")
 
         assert result == tmp_path / "papers" / "file.pdf"
@@ -167,7 +167,7 @@ def test_resolve_wsl_plain_windows_drive_path(tmp_path):
     db_path = tmp_path / "zotero.sqlite"
     db_path.touch()
     resolver = AttachmentResolver(db_path)
-    with patch("zotero_cli.core.zotero.attachments.is_wsl_environment", return_value=True):
+    with patch("zotero_cli.zotero.attachments.is_wsl_environment", return_value=True):
         result = resolver.resolve("ABC123", "C:\\Users\\me\\paper.pdf")  # noqa: W605
     assert result is not None
     assert str(result).replace("\\", "/") == "/mnt/c/Users/me/paper.pdf"
@@ -178,7 +178,7 @@ def test_resolve_wsl_file_url_drive_without_nt_patch(tmp_path):
     db_path = tmp_path / "zotero.sqlite"
     db_path.touch()
     resolver = AttachmentResolver(db_path)
-    with patch("zotero_cli.core.zotero.attachments.is_wsl_environment", return_value=True):
+    with patch("zotero_cli.zotero.attachments.is_wsl_environment", return_value=True):
         result = resolver.resolve("ABC123", "file:///C:/Users/me/paper.pdf")
     assert result is not None
     assert str(result).replace("\\", "/") == "/mnt/c/Users/me/paper.pdf"
@@ -188,7 +188,7 @@ def test_resolve_unc_file_url_keeps_server_component(tmp_path):
     db_path = tmp_path / "zotero.sqlite"
     db_path.touch()
     resolver = AttachmentResolver(db_path)
-    with patch("zotero_cli.core.zotero.attachments.is_wsl_environment", return_value=False):
+    with patch("zotero_cli.zotero.attachments.is_wsl_environment", return_value=False):
         result = resolver.resolve("ABC123", "file://server/share/paper.pdf")
     assert result is not None
     assert str(result).replace("\\", "/") == "//server/share/paper.pdf"
@@ -198,7 +198,7 @@ def test_resolve_windows_path_verbatim_when_not_wsl(tmp_path):
     db_path = tmp_path / "zotero.sqlite"
     db_path.touch()
     resolver = AttachmentResolver(db_path)
-    with patch("zotero_cli.core.zotero.attachments.is_wsl_environment", return_value=False):
+    with patch("zotero_cli.zotero.attachments.is_wsl_environment", return_value=False):
         result = resolver.resolve("ABC123", "C:\\Users\\me\\paper.pdf")
     assert result is not None
     assert str(result).replace("\\", "/") == "C:/Users/me/paper.pdf"

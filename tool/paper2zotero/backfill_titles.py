@@ -22,7 +22,7 @@ from typing import Any
 import zh_text
 
 from zotero_cli.config import load_config, resolve_write_credentials, state_dir
-from zotero_cli.core.zotero.writer import ZoteroWriter
+from zotero_cli.zotero.writer import ZoteroWriter
 
 _DEFAULT_SCIENTIST_HOME = Path.home() / ".hermes" / "profiles" / "scientist"
 SCIENTIST_HOME = Path(os.environ.get("ZOT_PAPER2ZOTERO_HERMES_HOME") or _DEFAULT_SCIENTIST_HOME).expanduser()

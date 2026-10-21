@@ -26,8 +26,8 @@ def isolate_runtime_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     """Keep default config, retry caches and workspaces away from real research state."""
     from zotero_cli import config
     from zotero_cli.core import version_check
-    from zotero_cli.core.zotero import idempotency
     from zotero_cli.workspace import store as workspace
+    from zotero_cli.zotero import idempotency
 
     for name in tuple(os.environ):
         if name.startswith("ZOT_"):

@@ -8,15 +8,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from zotero_cli.ai_pdf import file_sha256
-from zotero_cli.core.zotero.idempotency import (
+from zotero_cli.zotero.idempotency import (
     begin_mutation,
     failure_definitely_rejected,
     release_rejected_mutation,
     request_scope,
     store_cached,
 )
-from zotero_cli.core.zotero.writer import ZoteroWriter
-from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
+from zotero_cli.zotero.writer import ZoteroWriter
+from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
 
 @dataclass(frozen=True)

@@ -10,8 +10,8 @@ from click.testing import CliRunner
 from tests.support import invoke_cli as _invoke
 
 from zotero_cli.cli import main
-from zotero_cli.core.zotero.writer import SYNC_REMINDER, ZoteroWriter
-from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
+from zotero_cli.zotero.writer import SYNC_REMINDER, ZoteroWriter
+from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
 WRITE_ENV = {"ZOT_LIBRARY_ID": "123", "ZOT_API_KEY": "abc"}
 
@@ -509,7 +509,7 @@ class TestBatchTag:
 
 
 class TestTimeout:
-    @patch("zotero_cli.core.zotero.writer.zotero.Zotero")
+    @patch("zotero_cli.zotero.writer.zotero.Zotero")
     def test_writer_sets_timeout(self, mock_zotero_cls):
         mock_zot = MagicMock()
         mock_zotero_cls.return_value = mock_zot
@@ -520,7 +520,7 @@ class TestTimeout:
         assert mock_zot.client.timeout == 10.0
         assert isinstance(mock_zot.client.timeout, float)
 
-    @patch("zotero_cli.core.zotero.writer.zotero.Zotero")
+    @patch("zotero_cli.zotero.writer.zotero.Zotero")
     def test_timeout_raises_write_error(self, mock_zotero_cls):
         from httpx2 import ReadTimeout
 

@@ -12,7 +12,6 @@ from tests.support import invoke_agent_cli as _run
 
 from zotero_cli.cli import _hoist_global_flags, main
 from zotero_cli.config import AiNoteConfig
-from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
 from zotero_cli.models import Item
 from zotero_cli.output.envelope import envelope_error, envelope_ok, envelope_partial, envelope_partial_data
 from zotero_cli.output.exit_codes import (
@@ -23,6 +22,7 @@ from zotero_cli.output.exit_codes import (
     exit_code_for,
 )
 from zotero_cli.zotero.reader import ZoteroSchemaError
+from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
 
 def _ai_config() -> AiNoteConfig:

@@ -10,12 +10,12 @@ import typer
 
 from zotero_cli.cli.zotero.reading import app
 from zotero_cli.config import load_config, resolve_write_credentials
-from zotero_cli.core.zotero.metadata import MetadataResolveError, resolve_doi
-from zotero_cli.core.zotero.writer import SYNC_REMINDER, ZoteroWriter
-from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
 from zotero_cli.output.envelope import envelope_ok, envelope_partial, envelope_partial_data
 from zotero_cli.output.exit_codes import emit_error, exit_code_for
 from zotero_cli.output.streaming import emit_progress
+from zotero_cli.zotero.metadata import MetadataResolveError, resolve_doi
+from zotero_cli.zotero.writer import SYNC_REMINDER, ZoteroWriter
+from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
 
 def _resolve_metadata(doi: str) -> tuple[dict | None, str | None]:
@@ -136,7 +136,7 @@ def add_cmd(
             context="add",
         )
 
-    from zotero_cli.core.zotero.idempotency import (
+    from zotero_cli.zotero.idempotency import (
         PendingMutationError,
         begin_mutation,
         failure_definitely_rejected,
@@ -285,7 +285,7 @@ def _add_from_pdf(
 
     from zotero_cli.ai_pdf import MinerUError, MinerUParseCache, extract_doi_from_markdown
     from zotero_cli.config import load_pdf_config
-    from zotero_cli.core.zotero.idempotency import (
+    from zotero_cli.zotero.idempotency import (
         PendingMutationError,
         begin_mutation,
         failure_definitely_rejected,

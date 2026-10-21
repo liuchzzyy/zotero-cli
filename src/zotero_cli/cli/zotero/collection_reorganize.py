@@ -9,10 +9,10 @@ import typer
 
 from zotero_cli.cli.zotero.collection import _emit_dry_run, _emit_json_or_text, _emit_sync_success, app
 from zotero_cli.config import load_config, resolve_write_credentials
-from zotero_cli.core.zotero.writer import ZoteroWriter
 from zotero_cli.output.envelope import envelope_ok, envelope_partial_data
 from zotero_cli.output.exit_codes import emit_error, exit_code_for
 from zotero_cli.zotero.collections import execute_reorganization, validate_reorganization_plan
+from zotero_cli.zotero.writer import ZoteroWriter
 
 
 @app.command("reorganize")

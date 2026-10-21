@@ -65,7 +65,7 @@ def test_add_by_doi_resolver_404_falls_back(mock_writer_cls, mock_resolve):
 @patch("zotero_cli.cli.zotero.add.resolve_doi")
 @patch("zotero_cli.cli.zotero.add.ZoteroWriter")
 def test_add_by_doi_resolver_network_error_falls_back(mock_writer_cls, mock_resolve):
-    from zotero_cli.core.zotero.metadata import MetadataResolveError
+    from zotero_cli.zotero.metadata import MetadataResolveError
 
     mock_resolve.side_effect = MetadataResolveError("Crossref request failed: connection reset")
     mock_writer = MagicMock()

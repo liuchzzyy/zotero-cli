@@ -8,12 +8,12 @@ import typer
 
 from zotero_cli.cli.zotero.reading import app
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id, resolve_write_credentials
-from zotero_cli.core.zotero.writer import SYNC_REMINDER, ZoteroWriter
-from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
 from zotero_cli.output.envelope import envelope_error, envelope_ok, envelope_partial_data
 from zotero_cli.output.exit_codes import emit_error, exit_code_for
 from zotero_cli.output.renderers import format_items
 from zotero_cli.zotero.reader import ZoteroReader
+from zotero_cli.zotero.writer import SYNC_REMINDER, ZoteroWriter
+from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
 RESTORE_SYNC_NOTE = (
     "Restored remotely. The local database only reflects the restore after Zotero Desktop syncs; "

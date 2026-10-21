@@ -11,8 +11,8 @@ from click.testing import CliRunner
 
 from zotero_cli import config
 from zotero_cli.cli import main
-from zotero_cli.core.zotero import idempotency
-from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
+from zotero_cli.zotero import idempotency
+from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
 WRITE_ENV = {"ZOT_LIBRARY_ID": "123", "ZOT_API_KEY": "offline-write-key"}
 

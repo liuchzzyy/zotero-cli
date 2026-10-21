@@ -4,7 +4,7 @@ from unittest.mock import patch
 from click.testing import CliRunner
 
 from zotero_cli.cli import main
-from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
+from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
 
 def test_add_pdf_upload_failure_returns_partial_state(tmp_path):

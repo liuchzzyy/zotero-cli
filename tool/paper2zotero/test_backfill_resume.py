@@ -104,8 +104,8 @@ def test_stale_completed_status_does_not_skip_a_currently_missing_title(
 
 
 def test_title_backfill_does_not_overwrite_a_concurrent_extra_edit() -> None:
-    from zotero_cli.core.zotero.writer import ZoteroWriter
-    from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
+    from zotero_cli.zotero.writer import ZoteroWriter
+    from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
     original = {"key": "A", "version": 17, "data": {"title": "Paper A", "extra": "funder: keep"}}
     edited = {"key": "A", "version": 18, "data": {"title": "Paper A", "extra": "funder: keep\nuser: new"}}

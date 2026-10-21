@@ -10,12 +10,12 @@ import typer
 
 from zotero_cli.cli.zotero.reading import app
 from zotero_cli.config import load_config, resolve_write_credentials
-from zotero_cli.core.zotero.writer import SYNC_REMINDER, ZoteroWriter
-from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
 from zotero_cli.output.envelope import envelope_ok, envelope_partial
 from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.output.streaming import emit_progress
 from zotero_cli.zotero.item_updates import _load_updates_from_jsonl, _parse_inline_fields
+from zotero_cli.zotero.writer import SYNC_REMINDER, ZoteroWriter
+from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
 
 @app.command(name="update")
@@ -180,7 +180,7 @@ def update_cmd(
         )
 
     # 写入前预留幂等键，防止响应丢失后盲目重试。
-    from zotero_cli.core.zotero.idempotency import (
+    from zotero_cli.zotero.idempotency import (
         PendingMutationError,
         begin_mutation,
         failure_definitely_rejected,

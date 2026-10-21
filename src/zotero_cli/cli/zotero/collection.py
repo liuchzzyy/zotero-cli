@@ -10,13 +10,13 @@ import typer
 
 from zotero_cli.cli.tiered_group import TieredGroup
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id, resolve_write_credentials
-from zotero_cli.core.zotero.writer import SYNC_REMINDER, ZoteroWriter
-from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
 from zotero_cli.models import Collection
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.output.renderers import format_collections, format_items, format_success
 from zotero_cli.zotero.reader import ZoteroReader
+from zotero_cli.zotero.writer import SYNC_REMINDER, ZoteroWriter
+from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
 app = typer.Typer(cls=TieredGroup, help="管理 Zotero 集合。", no_args_is_help=True, rich_markup_mode=None)
 

@@ -20,17 +20,17 @@ from zotero_cli.config import (
     resolve_library_id,
     resolve_write_credentials,
 )
-from zotero_cli.core.zotero.idempotency import (
+from zotero_cli.output.envelope import envelope_ok
+from zotero_cli.output.exit_codes import emit_error
+from zotero_cli.zotero.idempotency import (
     PendingMutationError,
     begin_mutation,
     release_rejected_mutation,
     request_scope,
     store_cached,
 )
-from zotero_cli.core.zotero.writer import ZoteroWriter
-from zotero_cli.output.envelope import envelope_ok
-from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.zotero.reader import ZoteroReader
+from zotero_cli.zotero.writer import ZoteroWriter
 
 
 def ai_note(
