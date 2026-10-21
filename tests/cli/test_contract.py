@@ -780,17 +780,17 @@ def _update_status_client():
 def _update_status_env_patches():
     return (
         patch(
-            "zotero_cli.metadata.update_status.load_config",
+            "zotero_cli.cli.metadata_update_status.load_config",
             return_value=SimpleNamespace(default_limit=50, semantic_scholar_api_key=None),
         ),
-        patch("zotero_cli.metadata.update_status.get_data_dir", return_value=Path("/tmp/fixture")),
-        patch("zotero_cli.metadata.update_status.resolve_library_id", return_value=1),
+        patch("zotero_cli.cli.metadata_update_status.get_data_dir", return_value=Path("/tmp/fixture")),
+        patch("zotero_cli.cli.metadata_update_status.resolve_library_id", return_value=1),
         patch(
-            "zotero_cli.metadata.update_status.ZoteroReader",
+            "zotero_cli.cli.metadata_update_status.ZoteroReader",
             return_value=_update_status_reader(),
         ),
         patch(
-            "zotero_cli.metadata.update_status.SemanticScholarClient",
+            "zotero_cli.cli.metadata_update_status.SemanticScholarClient",
             return_value=_update_status_client(),
         ),
     )
@@ -806,8 +806,8 @@ class TestUpdateStatusPartialFailures:
             patches[2],
             patches[3],
             patches[4],
-            patch("zotero_cli.metadata.update_status.resolve_write_credentials", return_value=("1", "key")),
-            patch("zotero_cli.metadata.update_status.ZoteroWriter") as writer,
+            patch("zotero_cli.cli.metadata_update_status.resolve_write_credentials", return_value=("1", "key")),
+            patch("zotero_cli.cli.metadata_update_status.ZoteroWriter") as writer,
         ):
             writer.return_value.update_item.side_effect = error
             result = _run(["--json", "metadata", "update-status", "ATTN001", "--apply"])
@@ -827,8 +827,8 @@ class TestUpdateStatusPartialFailures:
             patches[2],
             patches[3],
             patches[4],
-            patch("zotero_cli.metadata.update_status.resolve_write_credentials", return_value=("1", "key")),
-            patch("zotero_cli.metadata.update_status.ZoteroWriter") as writer,
+            patch("zotero_cli.cli.metadata_update_status.resolve_write_credentials", return_value=("1", "key")),
+            patch("zotero_cli.cli.metadata_update_status.ZoteroWriter") as writer,
         ):
             writer.return_value.update_item.side_effect = error
             result = _run(["--json", "metadata", "update-status", "ATTN001", "--apply"])
@@ -843,8 +843,8 @@ class TestUpdateStatusPartialFailures:
             patches[2],
             patches[3],
             patches[4],
-            patch("zotero_cli.metadata.update_status.resolve_write_credentials", return_value=("1", "key")),
-            patch("zotero_cli.metadata.update_status.ZoteroWriter"),
+            patch("zotero_cli.cli.metadata_update_status.resolve_write_credentials", return_value=("1", "key")),
+            patch("zotero_cli.cli.metadata_update_status.ZoteroWriter"),
         ):
             result = _run(["--json", "metadata", "update-status", "ATTN001", "--apply"])
         assert result.exit_code == EXIT_OK, result.output

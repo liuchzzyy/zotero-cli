@@ -13,7 +13,7 @@ from zotero_cli.config import load_config, resolve_write_credentials
 from zotero_cli.output.envelope import envelope_ok, envelope_partial
 from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.output.streaming import emit_progress
-from zotero_cli.zotero.item_updates import _load_updates_from_jsonl, _parse_inline_fields
+from zotero_cli.zotero.item_updates import UpdateInputError, _load_updates_from_jsonl, _parse_inline_fields
 from zotero_cli.zotero.writer import SYNC_REMINDER, ZoteroWriter
 from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
@@ -35,7 +35,16 @@ def update_cmd(
     """通过 Zotero Web API 更新条目元数据。"""
     cfg = load_config(profile=ctx.obj.get("profile"))
     json_out = ctx.obj.get("json", False)
-    fields = _parse_inline_fields(title=title, date=date, field=field, json_out=json_out)
+    try:
+        fields = _parse_inline_fields(title=title, date=date, field=field)
+    except UpdateInputError as error:
+        emit_error(
+            "validation_error",
+            str(error),
+            output_json=json_out,
+            hint="Use key=value format",
+            context="update",
+        )
     has_inline_fields = bool(fields)
 
     if from_jsonl is not None:
@@ -64,7 +73,16 @@ def update_cmd(
                 context="update",
             )
 
-        updates = _load_updates_from_jsonl(from_jsonl, json_out=json_out)
+        try:
+            updates = _load_updates_from_jsonl(from_jsonl)
+        except UpdateInputError as error:
+            emit_error(
+                "validation_error",
+                str(error),
+                output_json=json_out,
+                hint="Provide a UTF-8 JSONL file with one update object per line",
+                context="update",
+            )
         if dry_run:
             data = {
                 "would": {

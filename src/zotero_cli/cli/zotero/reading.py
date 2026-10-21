@@ -8,11 +8,11 @@ from typing import Any
 
 import typer
 
+from zotero_cli.cli.renderers import format_item_detail, format_items, sanitize_text
 from zotero_cli.cli.tiered_group import TieredGroup
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
-from zotero_cli.output.renderers import format_item_detail, format_items, sanitize_text
 from zotero_cli.output.streaming import stream_items
 from zotero_cli.zotero.reader import ZoteroReader
 

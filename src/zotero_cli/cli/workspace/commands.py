@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 
 import click
 
+from zotero_cli.cli.renderers import format_items, format_workspace_list
 from zotero_cli.cli.workspace._output import (
     emit_result,
     emit_warning,
@@ -26,7 +27,6 @@ from zotero_cli.cli.workspace.indexing import (
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id
 from zotero_cli.models import Collection, Item
 from zotero_cli.output.exit_codes import emit_error
-from zotero_cli.output.renderers import format_items, format_workspace_list
 from zotero_cli.workspace.store import (
     Workspace,
     cleanup_empty_workspace_root,

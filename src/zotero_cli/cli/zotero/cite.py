@@ -8,12 +8,12 @@ import sys
 
 import typer
 
+from zotero_cli.cli.renderers import sanitize_text
 from zotero_cli.cli.zotero.reading import app
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id
 from zotero_cli.models import Item
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
-from zotero_cli.output.renderers import sanitize_text
 from zotero_cli.zotero.reader import ZoteroReader
 
 

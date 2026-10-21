@@ -308,13 +308,14 @@ uv build
 
 - `src/zotero_cli/cli/`：Typer 根入口（`root.py`）、安全分级（`safety.py`）、错误边界与命令注册。
 - `src/zotero_cli/zotero/`：Zotero 基础能力，包括只读 SQLite/WAL 读取、Web API 写入、附件、集合与引文。
-- `src/zotero_cli/ai_pdf/`、`ai_notes/`、`workspace/`、`metadata/`：区块二各派生功能实现。
+- `src/zotero_cli/ai_pdf/`、`ai_notes/`、`workspace/`：区块二各派生功能实现；`metadata/publication_status.py` 保留语义学者查询逻辑。
 - `src/zotero_cli/cli/workspace/`：`zot workspace` 的 Typer 命令与工作区命令实现。
 - `src/zotero_cli/cli/system/`：`zot config`、`zot completions`、`zot schema` 的 Typer 实现；旧 `commands/` 包已删除。
 - `src/zotero_cli/workspace/`：工作区清单存储、索引与检索实现（`workspace/rag/`）；旧 `core/rag` 与 `core/workspace_store.py` 已退役。
 - `src/zotero_cli/cli/version_check.py`：交互式版本更新提示。
 - `src/zotero_cli/zotero/platform_paths.py`：WSL/Windows 路径转换；`core/` 包已删除。
-- `src/zotero_cli/output/`：JSON envelope、渲染、流式输出与退出码（`envelope.py`、`renderers.py`、`streaming.py`、`exit_codes.py`）。
+- `src/zotero_cli/output/`：跨层输出契约（`envelope.py`、`exit_codes.py`、`streaming.py`）。
+- `src/zotero_cli/cli/renderers.py`：面向人类的 Rich 渲染与终端清洗。
 - `src/zotero_cli/config/`：配置路径、模型、加载与 Zotero 解析，公共 API 位于 `__init__.py`。
 
 测试位于 `tests/`（`tool/**/test_*.py` 也纳入默认收集），Agent Skill 位于 `skill/zotero-cli/`，批量工具位于 `tool/`。

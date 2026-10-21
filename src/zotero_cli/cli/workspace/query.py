@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import click
 
+from zotero_cli.cli.renderers import format_workspace_query
 from zotero_cli.cli.workspace._output import (
     emit_result,
     emit_warning,
@@ -13,7 +14,6 @@ from zotero_cli.cli.workspace._output import (
 from zotero_cli.cli.workspace.indexing import open_vector_store_for_read
 from zotero_cli.config import load_embedding_config, load_rerank_config, load_semantic_search_config
 from zotero_cli.output.exit_codes import emit_error
-from zotero_cli.output.renderers import format_workspace_query
 from zotero_cli.workspace.rag import embed_texts, filter_ranked_results_by_pdf_kind, weighted_reciprocal_rank_fusion
 from zotero_cli.workspace.rag.index import RagIndex
 from zotero_cli.workspace.rag.rerank import UnsupportedRerankerProviderError, rerank_chunks

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import typer
 
+from zotero_cli.cli.renderers import sanitize_text
 from zotero_cli.cli.zotero.reading import app as zotero_app
 from zotero_cli.config import (
     get_data_dir,
@@ -18,7 +19,6 @@ from zotero_cli.config import (
 )
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
-from zotero_cli.output.renderers import sanitize_text
 from zotero_cli.zotero.attachment_upload import (
     AttachmentUploadFailure,
     attachment_upload_scope,

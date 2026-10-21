@@ -2,8 +2,7 @@ import json
 
 import pytest
 
-from zotero_cli.models import Collection, Creator, Item, Note
-from zotero_cli.output.renderers import (
+from zotero_cli.cli.renderers import (
     format_collections,
     format_error,
     format_item_detail,
@@ -13,6 +12,7 @@ from zotero_cli.output.renderers import (
     format_workspace_query,
     sanitize_text,
 )
+from zotero_cli.models import Collection, Creator, Item, Note
 
 
 def _make_item(key="K1", title="Test") -> Item:
