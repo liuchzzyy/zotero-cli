@@ -39,10 +39,9 @@ def _after_command(_result: object, **options: object) -> None:
 app = typer.Typer(
     cls=TieredGroup,
     add_completion=False,
-    help="zot — Zotero CLI for AI agents。",
+    help="zot — Zotero CLI for AI agents。面向 AI 代理与研究人员的现代化文献管理 CLI。",
     no_args_is_help=False,
-    context_settings={"help_option_names": ["--help"]},
-    rich_markup_mode=None,
+    context_settings={"help_option_names": ["-h", "--help"]},
     result_callback=_after_command,
 )
 app.add_typer(zotero_reading_app, name="zotero", help="管理和读取 Zotero 基础数据。")
@@ -57,7 +56,7 @@ app.command(name="schema", help="输出机器可读命令 schema。")(schema_cmd
 def _version_callback(ctx: typer.Context, _param: typer.CallbackParam, value: bool) -> None:
     """在执行常规参数解析前输出版本。"""
     if value and not ctx.resilient_parsing:
-        typer.echo(f"zot, version {__version__}")
+        typer.echo(f"zotero-cli, version {__version__}")
         ctx.exit()
 
 
@@ -73,7 +72,7 @@ def root(
     profile: str | None = typer.Option(None, help="配置 profile 名称。"),
     library: str = typer.Option("user", help="库：user 或 group:<id>。"),
     version: bool = typer.Option(
-        False, "--version", is_eager=True, callback=_version_callback, help="显示版本并退出。"
+        False, "--version", "-V", is_eager=True, callback=_version_callback, help="显示版本并退出。"
     ),
 ) -> None:
     """运行 `zot zotero` 访问基础 Zotero 能力。"""

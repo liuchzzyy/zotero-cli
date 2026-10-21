@@ -21,7 +21,12 @@ from zotero_cli.cli.commands.pdf_rag.operations import (
 )
 from zotero_cli.cli.commands.pdf_rag.query import pdf_rag_query
 
-pdf_rag_app = typer.Typer(help="管理本地工作区及其检索索引。", invoke_without_command=True, rich_markup_mode=None)
+pdf_rag_app = typer.Typer(
+    help="管理本地工作区及其检索索引。",
+    invoke_without_command=True,
+    no_args_is_help=False,
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
 
 
 @pdf_rag_app.callback()

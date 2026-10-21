@@ -150,10 +150,10 @@ class TestHelpTiers:
         assert nested.exit_code == EXIT_OK
         read_section, remainder = nested.output.split("Write commands", 1)
         write_section, nested_destructive = remainder.split("Destructive commands", 1)
-        assert "\n  tag " not in read_section
-        assert "\n  tag " in write_section
-        assert "\n  publication-status " in write_section
-        assert "\n  delete " in nested_destructive
+        assert "tag" not in read_section
+        assert "tag" in write_section
+        assert "publication-status" in write_section
+        assert "delete" in nested_destructive
 
     def test_write_commands_marked_mutating(self):
         result = _run(["--help"])

@@ -20,7 +20,12 @@ from zotero_cli.config import (
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
 
-app = typer.Typer(help="管理配置 profile。", invoke_without_command=True, rich_markup_mode=None)
+app = typer.Typer(
+    help="管理配置 profile。",
+    invoke_without_command=True,
+    no_args_is_help=False,
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
 
 
 @app.callback()

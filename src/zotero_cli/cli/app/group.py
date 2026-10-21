@@ -91,8 +91,27 @@ def install_error_boundary(command: typer_click.Command) -> typer_click.Command:
     return command
 
 
+TIER_PANELS: dict[str, str] = {
+    READ: "Read commands",
+    WRITE: "Write commands (MUTATES LIBRARY)",
+    DESTRUCTIVE: "Destructive commands (MUTATES LIBRARY)",
+}
+
+
 class TieredGroup(TyperGroup):
     """按安全层级分组渲染命令列表的 Typer 命令组。"""
+
+    def get_command(self, ctx: typer_click.Context, cmd_name: str) -> typer_click.Command | None:
+        cmd = super().get_command(ctx, cmd_name)
+        if cmd is not None:
+            path: list[str] = []
+            ancestor = ctx
+            while ancestor.parent is not None:
+                path.insert(0, ancestor.info_name or "")
+                ancestor = ancestor.parent
+            tier = safety_tier_for_path([*path, cmd_name])
+            setattr(cmd, "rich_help_panel", TIER_PANELS.get(tier, "Read commands"))
+        return cmd
 
     def format_commands(self, ctx: typer_click.Context, formatter: typer_click.HelpFormatter) -> None:
         commands: list[tuple[str, typer_click.Command]] = []

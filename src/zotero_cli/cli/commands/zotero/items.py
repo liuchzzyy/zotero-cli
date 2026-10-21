@@ -58,7 +58,12 @@ from zotero_cli.zotero.items import (
 from zotero_cli.zotero.models import Item
 from zotero_cli.zotero.pdf import AddFromPdfError, add_item_from_pdf
 
-app = typer.Typer(cls=TieredGroup, help="读取和检索 Zotero 条目。", no_args_is_help=True, rich_markup_mode=None)
+app = typer.Typer(
+    cls=TieredGroup,
+    help="读取和检索 Zotero 条目。",
+    no_args_is_help=True,
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
 
 
 _SORT_FIELDS = {"dateAdded", "dateModified", "title", "creator"}

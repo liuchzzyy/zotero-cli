@@ -19,7 +19,12 @@ from zotero_cli.zotero.access.writer import SYNC_REMINDER, ZoteroWriter
 from zotero_cli.zotero.collections import execute_reorganization, validate_reorganization_plan
 from zotero_cli.zotero.models import Collection
 
-app = typer.Typer(cls=TieredGroup, help="管理 Zotero 集合。", no_args_is_help=True, rich_markup_mode=None)
+app = typer.Typer(
+    cls=TieredGroup,
+    help="管理 Zotero 集合。",
+    no_args_is_help=True,
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
 
 
 _COLLECTION_HINT = "Use 'zot zotero collection list' to list available collections"
