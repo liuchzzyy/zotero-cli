@@ -1,4 +1,4 @@
-"""Shared data structures exposed by the read layer and rendered by the output layer."""
+"""Zotero 领域数据结构：条目、创作者、笔记、集合与附件。"""
 
 from __future__ import annotations
 
@@ -58,15 +58,6 @@ class Attachment:
     filename: str
     content_type: str
     path: Path | None = None
-
-
-@dataclass
-class ErrorInfo:
-    message: str
-    context: str = ""
-    hint: str = ""
-    code: str = "runtime_error"
-    retryable: bool = False
 
 
 @dataclass

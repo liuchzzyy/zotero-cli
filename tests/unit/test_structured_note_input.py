@@ -18,7 +18,7 @@ from zotero_cli.ai_notes.structured_input import (
 )
 from zotero_cli.ai_pdf import MinerUParseResult
 from zotero_cli.config import AiNoteConfig
-from zotero_cli.models import Attachment, Creator, Item
+from zotero_cli.zotero.models import Attachment, Creator, Item
 
 
 def _parse(tmp_path: Path, name: str, blocks: list[dict], *, image_count: int = 0):

@@ -25,7 +25,6 @@ from zotero_cli.cli.workspace.indexing import (
     prune_workspace_items,
 )
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id
-from zotero_cli.models import Collection, Item
 from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.workspace.store import (
     Workspace,
@@ -36,6 +35,7 @@ from zotero_cli.workspace.store import (
     validate_name,
     workspace_file_path,
 )
+from zotero_cli.zotero.models import Collection, Item
 from zotero_cli.zotero.reader import ZoteroReader
 
 _ADD_HINT = "Use 'zot workspace new' to create it first"

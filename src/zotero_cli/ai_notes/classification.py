@@ -16,7 +16,7 @@ from zotero_cli.ai_notes.client import AiClient
 from zotero_cli.ai_notes.constants import MAX_ABSTRACT_CHARS, MAX_TITLE_CHARS
 from zotero_cli.ai_notes.errors import NoteAnalysisError
 from zotero_cli.ai_notes.templates import load_template
-from zotero_cli.models import Item
+from zotero_cli.zotero.models import Item
 
 CLASSIFY_CHARS = 4000
 BOOK_ITEM_TYPES = {"book", "bookSection"}

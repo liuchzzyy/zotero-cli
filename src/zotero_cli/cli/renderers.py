@@ -24,8 +24,9 @@ from rich.table import Table
 from rich.text import Text
 from rich.tree import Tree
 
-from zotero_cli.models import Collection, DuplicateGroup, ErrorInfo, Item, Note
+from zotero_cli.cli.models import ErrorInfo
 from zotero_cli.output.envelope import envelope_error, envelope_ok
+from zotero_cli.zotero.models import Collection, DuplicateGroup, Item, Note
 
 # CSI/OSC/OSC-terminated escape sequences plus single-character ESC sequences.
 _ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|[@-_])")

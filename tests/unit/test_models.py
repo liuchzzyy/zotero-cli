@@ -1,4 +1,4 @@
-from zotero_cli.models import Collection, Creator, Item, SearchResult
+from zotero_cli.zotero.models import Collection, Creator, Item, SearchResult
 
 
 def test_creator_full_name():

@@ -6,7 +6,7 @@ author/journal context; both transformations stay independent of any AI client.
 
 from __future__ import annotations
 
-from zotero_cli.models import Item
+from zotero_cli.zotero.models import Item
 
 
 def _item_authors(item: Item) -> str:

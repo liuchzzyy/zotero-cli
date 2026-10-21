@@ -1,7 +1,7 @@
 """Citation export formatting for item records.
 
 Query and connection concerns stay in zotero_cli.zotero.reader; this
-module only renders an already-hydrated zotero_cli.models.Item as BibTeX,
+module only renders an already-hydrated zotero_cli.zotero.models.Item as BibTeX,
 CSL-JSON, or RIS. ZoteroReader composes CitationExportMixin, so callers keep
 using reader.export_citation().
 """
@@ -13,7 +13,7 @@ import json
 import re
 from abc import ABC, abstractmethod
 
-from zotero_cli.models import Item
+from zotero_cli.zotero.models import Item
 
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _BIBTEX_ESCAPE_RE = re.compile(r"([\\&%#_{}$])")

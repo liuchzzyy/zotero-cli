@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from zotero_cli.cli.models import ErrorInfo
 from zotero_cli.cli.renderers import (
     format_collections,
     format_error,
@@ -12,7 +13,7 @@ from zotero_cli.cli.renderers import (
     format_workspace_query,
     sanitize_text,
 )
-from zotero_cli.models import Collection, Creator, Item, Note
+from zotero_cli.zotero.models import Collection, Creator, Item, Note
 
 
 def _make_item(key="K1", title="Test") -> Item:
@@ -77,7 +78,6 @@ def test_format_notes_json():
 
 
 def test_format_error_json_with_hint():
-    from zotero_cli.models import ErrorInfo
 
     err = ErrorInfo(message="Item 'XYZ' not found", context="read", hint="Run 'zot search' to find valid keys")
     result = format_error(err, output_json=True)
@@ -91,7 +91,6 @@ def test_format_error_json_with_hint():
 
 
 def test_format_error_text_with_hint():
-    from zotero_cli.models import ErrorInfo
 
     err = ErrorInfo(message="Item 'XYZ' not found", hint="Run 'zot search' to find valid keys")
     result = format_error(err, output_json=False)
@@ -202,7 +201,6 @@ def test_format_pdf_text_text_sanitizes_content():
 
 
 def test_format_error_text_sanitizes_message_and_hint():
-    from zotero_cli.models import ErrorInfo
 
     result = format_error(ErrorInfo(message="bad \x1b[31mthing", hint="hint\x00here"), output_json=False)
     assert "\x1b" not in result

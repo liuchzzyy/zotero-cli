@@ -21,7 +21,8 @@ from collections.abc import Iterator
 from difflib import SequenceMatcher
 from pathlib import Path
 
-from zotero_cli.models import (
+from zotero_cli.zotero.citations import CitationExportMixin
+from zotero_cli.zotero.models import (
     Attachment,
     Collection,
     Creator,
@@ -30,7 +31,6 @@ from zotero_cli.models import (
     Note,
     SearchResult,
 )
-from zotero_cli.zotero.citations import CitationExportMixin
 
 # Excluded type names (looked up dynamically per database)
 _EXCLUDED_TYPE_NAMES = ("attachment", "note", "annotation")

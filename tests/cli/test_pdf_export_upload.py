@@ -8,8 +8,8 @@ from unittest.mock import patch
 
 from tests.support import invoke_agent_cli
 
-from zotero_cli.models import Attachment
 from zotero_cli.zotero import idempotency
+from zotero_cli.zotero.models import Attachment
 from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
 

@@ -7,7 +7,7 @@ from unittest.mock import patch
 from click.testing import CliRunner
 
 from zotero_cli.cli import main
-from zotero_cli.models import Attachment
+from zotero_cli.zotero.models import Attachment
 
 
 def test_parent_lists_pdf_attachments_without_parsing():

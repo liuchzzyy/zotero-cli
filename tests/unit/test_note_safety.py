@@ -15,7 +15,7 @@ from zotero_cli.ai_notes.pipeline import analyze_item
 from zotero_cli.ai_pdf import MinerUParseResult
 from zotero_cli.cli import main
 from zotero_cli.config import AiNoteConfig, AppConfig
-from zotero_cli.models import Attachment, Item, Note
+from zotero_cli.zotero.models import Attachment, Item, Note
 
 # A real 8x8 JPEG; a legal comment segment brings it above the figure-size floor.
 _JPEG = base64.b64decode(

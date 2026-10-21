@@ -80,7 +80,7 @@ Every write/destructive command (and mutating subcommand) supports zero-side-eff
 
 `zot ai-note ITEMKEY --dry-run` does not write to Zotero, needs no AI configuration (it parses via MinerU and previews the prompt), and does not require Web API write credentials. A non-dry-run analysis requires a library ID and an API key with write access.
 
-For unattended collection notes, `tool/ainote/scheduled_analyze.py` keeps each
+For unattended collection notes, a scheduler keeps each
 item's outcome in `.zot/state/batch_ainote_<collection>.json`. A bad item does
 not stop later items: failures remain in the run report, while a completed
 inventory exits 0 (initialization/inventory errors still fail). Prior failed
@@ -224,15 +224,15 @@ Translate English abstracts into Chinese and write back to `abstractNote` for a 
 
 ```bash
 # Preview candidates and counts (dry-run by default)
-uv run python tool/paper2zotero/translate_abstracts.py --collection "00 | 收件箱"
+uv run python translate_abstracts.py --collection "00 | 收件箱"
 
 # Apply changes via Zotero Web API and verify readback
-uv run python tool/paper2zotero/translate_abstracts.py --collection "00 | 收件箱" --apply
+uv run python translate_abstracts.py --collection "00 | 收件箱" --apply
 
 # Update specific item keys. --force re-includes already-Chinese abstracts in
 # staging, but the write guard still never overwrites a different valid Chinese abstract.
-uv run python tool/paper2zotero/translate_abstracts.py --key ITEMKEY --apply
-uv run python tool/paper2zotero/translate_abstracts.py --collection "00 | 收件箱" --force
+uv run python translate_abstracts.py --key ITEMKEY --apply
+uv run python translate_abstracts.py --collection "00 | 收件箱" --force
 ```
 
 1. **Filtering policy**: Non-article items (attachments, notes) and items without `abstractNote` (or empty) are strictly skipped ("没有摘要的不管"). Items whose abstract is already Chinese are skipped unless `--force` is specified; `--force` only adds them as translation candidates, and the final write guard refuses to replace a different valid Chinese abstract (it may still report `already_up_to_date` when the text is identical).
@@ -275,15 +275,13 @@ The `zot ai-pdf` command parses through MinerU cloud; its Markdown feeds `ai-not
 
 Hard limits: 200 MiB per file/upload, 512 MiB download archive, 200 MiB per archive member, 1 GiB extracted total, 10,000 archive entries (oversize messages report MB). Cache writes use a cross-process `.locks/` directory plus hidden staging and atomic replace; lock files record the owner PID (dead owner reclaimed immediately, other waiters reclaimed after a stale window <= max wait with a waiting notice), stale hidden staging is swept on the next parse, the PDF is hashed once, only transient errors are retried, a result download that drops mid-body is retried once, and MinerU batch POST is never retried automatically. For local-only reading, use `ZoteroReader.get_pdf_attachments()` to resolve paths by attachment key, inspect the first page to classify main article versus SI even when filenames match, then open locally with a PDF reader such as PyMuPDF. Never send all attachments to MinerU just to discover which PDFs exist. Reuse an existing complete index when possible, and reindex when PDFs, notes, or item metadata change.
 
-For logged MacBook workflows, use `tool/paperrag/run-rag-workspace.zsh` and `tool/paperrag/run-rag-evidence-search.zsh`. Read `tool/paperrag/Instructions.md` before running a full collection inventory, forced rebuild, or long embedding backfill.
+For logged MacBook workflows, use the external PaperRAG helpers maintained outside this repository.
 
 ### Invariants & pitfalls for PaperRAG workflows
 
-- **Explicit profile forwarding:** When targeting a specific Zotero profile, pass `--profile NAME` to `tool/paperrag/run-rag-workspace.zsh` or `run-rag-evidence-search.zsh`; the wrapper scripts forward it to both `workspace_inventory.py` and downstream `zot` subcommands, avoiding fallback to default library credentials.
-- **Defensive vector store inspection during inventory:** In `workspace_inventory.py`, wrap Qdrant collection count in try-except. If the vector collection does not exist yet or experiences concurrent lock contention, log a warning and fall back to `vector_count = 0` rather than crashing the preflight inventory and failing the entire workflow.
-- **Log cleanup lifecycle:** Successful workflow runs remove their temporary directory under `log/` automatically (and prune `log/` itself when empty). Always pass `--keep-log` or `--keep-inventory` when running automated checks or diagnostic runs that assert on `inventory.json` or run outputs.
-- **Script permissions & path migration:** Tool entrypoints live under `tool/paperrag/` (not `tool/`). Scripts must retain POSIX executable bits (`chmod +x`), which `tests/integration/test_tool_scripts.py` strictly verifies with `os.access(..., os.X_OK)`. Ensure integration tests resolve `TOOLS_DIR` to `tool/paperrag`.
-- **Executable bits now survive Git; keep the 644/755 split.** This checkout used to carry `core.fileMode=false` while most tracked files were mode 700 on disk, so `chmod +x` never reached Git and a clone dropped the bit on the `.zsh` entrypoints. That is fixed: every file is 644, directories and the three shell entrypoints are 755, and `core.fileMode=true` records future changes. Keep new scripts at 755 (`chmod +x` then verify with `git ls-tree HEAD tool/paperrag/` showing `100755`); do not leave ordinary files mode 700.
+- **Explicit profile forwarding:** When targeting a specific Zotero profile, pass `--profile NAME` to the external workspace wrapper; it forwards the profile to both its inventory helper and downstream `zot` subcommands, avoiding fallback to default library credentials.
+- **Defensive vector store inspection during inventory:** Wrap Qdrant collection count in try-except. If the vector collection does not exist yet or experiences concurrent lock contention, log a warning and fall back to `vector_count = 0` rather than crashing the preflight inventory.
+- **Log cleanup lifecycle:** Successful workflow runs remove their temporary directory under `log/` automatically (and prune `log/` itself when empty). Always pass `--keep-log` or `--keep-inventory` when running automated checks that assert on `inventory.json` or run outputs.
 
 ### Collection renames in repository workflows
 
@@ -293,9 +291,8 @@ For logged MacBook workflows, use `tool/paperrag/run-rag-workspace.zsh` and `too
 
 ## Repository documentation maintenance
 
-`README.md` (Chinese, user-facing), `AGENTS.md` (English, agent-facing),
-`tests/README.md`, `tool/README.md`, and `tool/paper2zotero/README.md` are the
-repository docs; no `docs/` tree exists. Derive every documented command, flag,
+`README.md` (Chinese, user-facing), `AGENTS.md` (English, agent-facing), and
+`tests/README.md` are the repository docs; no `docs/` tree exists. Derive every documented command, flag,
 config key and env var from the running CLI (`uv run zot --help`,
 `uv run zot COMMAND --help`, `grep -rho 'ZOT_[A-Z_]*' src/zotero_cli`), never
 from the existing prose, and read `git diff` for the refactor the docs must
@@ -312,9 +309,8 @@ falsely report the file missing.
   with `READ_COMMANDS`/`WRITE_COMMANDS`/`DESTRUCTIVE_COMMANDS` derived from
   it); `collection` is read-tier, and misfiling it among write commands is a
   recurring error.
-- A surface change must also reach `AGENTS.md`, `README.md`, the tools READMEs,
-  the repo-bundled `skill/zotero-cli/SKILL.md`, and this profile's copy; grep old
-  `tool/...` paths after any directory migration.
+- A surface change must also reach `AGENTS.md`, `README.md`, the repo-bundled
+  `skill/zotero-cli/SKILL.md`, and this profile's copy.
 - CI is checked in at `.github/workflows/ci.yml`: lint, format check, mypy, the
   full test suite, and wheel/sdist build on Python 3.12 only, plus a
   weekly/manual best-effort `pip-audit` (network-dependent, non-blocking). Do not
@@ -322,8 +318,7 @@ falsely report the file missing.
   only CPython 3.12 (`>=3.12,<3.13`); dependencies are the latest compatible
   versions (`pyzotero>=1.16,<2`).
 - The test suite is expected fully green (0 failed, 0 skipped). Do not add skip
-  markers, and do not document a skip or failure baseline. `tool/**` tests carry
-  the `tools` marker and run under `uv run pytest -q -rf`.
+  markers, and do not document a skip or failure baseline.
 
 Full checklist and reporting rules: `references/doc-maintenance.md`.
 

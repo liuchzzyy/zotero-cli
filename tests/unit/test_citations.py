@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 
-from zotero_cli.models import Creator, Item
 from zotero_cli.zotero.citations import CitationExportMixin
+from zotero_cli.zotero.models import Creator, Item
 
 
 class _Reader(CitationExportMixin):

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from tests.support import FIXTURES_DIR
 
-from zotero_cli.models import Item
+from zotero_cli.zotero.models import Item
 from zotero_cli.zotero.reader import ZoteroReader
 
 

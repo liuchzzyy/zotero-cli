@@ -30,7 +30,6 @@ from zotero_cli.config import (
     load_vector_store_config,
     resolve_library_id,
 )
-from zotero_cli.models import Item
 from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.workspace.rag import (
     build_metadata_chunk,
@@ -51,6 +50,7 @@ from zotero_cli.workspace.store import (
     WorkspaceItem,
     workspace_index_path,
 )
+from zotero_cli.zotero.models import Item
 from zotero_cli.zotero.reader import ZoteroReader
 
 # Stored in the index metadata for every item; bump it when chunking or the

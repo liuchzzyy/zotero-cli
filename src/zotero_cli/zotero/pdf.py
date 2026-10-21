@@ -5,7 +5,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from zotero_cli.models import Attachment
+from zotero_cli.zotero.models import Attachment
 
 
 def select_pdf_attachment(attachments: list[Attachment], attachment_key: str | None = None) -> Attachment:

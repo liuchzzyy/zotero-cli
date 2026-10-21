@@ -1,4 +1,4 @@
-"""Repository-wide safety boundaries, including standalone tool tests."""
+"""仓库级安全边界：隔离配置、状态与网络副作用。"""
 
 from __future__ import annotations
 
@@ -38,10 +38,3 @@ def isolate_runtime_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     monkeypatch.setattr(workspace, "workspace_root", lambda: tmp_path / ".workspace")
     monkeypatch.setattr(workspace, "state_dir", lambda: tmp_path / ".zot" / "state")
     monkeypatch.setattr(version_check, "_cache_file", lambda: tmp_path / ".zot" / "state" / "version-check.json")
-
-
-def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    """Tag standalone batch-helper tests collected from tool/ as `tools`."""
-    for item in items:
-        if "tool" in Path(str(item.path)).parts:
-            item.add_marker(pytest.mark.tools)

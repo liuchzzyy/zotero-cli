@@ -195,7 +195,7 @@ image-capability rejection drops all images, keeping every text block). And a
 `finish_reason=length` answer is rejected instead of being saved, so a truncated
 JSON note cannot land in the library — read the error rather than re-running.
 
-For a scheduled collection run (`tool/ainote/scheduled_analyze.py`), the new
+For a scheduled collection run, the new
 fail-closed errors are permanent, not transient: an item whose structured text
 exceeds `max_extracted_chars` or whose main figures exceed the token budget can
 never succeed on retry. The scheduler counts explicitly marked input-budget failures and parks the
