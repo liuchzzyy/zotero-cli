@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import scheduled_analyze as sa
 
-from zotero_cli.core.notes.errors import NoteAnalysisError
+from zotero_cli.ai_notes.errors import NoteAnalysisError
 
 
 def test_empty_collection_never_calls_analysis(tmp_path: Path) -> None:

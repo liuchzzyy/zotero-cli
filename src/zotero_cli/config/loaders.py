@@ -407,7 +407,7 @@ def load_ai_note_config(path: Path | None = None, *, apply_env_overrides: bool =
     """Load `[ai_notes]`, then layer `ZOT_AI_*` overrides on top.
 
     Precedence is env > config file > defaults, matching the other loaders, so
-    a run can point `ai_analyze` at another endpoint or model without editing
+    a run can point `ai-note` at another endpoint or model without editing
     the tracked `.zot/config.toml`.
     """
     config = AiNoteConfig()

@@ -8,9 +8,9 @@ from unittest.mock import MagicMock, patch
 from click.testing import CliRunner
 from tests.support import FIXTURES_DIR
 
+from zotero_cli.ai_pdf import extract_doi_from_markdown
 from zotero_cli.cli import main
 from zotero_cli.config import PdfConfig
-from zotero_cli.core.mineru import extract_doi_from_markdown
 
 
 class TestExtractDoi:
@@ -67,7 +67,7 @@ class TestAddPdfCLI:
         }
         with (
             patch("zotero_cli.config.load_pdf_config", return_value=PdfConfig(mineru_token="token")),
-            patch("zotero_cli.core.mineru.MinerUParseCache") as cache_cls,
+            patch("zotero_cli.ai_pdf.MinerUParseCache") as cache_cls,
         ):
             cache = cache_cls.return_value
             cache.get.return_value = None
@@ -90,7 +90,7 @@ class TestAddPdfCLI:
         }
         with (
             patch("zotero_cli.config.load_pdf_config", return_value=PdfConfig(mineru_token="token")),
-            patch("zotero_cli.core.mineru.MinerUParseCache") as cache_cls,
+            patch("zotero_cli.ai_pdf.MinerUParseCache") as cache_cls,
             patch("zotero_cli.cli.zotero.add.resolve_doi", return_value={"title": "T"}),
             patch("zotero_cli.cli.zotero.add.ZoteroWriter") as mock_writer_cls,
         ):

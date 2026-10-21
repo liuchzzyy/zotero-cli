@@ -11,22 +11,22 @@ from unittest.mock import MagicMock
 import pytest
 from requests.exceptions import ConnectionError as RequestsConnectionError
 
-import zotero_cli.core.mineru.cache as cache_module
-import zotero_cli.core.mineru.client as client_module
-from zotero_cli.core.mineru import (
+import zotero_cli.ai_pdf.cache as cache_module
+import zotero_cli.ai_pdf.client as client_module
+from zotero_cli.ai_pdf import (
     MinerUClient,
     MinerUError,
     MinerUParseCache,
     MinerUParseResult,
     extract_doi_from_markdown,
 )
-from zotero_cli.core.mineru.client import (
+from zotero_cli.ai_pdf.client import (
     _read_archive,
     _read_limited_body,
     _RemoteParse,
     _safe_extract_zip,
 )
-from zotero_cli.core.mineru.utils import _retry
+from zotero_cli.ai_pdf.utils import _retry
 
 
 def _archive(markdown: str = "# Paper\nBody", content: list[dict] | None = None) -> bytes:
@@ -108,7 +108,7 @@ def test_extract_doi_from_mineru_markdown() -> None:
 
 
 def test_mineru_client_disables_trust_env() -> None:
-    from zotero_cli.core.mineru import MinerUClient
+    from zotero_cli.ai_pdf import MinerUClient
 
     client = MinerUClient("fake-token")
     assert client._session.trust_env is False
@@ -211,7 +211,7 @@ def test_download_archive_reads_body_with_cap() -> None:
 
 
 def test_retry_retries_transient_errors_only(monkeypatch) -> None:
-    monkeypatch.setattr("zotero_cli.core.mineru.utils.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("zotero_cli.ai_pdf.utils.time.sleep", lambda _seconds: None)
     attempts = {"count": 0}
 
     def flaky() -> str:
@@ -234,7 +234,7 @@ def test_retry_retries_transient_errors_only(monkeypatch) -> None:
 
 
 def test_retry_gives_up_after_three_transient_failures(monkeypatch) -> None:
-    monkeypatch.setattr("zotero_cli.core.mineru.utils.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("zotero_cli.ai_pdf.utils.time.sleep", lambda _seconds: None)
     attempts = {"count": 0}
 
     def down() -> str:

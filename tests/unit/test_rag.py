@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from zotero_cli.config import EmbeddingConfig
-from zotero_cli.core.rag import (
+from zotero_cli.workspace.rag import (
     build_metadata_chunk,
     chunk_mineru_content,
     chunk_text,
@@ -20,7 +20,7 @@ from zotero_cli.core.rag import (
     tokenize,
     weighted_reciprocal_rank_fusion,
 )
-from zotero_cli.core.rag.index import RagIndex, _fts_query
+from zotero_cli.workspace.rag.index import RagIndex, _fts_query
 
 
 class TestRagIndex:
@@ -245,7 +245,7 @@ class TestEmbedding:
     def test_embed_texts_gitee_api_call(self):
         cfg = EmbeddingConfig(url="https://ai.gitee.com/v1", api_key="key", model="bge-m3")
         resp = self._gitee_response([[0.1, 0.2, 0.3]])
-        with patch("zotero_cli.core.rag.providers.gitee.requests.post", return_value=resp) as mock_post:
+        with patch("zotero_cli.workspace.rag.providers.gitee.requests.post", return_value=resp) as mock_post:
             result = embed_texts(["hello world"], cfg)
 
         assert result == [[0.1, 0.2, 0.3]]
@@ -260,7 +260,7 @@ class TestEmbedding:
     def test_embed_texts_surfaces_provider_error(self, capsys):
         cfg = EmbeddingConfig(url="https://ai.gitee.com/v1", api_key="key", model="bge-m3")
         with patch(
-            "zotero_cli.core.rag.providers.gitee.requests.post",
+            "zotero_cli.workspace.rag.providers.gitee.requests.post",
             side_effect=RuntimeError("boom"),
         ):
             result = embed_texts(["hello"], cfg)
@@ -319,7 +319,7 @@ class TestMetadataCleaning:
 class TestEmbeddingInputType:
     @pytest.fixture(autouse=True)
     def _clear_input_type_rejection_cache(self):
-        from zotero_cli.core.rag.providers.gitee import _reset_input_type_cache
+        from zotero_cli.workspace.rag.providers.gitee import _reset_input_type_cache
 
         _reset_input_type_cache()
         yield
@@ -336,7 +336,7 @@ class TestEmbeddingInputType:
     def test_query_input_type_is_sent_to_the_provider(self):
         cfg = EmbeddingConfig(url="https://ai.gitee.com/v1", api_key="key", model="bge-m3")
         with patch(
-            "zotero_cli.core.rag.providers.gitee.requests.post",
+            "zotero_cli.workspace.rag.providers.gitee.requests.post",
             return_value=self._response([[1.0, 2.0]]),
         ) as mock_post:
             assert embed_texts(["query text"], cfg, input_type="query") == [[1.0, 2.0]]
@@ -347,7 +347,7 @@ class TestEmbeddingInputType:
     def test_document_input_type_keeps_request_shape(self):
         cfg = EmbeddingConfig(url="https://ai.gitee.com/v1", api_key="key", model="bge-m3")
         with patch(
-            "zotero_cli.core.rag.providers.gitee.requests.post",
+            "zotero_cli.workspace.rag.providers.gitee.requests.post",
             return_value=self._response([[1.0]]),
         ) as mock_post:
             assert embed_texts(["document text"], cfg) == [[1.0]]
@@ -360,7 +360,7 @@ class TestEmbeddingInputType:
         rejected = MagicMock(ok=False, status_code=400, text="unknown field input_type")
         accepted = self._response([[0.5]])
         with patch(
-            "zotero_cli.core.rag.providers.gitee.requests.post",
+            "zotero_cli.workspace.rag.providers.gitee.requests.post",
             side_effect=[rejected, accepted],
         ) as mock_post:
             assert embed_texts(["query text"], cfg, input_type="query") == [[0.5]]
@@ -369,13 +369,13 @@ class TestEmbeddingInputType:
 
     def test_unsupported_provider_is_not_silently_sent_to_gitee(self, capsys):
         cfg = EmbeddingConfig(url="https://example.invalid/v1", api_key="key", model="model", provider="other")
-        with patch("zotero_cli.core.rag.providers.gitee.requests.post") as mock_post:
+        with patch("zotero_cli.workspace.rag.providers.gitee.requests.post") as mock_post:
             assert embed_texts(["text"], cfg) is None
         mock_post.assert_not_called()
         assert "Unsupported embedding provider" in capsys.readouterr().err
 
     def test_invalid_input_type_is_rejected(self):
-        from zotero_cli.core.rag.providers.gitee import GiteeEmbeddingProvider
+        from zotero_cli.workspace.rag.providers.gitee import GiteeEmbeddingProvider
 
         with pytest.raises(ValueError, match="input_type"):
             GiteeEmbeddingProvider(api_key="key").embed(["text"], input_type="other")
@@ -385,7 +385,7 @@ class TestEmbeddingInputType:
         rejected = MagicMock(ok=False, status_code=400, text="unknown field input_type")
         accepted = self._response([[0.5]])
         with patch(
-            "zotero_cli.core.rag.providers.gitee.requests.post",
+            "zotero_cli.workspace.rag.providers.gitee.requests.post",
             side_effect=[rejected, accepted, accepted],
         ) as mock_post:
             assert embed_texts(["q1"], cfg, input_type="query") == [[0.5]]
@@ -402,7 +402,7 @@ class TestEmbeddingInputType:
         strict = EmbeddingConfig(url="https://ai.gitee.com/v1", api_key="key", model="strict-model-a")
         lenient = EmbeddingConfig(url="https://ai.gitee.com/v1", api_key="key", model="lenient-model-b")
         with patch(
-            "zotero_cli.core.rag.providers.gitee.requests.post",
+            "zotero_cli.workspace.rag.providers.gitee.requests.post",
             side_effect=[rejected, accepted, accepted],
         ) as mock_post:
             assert embed_texts(["q"], strict, input_type="query") == [[1.0]]

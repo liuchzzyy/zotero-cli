@@ -1,9 +1,3 @@
-"""Click command implementations, grouped by feature area.
+"""Typer 之外仍保留的通用命令实现：配置、补全与 schema。"""
 
-- items: item read/write/search/export commands
-- notes: note editing and the AI note pipeline command
-- attachments: PDF parsing and file attachment upload
-- collections: collection tree management
-- workspace: local workspace CRUD, indexing, embedding, and query
-- system: configuration, shell completions, and schema introspection
-"""
+from __future__ import annotations

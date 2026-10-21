@@ -20,8 +20,8 @@ from typing import Any
 
 from batch_analyze import load_state, save_state
 
-from zotero_cli.core.notes.constants import NOTE_TITLE_PREFIX
-from zotero_cli.core.rag import clean_html
+from zotero_cli.ai_notes.constants import NOTE_TITLE_PREFIX
+from zotero_cli.workspace.rag import clean_html
 
 DONE_TAGS = {"ai/noted", "ai/uncertain"}
 DONE_STATUSES = {"ok", "already_analyzed", "uncertain"}
@@ -237,6 +237,8 @@ def main() -> int:
     # Imports/configuration are intentionally lazy: --help works offline.
     from pyzotero import zotero
 
+    from zotero_cli.ai_notes.client import AiClient
+    from zotero_cli.ai_notes.pipeline import analyze_item
     from zotero_cli.config import (
         get_data_dir,
         get_prefs_js_path,
@@ -245,8 +247,6 @@ def main() -> int:
         resolve_library_id,
         state_dir,
     )
-    from zotero_cli.core.notes.client import AiClient
-    from zotero_cli.core.notes.pipeline import analyze_item
     from zotero_cli.core.zotero.writer import ZoteroWriter
     from zotero_cli.zotero.reader import ZoteroReader
 

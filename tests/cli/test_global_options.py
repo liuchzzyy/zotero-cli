@@ -105,7 +105,7 @@ def test_profile_flag():
 
 
 def test_cache_clear_requires_yes_or_dry_run(tmp_path):
-    with patch("zotero_cli.core.mineru.MinerUParseCache") as cache_cls:
+    with patch("zotero_cli.ai_pdf.MinerUParseCache") as cache_cls:
         cache_cls.return_value.stats.return_value = {"entries": 0, "total_bytes": 0}
         cache_cls.return_value.clear.return_value = 0
         runner = CliRunner()
@@ -139,7 +139,7 @@ def test_detail_missing_value_reports_flag_error_without_swallowing_tokens(test_
 
 
 def test_cache_stats_command(tmp_path):
-    with patch("zotero_cli.core.mineru.MinerUParseCache") as cache_cls:
+    with patch("zotero_cli.ai_pdf.MinerUParseCache") as cache_cls:
         cache_cls.return_value.stats.return_value = {"entries": 0, "total_bytes": 0}
         runner = CliRunner()
         result = runner.invoke(main, ["config", "cache", "stats"])

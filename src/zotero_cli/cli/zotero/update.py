@@ -29,7 +29,7 @@ def update_cmd(
         None, "--from-jsonl", exists=True, dir_okay=False, help="从 JSONL 文件批量更新。"
     ),
     add_tags: list[str] = typer.Option([], "--add-tag", help="成功更新后添加标签，可重复。"),
-    dry_run: bool = typer.Option(False, help="只预览，不执行更新。"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="只预览，不执行更新。"),
     idempotency_key: str | None = typer.Option(None, help="单条写入的幂等键。"),
 ) -> None:
     """通过 Zotero Web API 更新条目元数据。"""

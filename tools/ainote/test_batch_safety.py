@@ -12,7 +12,7 @@ from unittest.mock import Mock
 import batch_analyze as batch
 import pytest
 
-from zotero_cli.core.notes.errors import NoteAnalysisError
+from zotero_cli.ai_notes.errors import NoteAnalysisError
 
 
 @pytest.fixture

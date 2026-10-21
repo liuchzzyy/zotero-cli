@@ -7,16 +7,16 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from zotero_cli.config import get_data_dir, get_prefs_js_path, load_config, load_vector_store_config
-from zotero_cli.core.rag.index import RagIndex
-from zotero_cli.core.rag.vector_store import QdrantVectorStore, resolve_vector_store_path
-from zotero_cli.core.workspace_store import (
+from zotero_cli.models import Item
+from zotero_cli.workspace.rag.index import RagIndex
+from zotero_cli.workspace.rag.vector_store import QdrantVectorStore, resolve_vector_store_path
+from zotero_cli.workspace.store import (
     Workspace,
     load_workspace,
     save_workspace,
     workspace_exists,
     workspace_index_path,
 )
-from zotero_cli.models import Item
 from zotero_cli.zotero.reader import ZoteroReader
 
 

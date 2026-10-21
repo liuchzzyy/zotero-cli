@@ -73,7 +73,7 @@ def search(
     sort: str | None = typer.Option(None, help="排序字段。"),
     direction: str = typer.Option("desc", help="排序方向：asc 或 desc。"),
     limit: int | None = typer.Option(None, help="覆盖全局结果上限。"),
-    stream: bool = typer.Option(False, help="以 NDJSON 逐条输出。"),
+    stream: bool = typer.Option(False, "--stream", help="以 NDJSON 逐条输出。"),
 ) -> None:
     """按标题、作者、标签或全文检索条目。"""
     _validate_sort_options(sort, direction)
@@ -103,7 +103,7 @@ def list_items(
     sort: str | None = typer.Option(None, help="排序字段。"),
     direction: str = typer.Option("desc", help="排序方向：asc 或 desc。"),
     limit: int | None = typer.Option(None, help="覆盖全局结果上限。"),
-    stream: bool = typer.Option(False, help="以 NDJSON 逐条输出。"),
+    stream: bool = typer.Option(False, "--stream", help="以 NDJSON 逐条输出。"),
 ) -> None:
     """列出 Zotero 库中的条目。"""
     _validate_sort_options(sort, direction)
@@ -154,9 +154,9 @@ def stats(ctx: typer.Context) -> None:
 def recent(
     ctx: typer.Context,
     days: int = typer.Option(7, help="向前检索的天数。"),
-    modified: bool = typer.Option(False, help="按修改时间而不是添加时间排序。"),
+    modified: bool = typer.Option(False, "--modified", help="按修改时间而不是添加时间排序。"),
     limit: int | None = typer.Option(None, help="覆盖全局结果上限。"),
-    stream: bool = typer.Option(False, help="以 NDJSON 逐条输出。"),
+    stream: bool = typer.Option(False, "--stream", help="以 NDJSON 逐条输出。"),
 ) -> None:
     """显示最近添加或修改的条目。"""
     reader, config = _create_reader(ctx)

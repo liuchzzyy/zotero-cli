@@ -159,7 +159,7 @@ def collection_create(
     ctx: typer.Context,
     name: str = typer.Argument(help="集合名称。"),
     parent: str | None = typer.Option(None, help="父集合键。"),
-    dry_run: bool = typer.Option(False, help="仅预览创建结果。"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="仅预览创建结果。"),
 ) -> None:
     """创建集合。"""
     json_out = ctx.obj.get("json", False)
@@ -190,7 +190,7 @@ def collection_move(
     item_key: str = typer.Argument(help="条目键。"),
     collection_key: str = typer.Argument(help="目标集合键。"),
     source_collection: str | None = typer.Option(None, "--from", help="可选的来源集合键。"),
-    dry_run: bool = typer.Option(False, help="仅预览移动结果。"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="仅预览移动结果。"),
 ) -> None:
     """添加条目到集合，或从来源集合移动条目。"""
     json_out = ctx.obj.get("json", False)
@@ -243,8 +243,8 @@ def collection_move(
 def collection_delete(
     ctx: typer.Context,
     key: str = typer.Argument(help="集合键。"),
-    yes: bool = typer.Option(False, help="跳过交互确认。"),
-    dry_run: bool = typer.Option(False, help="仅预览删除及子集合。"),
+    yes: bool = typer.Option(False, "--yes", help="跳过交互确认。"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="仅预览删除及子集合。"),
 ) -> None:
     """删除集合及其子集合。"""
     json_out = ctx.obj.get("json", False)
@@ -297,7 +297,7 @@ def collection_rename(
     ctx: typer.Context,
     key: str = typer.Argument(help="集合键。"),
     new_name: str = typer.Argument(help="新名称。"),
-    dry_run: bool = typer.Option(False, help="仅预览重命名结果。"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="仅预览重命名结果。"),
 ) -> None:
     """重命名集合。"""
     json_out = ctx.obj.get("json", False)

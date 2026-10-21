@@ -22,7 +22,7 @@ def _invoke(args: list[str], test_db_path: Path):
 
 
 def test_list_pdf_attachments_without_mineru(test_db_path):
-    with patch("zotero_cli.core.mineru.MinerUParseCache") as mineru:
+    with patch("zotero_cli.ai_pdf.MinerUParseCache") as mineru:
         result = _invoke(["list", "ATTN001"], test_db_path)
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["data"]["attachments"]

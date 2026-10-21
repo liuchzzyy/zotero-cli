@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from zotero_cli.core.notes.templates import format_template
-from zotero_cli.core.notes.text import join_spaced_digits
+from zotero_cli.ai_notes.templates import format_template
+from zotero_cli.ai_notes.text import join_spaced_digits
 
 
 @pytest.mark.parametrize(

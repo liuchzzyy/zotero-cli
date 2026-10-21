@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from zotero_cli.core.notes.renderer import render_note
-from zotero_cli.core.notes.short_note import normalize_short_note, validate_short_note
-from zotero_cli.core.notes.templates import load_template
-from zotero_cli.core.notes.text import join_spaced_digits, pad_cjk_latin, plain_super_subscripts, prepare
+from zotero_cli.ai_notes.renderer import render_note
+from zotero_cli.ai_notes.short_note import normalize_short_note, validate_short_note
+from zotero_cli.ai_notes.templates import load_template
+from zotero_cli.ai_notes.text import join_spaced_digits, pad_cjk_latin, plain_super_subscripts, prepare
 
 
 class TestPadCjkLatin:

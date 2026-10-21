@@ -24,7 +24,7 @@ def tag_cmd(
     keys: list[str] = typer.Argument(help="至少一个条目键。"),
     add_tag: str | None = typer.Option(None, "--add", help="新增标签。"),
     remove_tag: str | None = typer.Option(None, "--remove", help="移除标签。"),
-    dry_run: bool = typer.Option(False, help="仅预览，不写入。"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="仅预览，不写入。"),
 ) -> None:
     """查看或批量管理条目标签。"""
     if not keys:

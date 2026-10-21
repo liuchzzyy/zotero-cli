@@ -1,4 +1,4 @@
-# Verifying an `ai_analyze` run
+# Verifying an `ai-note` run
 
 A run reports success on its own; the note it writes is a set of claims about a
 paper. These four passes are what turn "the command exited 0" into "the note is
@@ -6,11 +6,11 @@ trustworthy enough to report".
 
 ## 1. Triage the attachments before the run
 
-`ai_analyze` accepts no attachment selector, so whatever PDFs the parent item
+`ai-note` accepts no attachment selector, so whatever PDFs the parent item
 owner has all go into the prompt. Decide that input yourself first.
 
 ```bash
-uv run zot --json pdf ITEMKEY --list-attachments
+uv run zot --json zotero pdf list ITEMKEY
 ```
 
 - `available: false` with an empty `~/Zotero/storage/<KEY>/` means a broken
@@ -26,7 +26,7 @@ uv run zot --json pdf ITEMKEY --list-attachments
   different papers); a high overlap means a true duplicate that will double the
   prompt.
 
-MS/SI is now decided per **item**, by `resolve_pdf_kinds()` in `core/rag/metadata.py`,
+MS/SI is now decided per **item**, by `resolve_pdf_kinds()` in `workspace/rag/metadata.py`,
 from the figure/table numbering inside `content_list.json` captions. The numbering is
 the most reliable signal available: an SI cover repeats the article title and even its
 filename, so no per-attachment text cue can separate the pair. The rule order, the

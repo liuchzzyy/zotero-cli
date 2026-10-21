@@ -7,8 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from zotero_cli.ai_notes.client import TEXT_ONLY_NOTICE, AiClient
 from zotero_cli.config import AiNoteConfig
-from zotero_cli.core.notes.client import TEXT_ONLY_NOTICE, AiClient
 
 _FIGURE = [(1, "data:image/png;base64,AAA")]
 

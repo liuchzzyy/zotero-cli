@@ -10,11 +10,11 @@ from unittest.mock import MagicMock
 import pytest
 from click.testing import CliRunner
 
+from zotero_cli.ai_notes.errors import NoteAnalysisError
+from zotero_cli.ai_notes.pipeline import analyze_item
+from zotero_cli.ai_pdf import MinerUParseResult
 from zotero_cli.cli import main
 from zotero_cli.config import AiNoteConfig, AppConfig
-from zotero_cli.core.mineru import MinerUParseResult
-from zotero_cli.core.notes.errors import NoteAnalysisError
-from zotero_cli.core.notes.pipeline import analyze_item
 from zotero_cli.models import Attachment, Item, Note
 
 # A real 8x8 JPEG; a legal comment segment brings it above the figure-size floor.
@@ -72,7 +72,7 @@ def analysis_inputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Ma
     )
     cache = MagicMock()
     cache.return_value.ensure_many.return_value = {pdf: parsed}
-    monkeypatch.setattr("zotero_cli.core.notes.pipeline.MinerUParseCache", cache)
+    monkeypatch.setattr("zotero_cli.ai_notes.pipeline.MinerUParseCache", cache)
     reader = MagicMock()
     reader.get_item.return_value = _item()
     reader.get_pdf_attachments.return_value = [Attachment("PDF1", "ITEM1", "paper.pdf", "application/pdf", pdf)]
@@ -163,7 +163,7 @@ def test_structured_image_paths_never_read_outside_parse_assets(
 ) -> None:
     from types import SimpleNamespace
 
-    from zotero_cli.core.notes.structured_input import build_evidence, plan_request
+    from zotero_cli.ai_notes.structured_input import build_evidence, plan_request
 
     raw = tmp_path / "parse" / "raw"
     normal = raw / "images" / "normal.jpg"
@@ -215,7 +215,7 @@ def test_structured_image_paths_never_read_outside_parse_assets(
 def test_structured_image_loader_never_opens_nonregular_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from types import SimpleNamespace
 
-    from zotero_cli.core.notes.structured_input import build_evidence, plan_request
+    from zotero_cli.ai_notes.structured_input import build_evidence, plan_request
 
     raw = tmp_path / "raw"
     directory = raw / "images" / "directory.jpg"
@@ -277,16 +277,16 @@ def test_cli_short_note_dry_run_uses_real_analysis_without_credentials(monkeypat
     reader.get_notes.return_value = [Note("LATEST", "ITEM1", "<p>AI条目分析 - Current evidence.</p>")]
     ai_client = MagicMock()
     writer_constructor = MagicMock(side_effect=AssertionError("dry-run must not construct a writer"))
-    monkeypatch.setattr("zotero_cli.commands.notes.ai_analyze.load_config", lambda **kwargs: AppConfig())
+    monkeypatch.setattr("zotero_cli.cli.ai_notes.load_config", lambda **kwargs: AppConfig())
     monkeypatch.setattr(
-        "zotero_cli.commands.notes.ai_analyze.load_ai_note_config",
+        "zotero_cli.cli.ai_notes.load_ai_note_config",
         lambda: AiNoteConfig(api_key="test-key", base_url="http://127.0.0.1:9/v1", model="test-model"),
     )
-    monkeypatch.setattr("zotero_cli.commands.notes.ai_analyze.ZoteroReader", lambda *args, **kwargs: reader)
-    monkeypatch.setattr("zotero_cli.commands.notes.ai_analyze.ZoteroWriter", writer_constructor)
-    monkeypatch.setattr("zotero_cli.commands.notes.ai_analyze.AiClient", lambda config: ai_client)
+    monkeypatch.setattr("zotero_cli.cli.ai_notes.ZoteroReader", lambda *args, **kwargs: reader)
+    monkeypatch.setattr("zotero_cli.cli.ai_notes.ZoteroWriter", writer_constructor)
+    monkeypatch.setattr("zotero_cli.cli.ai_notes.AiClient", lambda config: ai_client)
 
-    result = CliRunner().invoke(main, ["--json", "ai_analyze", "ITEM1", "--dry-run", "--short-note-only"])
+    result = CliRunner().invoke(main, ["--json", "ai-note", "ITEM1", "--dry-run", "--short-note-only"])
 
     assert result.exit_code == 0, result.output
     envelope = json.loads(result.output)

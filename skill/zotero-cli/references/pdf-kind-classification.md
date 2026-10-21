@@ -1,6 +1,6 @@
 # Main-text vs SI routing
 
-`ai_analyze` consumes every PDF of an item and assigns each one a role; the role
+`ai-note` consumes every PDF of an item and assigns each one a role; the role
 decides what the request then *requires*. Every main-text image must fit the
 budget or the run fails, while SI images are one candidate pool capped at 30 and
 sampled. A wrong role is therefore not a label bug — it converts required
@@ -11,7 +11,7 @@ main-text evidence into optional, budget-sampled evidence, silently.
 Two layers, both string heuristics over the cached `document.md`, both
 classifying one attachment at a time.
 
-`core/rag/metadata.py::infer_pdf_kind(text, filename)` — first matching rule
+`workspace/rag/metadata.py::infer_pdf_kind(text, filename)` — first matching rule
 wins:
 
 | # | signal | window |
@@ -259,7 +259,7 @@ express it); never let that copy live on as a second classifier.
 
 ## Set-level classification (implemented)
 
-`core/rag/metadata.py::resolve_pdf_kinds(documents)` classifies an item's
+`workspace/rag/metadata.py::resolve_pdf_kinds(documents)` classifies an item's
 attachments **together** and returns exactly one main text per item. It takes
 `PdfDocument(identifier, filename, markdown, blocks)`; `pipeline.py` builds those
 from the MinerU parse results, so `caption_counts()` reads the same

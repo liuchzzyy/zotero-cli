@@ -9,7 +9,7 @@ def test_summarize(test_db_path):
     runner = CliRunner()
     result = runner.invoke(
         main,
-        ["summarize", "ATTN001"],
+        ["metadata", "summarize", "ATTN001"],
         env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"},
     )
     assert result.exit_code == 0
@@ -21,7 +21,7 @@ def test_summarize_json(test_db_path):
     runner = CliRunner()
     result = runner.invoke(
         main,
-        ["--json", "summarize", "ATTN001"],
+        ["--json", "metadata", "summarize", "ATTN001"],
         env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"},
     )
     envelope = json.loads(result.output)
@@ -35,7 +35,7 @@ def test_summarize_all_json_envelope(test_db_path):
     runner = CliRunner()
     result = runner.invoke(
         main,
-        ["--json", "summarize-all", "--limit", "2"],
+        ["--json", "metadata", "summarize-all", "--limit", "2"],
         env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"},
     )
     assert result.exit_code == 0, result.output
@@ -73,7 +73,7 @@ def test_pdf_no_attachment(test_db_path):
     runner = CliRunner()
     result = runner.invoke(
         main,
-        ["pdf", "DEEP003"],
+        ["ai-pdf", "DEEP003"],
         env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"},
     )
     # Exit 4 (NOT_FOUND) per the agent contract.

@@ -141,13 +141,11 @@ class TestHelpTiers:
         out = result.output
         read_idx = out.find("Read commands")
         write_idx = out.find("Write commands")
-        destructive_idx = out.find("Destructive commands")
         assert read_idx >= 0
         assert write_idx > read_idx
-        assert destructive_idx > write_idx
-        # 根入口只列出已迁移功能的组；组内安全等级由同一映射生成。
-        destructive_section = out[destructive_idx:]
-        assert "update-status" in destructive_section
+        # 破坏性命令都位于命令组内，根入口没有单独的 destructive 分组。
+        write_section = out[write_idx:]
+        assert "metadata" in out[read_idx:write_idx]
         nested = _run(["zotero", "--help"])
         assert nested.exit_code == EXIT_OK
         read_section, remainder = nested.output.split("Write commands", 1)

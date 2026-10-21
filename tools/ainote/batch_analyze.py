@@ -19,6 +19,10 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from zotero_cli.ai_notes.client import AiClient
+from zotero_cli.ai_notes.constants import ANALYZED_TAG, NOT_ANALYZED_TAG
+from zotero_cli.ai_notes.errors import NoteAnalysisError
+from zotero_cli.ai_notes.pipeline import analyze_item
 from zotero_cli.config import (
     get_data_dir,
     get_prefs_js_path,
@@ -30,10 +34,6 @@ from zotero_cli.config import (
 from zotero_cli.config import (
     state_dir as default_state_dir,
 )
-from zotero_cli.core.notes.client import AiClient
-from zotero_cli.core.notes.constants import ANALYZED_TAG, NOT_ANALYZED_TAG
-from zotero_cli.core.notes.errors import NoteAnalysisError
-from zotero_cli.core.notes.pipeline import analyze_item
 from zotero_cli.core.zotero.writer import ZoteroWriter
 from zotero_cli.models import Collection, Item
 from zotero_cli.zotero.reader import ZoteroReader

@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from zotero_cli.core.notes.constants import MAX_PROMPT_CHARS
-from zotero_cli.core.notes.renderer import render_note
-from zotero_cli.core.notes.templates import fit_text_to_prompt, format_template, load_template, template_path
+from zotero_cli.ai_notes.constants import MAX_PROMPT_CHARS
+from zotero_cli.ai_notes.renderer import render_note
+from zotero_cli.ai_notes.templates import fit_text_to_prompt, format_template, load_template, template_path
 
 
 class TestNoteTemplates:
@@ -41,10 +41,10 @@ class TestNoteTemplates:
 
     def test_package_data_dir_is_a_fallback(self):
         """An installed CLI has no `tools/`, so the wheel must carry the prompts."""
-        from zotero_cli.core.notes import templates as note_templates
+        from zotero_cli.ai_notes import templates as note_templates
 
         # The wheel force-includes tools/ainote/templates at zotero_cli/templates.
-        package_data = Path(note_templates.__file__).resolve().parents[2] / "templates"
+        package_data = Path(note_templates.__file__).resolve().parents[1] / "templates"
         assert package_data.parent.name == "zotero_cli"
         assert package_data in note_templates._candidate_template_dirs()
 

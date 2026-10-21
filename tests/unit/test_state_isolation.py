@@ -6,8 +6,8 @@ import os
 from pathlib import Path
 
 from zotero_cli import config
-from zotero_cli.core.workspace_store import workspaces_dir
 from zotero_cli.core.zotero.idempotency import _db_path
+from zotero_cli.workspace.store import workspaces_dir
 
 
 def test_default_test_paths_are_not_the_checkout_state() -> None:

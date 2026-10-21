@@ -150,7 +150,7 @@ def export(
     key: str = typer.Argument(help="Zotero 父条目键。"),
     destination: Path = typer.Argument(help="导出的新 PDF 路径。"),
     attachment_key: str | None = typer.Option(None, "--attachment", help="指定 PDF 附件键。"),
-    dry_run: bool = typer.Option(False, help="仅预览，不创建文件。"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="仅预览，不创建文件。"),
 ) -> None:
     """导出一个本地 PDF 附件；目标路径不能已经存在。"""
     json_out = ctx.obj.get("json", False)
@@ -188,7 +188,7 @@ def upload(
     ctx: typer.Context,
     key: str = typer.Argument(help="Zotero 父条目键。"),
     file_path: Path = typer.Option(..., "--file", exists=True, dir_okay=False, help="上传的本地 PDF。"),
-    dry_run: bool = typer.Option(False, help="仅预览，不调用 Web API。"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="仅预览，不调用 Web API。"),
     idempotency_key: str | None = typer.Option(None, help="重复请求复用已确认的结果；未知写入需先核对。"),
 ) -> None:
     """将本地 PDF 通过 Zotero Web API 上传到父条目。"""

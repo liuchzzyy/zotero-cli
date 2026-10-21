@@ -13,7 +13,7 @@ Zotero renders `abstractNote` and an Extra line as plain text, so a surviving
 script character is visible damage rather than typography.
 
 The character classes and the Unicode flattening come from
-`zotero_cli.core.notes.text`, so an abstract translated here and an AI note
+`zotero_cli.ai_notes.text`, so an abstract translated here and an AI note
 rendered by the package cannot drift apart. Those two functions do not cover
 HTML or LaTeX script markup, which a model may emit instead of a Unicode
 character, so this module flattens those first, then delegates.
@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import re
 
-from zotero_cli.core.notes.text import pad_cjk_latin, plain_super_subscripts
+from zotero_cli.ai_notes.text import pad_cjk_latin, plain_super_subscripts
 
 # `<sub>2</sub>` carries the same meaning as `₂`; the tag goes, the digit stays.
 _SCRIPT_TAG = re.compile(r"</?(?:sup|sub)\b[^>]*>", re.IGNORECASE)

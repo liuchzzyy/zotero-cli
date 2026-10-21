@@ -20,8 +20,8 @@ from tests.support import FIXTURES_DIR, invoke_cli, parse_json_output
 
 from zotero_cli import config
 from zotero_cli.core.zotero import idempotency
-from zotero_cli.core.zotero import publication_status as semantic_scholar
 from zotero_cli.core.zotero.writer import SYNC_REMINDER
+from zotero_cli.metadata import publication_status as semantic_scholar
 
 WRITE_ENV = {"ZOT_LIBRARY_ID": "12345", "ZOT_API_KEY": "offline-write-key"}
 
@@ -341,7 +341,7 @@ def test_update_status_empty_collection_stops_without_clients(
 ) -> None:
     result = _invoke(
         sandbox,
-        ["update-status", "--collection", "Transformers", "--apply"],
+        ["metadata", "update-status", "--collection", "Transformers", "--apply"],
         json_output=json_output,
         credentials=False,
     )
@@ -368,7 +368,7 @@ def test_update_status_mixed_publication_results_default_to_read_only(
     json_output: bool,
 ) -> None:
     _seed_preprints(sandbox)
-    result = _invoke(sandbox, ["update-status"], json_output=json_output, credentials=False)
+    result = _invoke(sandbox, ["metadata", "update-status"], json_output=json_output, credentials=False)
     assert result.exit_code == 0, result.output
     assert len(sandbox.requests) == 4
     assert all("x-api-key" not in request.headers for request in sandbox.requests)
@@ -408,7 +408,7 @@ def test_update_status_semantic_scholar_key_and_collection_limit_are_forwarded(
         '[zotero]\nsemantic_scholar_api_key = "offline-config-ss"\n',
         encoding="utf-8",
     )
-    args = ["--limit", "1", "update-status", "--collection", "Machine Learning", "--limit", "2"]
+    args = ["--limit", "1", "metadata", "update-status", "--collection", "Machine Learning", "--limit", "2"]
     expected_key = "offline-config-ss"
     if api_key_source == "flag":
         args.extend(["--api-key", "offline-flag-ss"])
@@ -424,7 +424,7 @@ def test_update_status_semantic_scholar_key_and_collection_limit_are_forwarded(
 
 def test_update_status_missing_collection_is_typed_before_network(sandbox: ServiceSandbox) -> None:
     _seed_preprints(sandbox)
-    result = _invoke(sandbox, ["update-status", "--collection", "unknown-offline-collection"])
+    result = _invoke(sandbox, ["metadata", "update-status", "--collection", "unknown-offline-collection"])
     assert result.exit_code == 4
     payload = parse_json_output(result.output)
     assert payload["error"]["code"] == "not_found"
@@ -438,7 +438,7 @@ def test_update_status_item_without_identifier_does_not_create_clients(
     sandbox: ServiceSandbox,
     json_output: bool,
 ) -> None:
-    result = _invoke(sandbox, ["update-status", "DUPE008", "--apply"], json_output=json_output)
+    result = _invoke(sandbox, ["metadata", "update-status", "DUPE008", "--apply"], json_output=json_output)
     assert result.exit_code == 0, result.output
     assert sandbox.clients == []
     sandbox.constructor.assert_not_called()
@@ -457,14 +457,14 @@ def test_update_status_apply_requires_credentials_only_for_published_items(
     _seed_preprints(sandbox)
     unpublished = _invoke(
         sandbox,
-        ["update-status", "DEEP003", "--apply"],
+        ["metadata", "update-status", "DEEP003", "--apply"],
         json_output=json_output,
         credentials=False,
     )
     assert unpublished.exit_code == 0, unpublished.output
     published = _invoke(
         sandbox,
-        ["update-status", "ATTN001", "--apply"],
+        ["metadata", "update-status", "ATTN001", "--apply"],
         json_output=json_output,
         credentials=False,
     )
@@ -484,7 +484,7 @@ def test_update_status_apply_maps_only_publication_fields_and_requests_sync(
     json_output: bool,
 ) -> None:
     _seed_preprints(sandbox)
-    result = _invoke(sandbox, ["update-status", "--apply"], json_output=json_output)
+    result = _invoke(sandbox, ["metadata", "update-status", "--apply"], json_output=json_output)
     assert result.exit_code == 0, result.output
     sandbox.constructor.assert_called_once_with("12345", "user", "offline-write-key")
     updates = [call.args[0] for call in sandbox.zotero.update_item.call_args_list]
@@ -524,7 +524,7 @@ def test_update_status_apply_continues_after_failed_write_and_reports_exact_coun
 ) -> None:
     _seed_preprints(sandbox)
     sandbox.zotero.update_item.side_effect = [httpx2.ConnectError("offline write interrupted"), None]
-    result = _invoke(sandbox, ["update-status", "--apply"], json_output=json_output)
+    result = _invoke(sandbox, ["metadata", "update-status", "--apply"], json_output=json_output)
     # fix2: a partial apply (one write failed) is ok="partial" and exits non-zero.
     assert result.exit_code == 5, result.output
     assert sandbox.zotero.update_item.call_count == 2
@@ -554,7 +554,7 @@ def test_update_status_all_writes_failed_never_claims_sync_required(
 ) -> None:
     _seed_preprints(sandbox)
     sandbox.zotero.update_item.side_effect = httpx2.ConnectError("offline service unavailable")
-    result = _invoke(sandbox, ["update-status", "--apply"], json_output=json_output)
+    result = _invoke(sandbox, ["metadata", "update-status", "--apply"], json_output=json_output)
     # fix2: all writes failed -> still ok="partial" (data has update_failed) and exit 5.
     assert result.exit_code == 5, result.output
     if json_output:
@@ -579,7 +579,7 @@ def test_update_status_single_source_with_api_key_omits_rate_limit_warning(
     _seed_preprints(sandbox)
     result = _invoke(
         sandbox,
-        ["update-status", key, "--api-key", "offline-ss-key"],
+        ["metadata", "update-status", key, "--api-key", "offline-ss-key"],
         json_output=False,
     )
     assert result.exit_code == 0, result.output
@@ -593,7 +593,7 @@ def test_update_status_single_source_with_api_key_omits_rate_limit_warning(
 
 
 def test_update_status_missing_item_does_not_construct_service_clients(sandbox: ServiceSandbox) -> None:
-    result = _invoke(sandbox, ["update-status", "OFFLINE-MISSING", "--apply"])
+    result = _invoke(sandbox, ["metadata", "update-status", "OFFLINE-MISSING", "--apply"])
     assert result.exit_code == 4
     assert parse_json_output(result.output)["error"]["code"] == "not_found"
     assert sandbox.clients == []
@@ -610,7 +610,7 @@ def test_update_status_failed_lookup_does_not_write_or_claim_published(
         sandbox.responses["arXiv:2401.00001"] = httpx.ConnectError("offline lookup disconnected")
     else:
         sandbox.responses["arXiv:2401.00001"] = (404 if failure == "not-found" else 503, {})
-    result = _invoke(sandbox, ["update-status", "ATTN001", "--apply"])
+    result = _invoke(sandbox, ["metadata", "update-status", "ATTN001", "--apply"])
     if failure == "not-found":
         assert result.exit_code == 0, result.output
         data = parse_json_output(result.output)["data"]

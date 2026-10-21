@@ -54,7 +54,7 @@ def add_cmd(
     url: str | None = typer.Option(None, help="URL to add"),
     from_file: Path | None = typer.Option(None, "--from-file", exists=True, help="File with one DOI or URL per line"),
     pdf_file: Path | None = typer.Option(None, "--pdf", exists=True, help="PDF file to extract DOI from and attach"),
-    dry_run: bool = typer.Option(False, help="Preview what would be added without calling the API"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview what would be added without calling the API"),
     idempotency_key: str | None = typer.Option(
         None, help="Key so retries are safe; same key returns the original result"
     ),
@@ -283,8 +283,8 @@ def _add_from_pdf(
     """解析 PDF 后创建条目和上传附件；部分成功时保留幂等预留，防止盲重试。"""
     import sqlite3 as _sqlite3
 
+    from zotero_cli.ai_pdf import MinerUError, MinerUParseCache, extract_doi_from_markdown
     from zotero_cli.config import load_pdf_config
-    from zotero_cli.core.mineru import MinerUError, MinerUParseCache, extract_doi_from_markdown
     from zotero_cli.core.zotero.idempotency import (
         PendingMutationError,
         begin_mutation,

@@ -19,7 +19,7 @@ from zotero_cli.zotero.collections import execute_reorganization, validate_reorg
 def collection_reorganize(
     ctx: typer.Context,
     plan_file: str = typer.Argument(help="JSON 重组计划路径。"),
-    dry_run: bool = typer.Option(False, help="仅预览计划，不执行写入。"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="仅预览计划，不执行写入。"),
 ) -> None:
     """根据 JSON 计划批量创建集合并替换条目所属集合。"""
     from pathlib import Path

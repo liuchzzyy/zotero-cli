@@ -11,8 +11,8 @@ import pytest
 from click.testing import CliRunner
 
 from zotero_cli.cli import _hoist_global_flags, main
-from zotero_cli.commands.workspace import _output as workspace_output
-from zotero_cli.commands.workspace import commands as workspace_commands
+from zotero_cli.cli.workspace import _output as workspace_output
+from zotero_cli.cli.workspace import commands as workspace_commands
 from zotero_cli.config import AppConfig
 
 

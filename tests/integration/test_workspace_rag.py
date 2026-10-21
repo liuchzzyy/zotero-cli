@@ -3,28 +3,29 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from contextlib import ExitStack
 from hashlib import sha256
 from unittest.mock import patch
 
 from tests.support import invoke_cli as _invoke
 
+from zotero_cli.ai_pdf import MinerUError, MinerUParseResult
 from zotero_cli.config import VectorStoreConfig
-from zotero_cli.core.mineru import MinerUError, MinerUParseResult
-from zotero_cli.core.rag.index import RagIndex
+from zotero_cli.workspace.rag.index import RagIndex
 
 
 def _patch_workspace(tmp_path):
     """Patch workspace dirs + vector store so tests are fully isolated."""
     stack = ExitStack()
-    stack.enter_context(patch("zotero_cli.core.workspace_store.workspaces_dir", return_value=tmp_path))
+    stack.enter_context(patch("zotero_cli.workspace.store.workspaces_dir", return_value=tmp_path))
     stack.enter_context(
         patch(
-            "zotero_cli.commands.workspace.indexing.load_vector_store_config",
+            "zotero_cli.cli.workspace.indexing.load_vector_store_config",
             return_value=VectorStoreConfig(path=str(tmp_path / "_qdrant")),
         )
     )
-    cache_cls = stack.enter_context(patch("zotero_cli.commands.workspace.indexing.MinerUParseCache"))
+    cache_cls = stack.enter_context(patch("zotero_cli.cli.workspace.indexing.MinerUParseCache"))
 
     def fake_ensure_many(paths, _progress=None):
         results = {}
@@ -112,7 +113,7 @@ class TestWorkspaceIndex:
         with (
             _patch_workspace(tmp_path),
             patch(
-                "zotero_cli.commands.workspace.indexing.embed_texts",
+                "zotero_cli.cli.workspace.indexing.embed_texts",
                 side_effect=AssertionError("should not embed"),
             ) as embed_mock,
         ):
@@ -138,7 +139,7 @@ class TestWorkspaceIndex:
             idx.close()
 
     def test_failed_mineru_parse_remains_pending_for_retry(self, tmp_path):
-        with _patch_workspace(tmp_path), patch("zotero_cli.commands.workspace.indexing.MinerUParseCache") as cache_cls:
+        with _patch_workspace(tmp_path), patch("zotero_cli.cli.workspace.indexing.MinerUParseCache") as cache_cls:
             cache_cls.return_value.ensure_many.side_effect = lambda paths, _progress=None: {
                 path: MinerUError("cloud parse failed") for path in paths
             }
@@ -209,7 +210,7 @@ class TestWorkspaceQuery:
             selected = candidates[:top_n]
             return [(cid, 10.0 - idx, chunk) for idx, (cid, _score, chunk) in enumerate(selected)] + candidates[top_n:]
 
-        with _patch_workspace(tmp_path), patch("zotero_cli.commands.workspace.query.rerank_chunks", fake_rerank):
+        with _patch_workspace(tmp_path), patch("zotero_cli.cli.workspace.query.rerank_chunks", fake_rerank):
             _invoke(["workspace", "new", "test-q"])
             _invoke(["workspace", "add", "test-q", "ATTN001"])
             _invoke(["workspace", "index", "test-q"])
@@ -406,7 +407,7 @@ class TestWorkspaceIndexPruning:
             _invoke(["workspace", "add", "prune-warn", "ATTN001"])
             _invoke(["workspace", "index", "prune-warn", "--no-embed"])
             with patch(
-                "zotero_cli.commands.workspace.commands.prune_workspace_items",
+                "zotero_cli.cli.workspace.commands.prune_workspace_items",
                 side_effect=OSError("index busy"),
             ):
                 removed = _invoke(["workspace", "remove", "prune-warn", "ATTN001"], json_output=True)
@@ -416,7 +417,7 @@ class TestWorkspaceIndexPruning:
         assert "could not prune the workspace index" in removed.stderr
 
     def test_index_prunes_stale_manifest_entries_without_remove(self, tmp_path):
-        from zotero_cli.core import workspace_store as workspace_module
+        from zotero_cli.workspace import store as workspace_module
 
         with _patch_workspace(tmp_path):
             _invoke(["workspace", "new", "test-stale"])
@@ -436,7 +437,7 @@ class TestWorkspaceIndexPruning:
             idx.close()
 
     def test_empty_workspace_index_prunes_stale_chunks(self, tmp_path):
-        from zotero_cli.core import workspace_store as workspace_module
+        from zotero_cli.workspace import store as workspace_module
 
         for force in (False, True):
             with _patch_workspace(tmp_path):
@@ -471,7 +472,7 @@ class TestWorkspaceIndexDryRun:
         with _patch_workspace(tmp_path):
             _invoke(["workspace", "new", "dry-idx"])
             _invoke(["workspace", "add", "dry-idx", "ATTN001"])
-            with patch("zotero_cli.commands.workspace.indexing.MinerUParseCache") as cache_cls:
+            with patch("zotero_cli.cli.workspace.indexing.MinerUParseCache") as cache_cls:
                 result = _invoke(["workspace", "index", "dry-idx", "--no-embed", "--dry-run"], json_output=True)
             cache_cls.assert_not_called()
         assert result.exit_code == 0, result.output
@@ -499,7 +500,7 @@ class TestWorkspaceForceFailurePreservesIndex:
             _invoke(["workspace", "add", "keep-idx", "ATTN001"])
             first = _invoke(["workspace", "index", "keep-idx", "--no-embed"])
             assert first.exit_code == 0, first.output
-            with patch("zotero_cli.commands.workspace.indexing.MinerUParseCache") as cache_cls:
+            with patch("zotero_cli.cli.workspace.indexing.MinerUParseCache") as cache_cls:
                 cache_cls.return_value.ensure_many.side_effect = MinerUError("token not configured")
                 failed = _invoke(["workspace", "index", "keep-idx", "--force"], json_output=True)
             result = _invoke(["workspace", "query", "attention", "--workspace", "keep-idx"], json_output=True)
@@ -510,13 +511,33 @@ class TestWorkspaceForceFailurePreservesIndex:
         assert payload["data"]["results"][0]["item_key"] == "ATTN001"
 
 
+class TestWorkspaceCandidateIndexReplacement:
+    def test_force_build_failure_preserves_available_index(self, tmp_path):
+        with _patch_workspace(tmp_path):
+            _invoke(["workspace", "new", "candidate-idx"])
+            _invoke(["workspace", "add", "candidate-idx", "ATTN001"])
+            first = _invoke(["workspace", "index", "candidate-idx", "--no-embed"])
+            assert first.exit_code == 0, first.output
+            with patch(
+                "zotero_cli.workspace.rag.index.RagIndex.insert_chunk_no_commit",
+                side_effect=sqlite3.Error("candidate write failed"),
+            ):
+                failed = _invoke(["workspace", "index", "candidate-idx", "--force", "--no-embed"])
+            result = _invoke(["workspace", "query", "attention", "--workspace", "candidate-idx"], json_output=True)
+        assert failed.exit_code != 0
+        payload = json.loads(result.stdout)
+        assert payload["data"]["results"], "candidate build failure must preserve the available index"
+        assert payload["data"]["results"][0]["item_key"] == "ATTN001"
+        assert not list((tmp_path / "candidate-idx").glob("*.candidate"))
+
+
 class TestWorkspaceEmbedBehaviour:
     def test_embed_all_fail_returns_typed_error(self, tmp_path):
         with _patch_workspace(tmp_path):
             _invoke(["workspace", "new", "emb-fail"])
             _invoke(["workspace", "add", "emb-fail", "ATTN001"])
             _invoke(["workspace", "index", "emb-fail", "--no-embed"])
-            with patch("zotero_cli.commands.workspace.embedding.embed_texts", return_value=None):
+            with patch("zotero_cli.cli.workspace.embedding.embed_texts", return_value=None):
                 result = _invoke(
                     ["workspace", "embed", "emb-fail", "--max-retries", "0", "--retry-sleep", "0"],
                     json_output=True,
@@ -536,7 +557,7 @@ class TestWorkspaceEmbedBehaviour:
             _invoke(["workspace", "new", "emb-dry"])
             _invoke(["workspace", "add", "emb-dry", "ATTN001"])
             _invoke(["workspace", "index", "emb-dry", "--no-embed"])
-            with patch("zotero_cli.commands.workspace.embedding.embed_texts", side_effect=AssertionError("no call")):
+            with patch("zotero_cli.cli.workspace.embedding.embed_texts", side_effect=AssertionError("no call")):
                 result = _invoke(["workspace", "embed", "emb-dry", "--dry-run"], json_output=True)
         assert result.exit_code == 0, result.output
         payload = json.loads(result.output)
@@ -547,7 +568,7 @@ class TestWorkspaceEmbedBehaviour:
         with _patch_workspace(tmp_path):
             _invoke(["workspace", "new", "re-noembed"])
             _invoke(["workspace", "add", "re-noembed", "ATTN001"])
-            with patch("zotero_cli.commands.workspace.indexing.embed_texts", side_effect=AssertionError("no embed")):
+            with patch("zotero_cli.cli.workspace.indexing.embed_texts", side_effect=AssertionError("no embed")):
                 result = _invoke(["workspace", "reindex", "re-noembed", "--no-embed"], json_output=True)
         assert result.exit_code == 0, result.output
         assert "BM25" in result.output
@@ -660,7 +681,7 @@ class TestWorkspaceQueryRerankDegradation:
             _invoke(["workspace", "new", "rr-meta"])
             _invoke(["workspace", "add", "rr-meta", "ATTN001"])
             _invoke(["workspace", "index", "rr-meta", "--no-embed"])
-            with patch("zotero_cli.commands.workspace.query.rerank_chunks", return_value=None):
+            with patch("zotero_cli.cli.workspace.query.rerank_chunks", return_value=None):
                 result = _invoke(
                     ["workspace", "query", "attention", "--workspace", "rr-meta", "--rerank"],
                     json_output=True,
@@ -702,7 +723,7 @@ class TestWorkspaceEmbedBounds:
                 calls["count"] += 1
                 return None
 
-            with patch("zotero_cli.commands.workspace.embedding.embed_texts", side_effect=failing):
+            with patch("zotero_cli.cli.workspace.embedding.embed_texts", side_effect=failing):
                 started = time.monotonic()
                 result = _invoke(
                     ["workspace", "embed", "emb-fast", "--max-retries", "9", "--retry-sleep", "0", "--limit", "10"],
@@ -725,7 +746,7 @@ class TestWorkspaceEmbedBounds:
                 time.sleep(0.15)
                 return None
 
-            with patch("zotero_cli.commands.workspace.embedding.embed_texts", side_effect=slow_failure):
+            with patch("zotero_cli.cli.workspace.embedding.embed_texts", side_effect=slow_failure):
                 started = time.monotonic()
                 result = _invoke(
                     [
@@ -753,7 +774,7 @@ class TestWorkspaceEmbedBounds:
 
 class TestWorkspaceIndexStatsPathEscaping:
     def test_stats_read_handles_special_chars_in_path(self, tmp_path):
-        from zotero_cli.commands.workspace.indexing import _read_index_stats
+        from zotero_cli.cli.workspace.indexing import _read_index_stats
 
         index_path = tmp_path / "legacy ?name" / "rag.idx.sqlite"
         index_path.parent.mkdir()
@@ -770,7 +791,7 @@ class TestWorkspaceIndexStatsPathEscaping:
 
 class TestWorkspaceDeleteVectorCleanupWithoutIndex:
     def test_delete_drops_collection_even_when_index_file_is_missing(self, tmp_path):
-        from zotero_cli.core.rag.vector_store import QdrantVectorStore
+        from zotero_cli.workspace.rag.vector_store import QdrantVectorStore
 
         with _patch_workspace(tmp_path):
             _invoke(["workspace", "new", "vec-noindex"])
@@ -802,7 +823,7 @@ class TestWorkspaceDeleteVectorCleanupWithoutIndex:
         with _patch_workspace(tmp_path):
             _invoke(["workspace", "new", "vec-warn"])
             with patch(
-                "zotero_cli.commands.workspace.commands.drop_workspace_vector_collection",
+                "zotero_cli.cli.workspace.commands.drop_workspace_vector_collection",
                 side_effect=RuntimeError("store locked"),
             ):
                 result = _invoke(["workspace", "delete", "vec-warn", "--yes"], json_output=True)

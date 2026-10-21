@@ -55,6 +55,7 @@ from translate_abstracts import (  # noqa: E402
     validate_translation,
 )
 
+from zotero_cli.ai_notes.client import AiClient  # noqa: E402
 from zotero_cli.config import (  # noqa: E402
     load_ai_note_config,
     load_config,
@@ -62,7 +63,6 @@ from zotero_cli.config import (  # noqa: E402
     resolve_write_credentials,
     state_dir,
 )
-from zotero_cli.core.notes.client import AiClient  # noqa: E402
 from zotero_cli.core.zotero.writer import ZoteroWriter  # noqa: E402
 from zotero_cli.zotero.reader import ZoteroReader  # noqa: E402
 

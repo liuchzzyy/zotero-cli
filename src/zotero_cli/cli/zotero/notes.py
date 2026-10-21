@@ -22,7 +22,7 @@ def note(
     ctx: typer.Context,
     key: str = typer.Argument(help="父条目的 Zotero 键。"),
     content: str | None = typer.Option(None, "--add", help="新增笔记内容；省略则读取笔记。"),
-    dry_run: bool = typer.Option(False, help="仅预览笔记新增，不调用 Web API。"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="仅预览笔记新增，不调用 Web API。"),
     idempotency_key: str | None = typer.Option(None, help="重复请求复用已确认的结果；未知写入需先核对。"),
 ) -> None:
     """读取或新增条目笔记；新增操作会写入 Zotero 库。"""

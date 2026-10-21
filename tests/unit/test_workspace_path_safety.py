@@ -9,8 +9,8 @@ import pytest
 from click.testing import CliRunner
 
 from zotero_cli.cli import main
-from zotero_cli.core import workspace_store as workspace
-from zotero_cli.core.rag.index import RagIndex
+from zotero_cli.workspace import store as workspace
+from zotero_cli.workspace.rag.index import RagIndex
 
 _MANIFEST = 'created = "2026-01-01"\ndescription = "outside sentinel"\n'
 _OPERATIONS = ("directory", "manifest", "index", "load", "exists", "save", "delete")

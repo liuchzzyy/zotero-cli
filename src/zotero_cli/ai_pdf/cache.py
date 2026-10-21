@@ -1,0 +1,436 @@
+"""Content-addressed cache for canonical MinerU parse packages.
+
+Writes are two-phase (mkdtemp staging + same-filesystem replace) and guarded by
+a per-fingerprint lock file so concurrent CLI processes parse each PDF at most
+once. Locks record the owner PID: a lock whose owner process is dead is reclaimed
+immediately, while other waiters are reclaimed once stale. Hidden staging/lock
+entries are ignored by stats and listings, and stale staging directories left by
+killed writes are swept before the next parse.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import io
+import json
+import os
+import shutil
+import sys
+import tempfile
+import time
+import uuid
+import zipfile
+from collections.abc import Iterator, Sequence
+from contextlib import ExitStack, contextmanager
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from zotero_cli.ai_pdf.client import MinerUClient, _RemoteParse, _safe_extract_zip
+from zotero_cli.ai_pdf.models import MinerUError, MinerUParseResult, ProgressCallback
+from zotero_cli.ai_pdf.utils import _as_mineru_error, _validated_model_version, file_sha256
+from zotero_cli.config import load_pdf_config
+from zotero_cli.workspace.store import mineru_cache_dir
+
+_CACHE_SCHEMA_VERSION = 1
+
+# Cross-process parse reservation. A second CLI process waits for the first one
+# instead of issuing a duplicate MinerU batch. A lock whose recorded owner PID is
+# no longer alive is reclaimed immediately; otherwise it becomes stale after the
+# stale window, which is kept <= the maximum wait so a waiter always gets a
+# chance to recover a crashed or hung holder.
+_LOCK_DIRNAME = ".locks"
+_LOCK_POLL_SECONDS = 0.2
+_LOCK_TIMEOUT_SECONDS = 1800.0
+_LOCK_STALE_SECONDS = 900.0
+assert _LOCK_STALE_SECONDS <= _LOCK_TIMEOUT_SECONDS
+
+# Hidden .{model}-<random> staging dirs older than this are leftovers from a
+# killed write and are swept before the next parse.
+_STAGING_STALE_SECONDS = 24 * 60 * 60.0
+
+
+def _lock_owner_pid(lock_path: Path) -> int | None:
+    try:
+        raw = lock_path.read_text(encoding="ascii").strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    try:
+        pid = int(raw)
+    except ValueError:
+        return None
+    return pid if pid > 0 else None
+
+
+def _process_is_alive(pid: int) -> bool | None:
+    """Best-effort liveness probe; None when the platform cannot tell."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return None
+    return True
+
+
+@contextmanager
+def _exclusive_lock(lock_path: Path, *, timeout: float, poll: float, stale: float) -> Iterator[None]:
+    """Create an exclusive lock file, waiting for a live owner and reclaiming dead/stale ones."""
+    deadline = time.monotonic() + timeout
+    notified = False
+    while True:
+        try:
+            descriptor = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            owner = _lock_owner_pid(lock_path)
+            alive = _process_is_alive(owner) if owner is not None else None
+            try:
+                age = time.time() - lock_path.stat().st_mtime
+            except OSError:
+                age = 0.0
+            if alive is False or age > stale:
+                with contextlib.suppress(OSError):
+                    lock_path.unlink()
+                continue
+            if not notified:
+                sys.stderr.write(
+                    f"\r{' ' * 60}\r  [cache] waiting for another process to finish parsing {lock_path.stem[:12]}...\n"
+                )
+                sys.stderr.flush()
+                notified = True
+            if time.monotonic() >= deadline:
+                raise MinerUError(
+                    f"Timed out waiting for another process to finish parsing {lock_path.stem}; "
+                    "retry once that process has finished"
+                )
+            time.sleep(poll)
+            continue
+        try:
+            os.write(descriptor, str(os.getpid()).encode("ascii"))
+        finally:
+            os.close(descriptor)
+        break
+    try:
+        yield
+    finally:
+        with contextlib.suppress(OSError):
+            lock_path.unlink()
+
+
+class MinerUParseCache:
+    """Content-addressed cache for canonical MinerU parse packages."""
+
+    def __init__(
+        self,
+        root: Path | None = None,
+        *,
+        client: MinerUClient | None = None,
+        token: str | None = None,
+        model_version: str | None = None,
+    ) -> None:
+        config = load_pdf_config()
+        self.root = root or mineru_cache_dir()
+        self.model_version = _validated_model_version(
+            config.mineru_model_version if model_version is None else model_version
+        )
+        self._client = client
+        self._token = token if token is not None else config.mineru_token
+
+    def lookup(self, pdf_path: Path) -> tuple[MinerUParseResult | None, str | None]:
+        """Return the cached package and PDF fingerprint (None, None) when the PDF is missing."""
+        if not pdf_path.exists():
+            return None, None
+        fingerprint = file_sha256(pdf_path)
+        return self._load_result(pdf_path, fingerprint), fingerprint
+
+    def get(self, pdf_path: Path) -> MinerUParseResult | None:
+        return self.lookup(pdf_path)[0]
+
+    def ensure(
+        self,
+        pdf_path: Path,
+        progress_callback: ProgressCallback | None = None,
+        *,
+        fingerprint: str | None = None,
+    ) -> MinerUParseResult:
+        if fingerprint is None:
+            if not pdf_path.exists():
+                if progress_callback:
+                    progress_callback("cache", 1, 1, 0)
+                raise FileNotFoundError(f"PDF not found: {pdf_path}")
+            try:
+                fingerprint = file_sha256(pdf_path)
+            except OSError as exc:
+                raise _as_mineru_error(exc) from exc
+        try:
+            cached = self._load_result(pdf_path, fingerprint)
+        finally:
+            if progress_callback:
+                progress_callback("cache", 1, 1, 0)
+        if cached is not None:
+            return cached
+        with self._fingerprint_locks([fingerprint]):
+            cached = self._load_result(pdf_path, fingerprint)
+            if cached is not None:
+                return cached
+            if progress_callback:
+                progress_callback("cache-miss", 1, 1, 0)
+            results = self._parse_and_store([(pdf_path, fingerprint)], progress_callback)
+        parsed = results.get(pdf_path)
+        if isinstance(parsed, MinerUParseResult):
+            return parsed
+        if isinstance(parsed, Exception):
+            raise parsed
+        raise MinerUError(f"MinerU did not return a parse result for {pdf_path}")
+
+    def ensure_many(
+        self,
+        pdf_paths: list[Path],
+        progress_callback: ProgressCallback | None = None,
+    ) -> dict[Path, MinerUParseResult | Exception]:
+        results: dict[Path, MinerUParseResult | Exception] = {}
+        misses: list[tuple[Path, str]] = []
+        unique_paths = list(dict.fromkeys(pdf_paths))
+        for index, pdf_path in enumerate(unique_paths, 1):
+            try:
+                if not pdf_path.exists():
+                    results[pdf_path] = FileNotFoundError(f"PDF not found: {pdf_path}")
+                else:
+                    fingerprint = file_sha256(pdf_path)
+                    cached = self._load_result(pdf_path, fingerprint)
+                    if cached is not None:
+                        results[pdf_path] = cached
+                    else:
+                        misses.append((pdf_path, fingerprint))
+            except OSError as exc:
+                results[pdf_path] = _as_mineru_error(exc)
+            if progress_callback:
+                progress_callback("cache", index, len(unique_paths), 0)
+
+        if not misses:
+            return results
+        if progress_callback:
+            progress_callback("cache-miss", len(misses), len(unique_paths), 0)
+
+        with self._fingerprint_locks([fingerprint for _path, fingerprint in misses]):
+            remaining: list[tuple[Path, str]] = []
+            for pdf_path, fingerprint in misses:
+                cached = self._load_result(pdf_path, fingerprint)
+                if cached is not None:
+                    results[pdf_path] = cached
+                else:
+                    remaining.append((pdf_path, fingerprint))
+            if remaining:
+                results.update(self._parse_and_store(remaining, progress_callback))
+        return results
+
+    def _parse_and_store(
+        self,
+        misses: list[tuple[Path, str]],
+        progress_callback: ProgressCallback | None,
+    ) -> dict[Path, MinerUParseResult | Exception]:
+        self._cleanup_stale_staging([fingerprint for _path, fingerprint in misses])
+        results: dict[Path, MinerUParseResult | Exception] = {}
+        client = self._client or MinerUClient(self._token, model_version=self.model_version)
+        remote_results = client.parse_many([pdf_path for pdf_path, _fingerprint in misses], progress_callback)
+        for pdf_path, fingerprint in misses:
+            remote = remote_results.get(pdf_path)
+            if isinstance(remote, _RemoteParse):
+                try:
+                    results[pdf_path] = self._store(pdf_path, fingerprint, remote)
+                except Exception as exc:
+                    results[pdf_path] = _as_mineru_error(exc)
+            elif isinstance(remote, Exception):
+                results[pdf_path] = remote
+            else:
+                results[pdf_path] = MinerUError(f"MinerU did not return a result for {pdf_path.name}")
+        return results
+
+    def _cleanup_stale_staging(self, fingerprints: Sequence[str]) -> int:
+        """Remove hidden staging dirs left behind by killed writes for these fingerprints."""
+        removed = 0
+        cutoff = time.time() - _STAGING_STALE_SECONDS
+        for fingerprint in sorted(set(fingerprints)):
+            fingerprint_dir = self.root / fingerprint
+            if fingerprint_dir.is_symlink() or not fingerprint_dir.is_dir():
+                continue
+            try:
+                candidates = list(fingerprint_dir.iterdir())
+            except OSError:
+                continue
+            for staging in candidates:
+                if not staging.name.startswith(".") or not staging.is_dir():
+                    continue
+                try:
+                    if staging.stat().st_mtime > cutoff:
+                        continue
+                except OSError:
+                    continue
+                shutil.rmtree(staging, ignore_errors=True)
+                removed += 1
+        return removed
+
+    @contextmanager
+    def _fingerprint_locks(self, fingerprints: Sequence[str]) -> Iterator[None]:
+        lock_dir = self.root / _LOCK_DIRNAME
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        with ExitStack() as stack:
+            for fingerprint in sorted(set(fingerprints)):
+                stack.enter_context(
+                    _exclusive_lock(
+                        lock_dir / f"{fingerprint}.lock",
+                        timeout=_LOCK_TIMEOUT_SECONDS,
+                        poll=_LOCK_POLL_SECONDS,
+                        stale=_LOCK_STALE_SECONDS,
+                    )
+                )
+            yield
+
+    def clear(self) -> int:
+        """Remove the cache root, counting only valid packages as removed.
+
+        The root is first renamed to a hidden tombstone (same filesystem) so a
+        crash or delete failure can never leave a half-readable cache root; the
+        tombstone is then deleted best-effort.
+        """
+        if not self.root.exists():
+            return 0
+        count = len(self._valid_entries())
+        tombstone = self.root.with_name(f".{self.root.name}-clearing-{os.getpid()}-{uuid.uuid4().hex[:8]}")
+        try:
+            os.replace(self.root, tombstone)
+        except OSError:
+            # Rename is best-effort: fall back to a direct delete.
+            shutil.rmtree(self.root)
+            return count
+        try:
+            shutil.rmtree(tombstone)
+        except OSError as exc:
+            raise OSError(f"MinerU cache was detached to {tombstone} but could not be fully removed: {exc}") from exc
+        return count
+
+    def _manifest_paths(self) -> list[Path]:
+        return sorted(
+            path
+            for path in self.root.glob("*/*/manifest.json")
+            if not any(part.startswith(".") for part in path.relative_to(self.root).parts)
+        )
+
+    def _valid_entries(self) -> list[tuple[Path, dict[str, Any]]]:
+        """Return (manifest path, parsed manifest) pairs, skipping corrupt/hidden ones."""
+        valid: list[tuple[Path, dict[str, Any]]] = []
+        if not self.root.exists():
+            return valid
+        for manifest_path in self._manifest_paths():
+            try:
+                data = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if isinstance(data, dict):
+                valid.append((manifest_path, data))
+        return valid
+
+    def _visible_bytes(self, entries: Sequence[tuple[Path, dict[str, Any]]]) -> int:
+        total = 0
+        for manifest_path, _data in entries:
+            package_dir = manifest_path.parent
+            for path in package_dir.rglob("*"):
+                relative = path.relative_to(package_dir)
+                if not path.is_file() or any(part.startswith(".") for part in relative.parts):
+                    continue
+                try:
+                    total += path.stat().st_size
+                except OSError:
+                    continue
+        return total
+
+    def stats(self) -> dict[str, int]:
+        """Count valid package manifests and the visible bytes of those packages.
+
+        Corrupt manifests and hidden staging/lock entries are ignored exactly like
+        in entries(), so stats.entries always equals len(entries()).
+        """
+        entries = self._valid_entries()
+        return {"entries": len(entries), "total_bytes": self._visible_bytes(entries)}
+
+    def entries(self) -> list[dict[str, Any]]:
+        return [data for _path, data in self._valid_entries()]
+
+    def _cache_path(self, fingerprint: str) -> Path:
+        model_version = _validated_model_version(self.model_version)
+        destination = self.root / fingerprint / model_version
+        expected = self.root.resolve() / fingerprint / model_version
+        if destination.is_symlink() or destination.resolve() != expected:
+            raise MinerUError("MinerU cache path must stay strictly inside its fingerprint directory")
+        return destination
+
+    def _load_result(self, pdf_path: Path, fingerprint: str) -> MinerUParseResult | None:
+        root = self._cache_path(fingerprint)
+        manifest_path = root / "manifest.json"
+        markdown_path = root / "document.md"
+        content_list_path = root / "content_list.json"
+        if not (manifest_path.is_file() and markdown_path.is_file() and content_list_path.is_file()):
+            return None
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if (
+                not isinstance(manifest, dict)
+                or manifest.get("schema_version") != _CACHE_SCHEMA_VERSION
+                or manifest.get("source_sha256") != fingerprint
+                or manifest.get("mineru_model_version") != self.model_version
+            ):
+                return None
+            json.loads(content_list_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        return MinerUParseResult(
+            source_path=pdf_path,
+            fingerprint=fingerprint,
+            model_version=self.model_version,
+            root=root,
+            markdown_path=markdown_path,
+            content_list_path=content_list_path,
+            manifest_path=manifest_path,
+        )
+
+    def _store(self, pdf_path: Path, fingerprint: str, remote: _RemoteParse) -> MinerUParseResult:
+        destination = self._cache_path(fingerprint)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        staging = Path(tempfile.mkdtemp(prefix=f".{destination.name}-", dir=str(destination.parent)))
+        try:
+            raw_dir = staging / "raw"
+            raw_dir.mkdir(parents=True)
+            with zipfile.ZipFile(io.BytesIO(remote.archive)) as archive:
+                _safe_extract_zip(archive, raw_dir)
+            (staging / "document.md").write_text(remote.markdown, encoding="utf-8")
+            (staging / "content_list.json").write_text(
+                json.dumps(remote.content_list, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            stat = pdf_path.stat()
+            manifest = {
+                "schema_version": _CACHE_SCHEMA_VERSION,
+                "source_path": str(pdf_path.resolve()),
+                "source_name": pdf_path.name,
+                "source_size": stat.st_size,
+                "source_mtime_ns": stat.st_mtime_ns,
+                "source_sha256": fingerprint,
+                "mineru_model_version": self.model_version,
+                "parsed_at": datetime.now(UTC).isoformat(),
+                "batch_id": remote.batch_id,
+                "markdown_file": "document.md",
+                "structured_json_file": "content_list.json",
+                "archive_members": remote.archive_members,
+            }
+            (staging / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+            if destination.exists():
+                shutil.rmtree(destination)
+            staging.replace(destination)
+        except Exception:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
+        result = self._load_result(pdf_path, fingerprint)
+        if result is None:
+            raise MinerUError(f"Failed to validate cached MinerU package for {pdf_path.name}")
+        return result

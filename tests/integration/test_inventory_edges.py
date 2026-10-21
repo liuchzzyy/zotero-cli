@@ -18,10 +18,10 @@ import pytest
 from tests.support import FIXTURES_DIR, REPO_ROOT
 
 from zotero_cli import config
-from zotero_cli.core import workspace_store
-from zotero_cli.core.rag.index import RagIndex
-from zotero_cli.core.rag.vector_store import QdrantVectorStore
-from zotero_cli.core.workspace_store import (
+from zotero_cli.workspace import store as workspace_store
+from zotero_cli.workspace.rag.index import RagIndex
+from zotero_cli.workspace.rag.vector_store import QdrantVectorStore
+from zotero_cli.workspace.store import (
     Workspace,
     load_workspace,
     save_workspace,

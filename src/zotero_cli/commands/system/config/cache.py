@@ -26,7 +26,7 @@ def cache_group(ctx: click.Context) -> None:
 @click.pass_context
 def cache_clear(ctx: click.Context, yes: bool, dry_run: bool) -> None:
     """Clear cached MinerU parse packages (requires --yes; --dry-run previews)."""
-    from zotero_cli.core.mineru import MinerUParseCache
+    from zotero_cli.ai_pdf import MinerUParseCache
 
     json_out = _json_out(ctx)
     try:
@@ -79,7 +79,7 @@ def cache_clear(ctx: click.Context, yes: bool, dry_run: bool) -> None:
 @click.pass_context
 def cache_stats(ctx: click.Context) -> None:
     """Show MinerU parse cache statistics."""
-    from zotero_cli.core.mineru import MinerUParseCache
+    from zotero_cli.ai_pdf import MinerUParseCache
 
     json_out = _json_out(ctx)
     try:
@@ -104,7 +104,7 @@ def cache_stats(ctx: click.Context) -> None:
 @click.pass_context
 def cache_list(ctx: click.Context, limit: int) -> None:
     """List cached MinerU parse packages (bounded by --limit; 0 shows all)."""
-    from zotero_cli.core.mineru import MinerUParseCache
+    from zotero_cli.ai_pdf import MinerUParseCache
 
     json_out = _json_out(ctx)
     try:

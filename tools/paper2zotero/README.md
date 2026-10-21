@@ -153,7 +153,7 @@ No CLI. Applies the repository's Chinese-metadata formatting contract to both
 title and abstract before any Zotero write: super/subscripts are flattened
 (`MnO2`, `Zn2+`, `mAh g^-1`) and exactly one half-width space is inserted at
 every CJK<->Latin boundary, never inside a unit or formula. The character
-classes come from `zotero_cli.core.notes.text`, so tool-written metadata and
+classes come from `zotero_cli.ai_notes.text`, so tool-written metadata and
 rendered AI notes cannot drift apart. Import `zh_text` instead of
 re-implementing the rules in a new script.
 

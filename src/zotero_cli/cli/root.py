@@ -10,8 +10,12 @@ import typer
 from typer.main import get_command
 
 from zotero_cli import __version__
+from zotero_cli.cli.ai_notes import ai_note
+from zotero_cli.cli.ai_pdf import ai_pdf
+from zotero_cli.cli.metadata import metadata_app
 from zotero_cli.cli.registry import register_commands
 from zotero_cli.cli.tiered_group import TieredGroup
+from zotero_cli.cli.workspace.typer_commands import workspace_app
 from zotero_cli.cli.zotero.reading import app as zotero_reading_app
 from zotero_cli.output.envelope import request_scope
 from zotero_cli.output.exit_codes import set_verbose
@@ -25,6 +29,10 @@ app = typer.Typer(
     rich_markup_mode=None,
 )
 app.add_typer(zotero_reading_app, name="zotero", help="管理和读取 Zotero 基础数据。")
+app.add_typer(workspace_app, name="workspace", help="管理本地工作区及其检索索引。")
+app.add_typer(metadata_app, name="metadata", help="读取和更新 Zotero 元数据。")
+app.command(name="ai-pdf", help="通过 MinerU 解析 Zotero PDF。")(ai_pdf)
+app.command(name="ai-note", help="生成并写回 AI 分析笔记。")(ai_note)
 
 
 def _version_callback(ctx: click.Context, _param: click.Parameter, value: bool) -> None:
@@ -41,8 +49,8 @@ def root(
     output_no_json: bool = typer.Option(False, "--no-json", help="即使非 TTY 也强制人类可读输出。"),
     limit: int = typer.Option(50, help="结果上限。"),
     detail: str = typer.Option("standard", help="输出详情：minimal、standard 或 full。"),
-    no_interaction: bool = typer.Option(False, help="自动化时禁用交互提示。"),
-    verbose: bool = typer.Option(False, help="意外错误时输出回溯。"),
+    no_interaction: bool = typer.Option(False, "--no-interaction", help="自动化时禁用交互提示。"),
+    verbose: bool = typer.Option(False, "--verbose", help="意外错误时输出回溯。"),
     profile: str | None = typer.Option(None, help="配置 profile 名称。"),
     library: str = typer.Option("user", help="库：user 或 group:<id>。"),
     version: bool = typer.Option(

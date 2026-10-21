@@ -320,7 +320,7 @@ class TestOffset:
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["--json", "summarize-all", "--offset", "1"],
+            ["--json", "metadata", "summarize-all", "--offset", "1"],
             env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"},
         )
         assert result.exit_code == 0
@@ -335,7 +335,7 @@ class TestOffset:
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["--json", "--detail", "full", "summarize-all", "--limit", "1"],
+            ["--json", "--detail", "full", "metadata", "summarize-all", "--limit", "1"],
             env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"},
         )
         assert result.exit_code == 0
@@ -354,7 +354,7 @@ class TestOffset:
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["--json", "--detail", "minimal", "summarize-all", "--limit", "1"],
+            ["--json", "--detail", "minimal", "metadata", "summarize-all", "--limit", "1"],
             env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"},
         )
         assert result.exit_code == 0
@@ -367,7 +367,7 @@ class TestOffset:
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["--json", "summarize-all", "--exclude-tag", "transformer", "--limit", "100"],
+            ["--json", "metadata", "summarize-all", "--exclude-tag", "transformer", "--limit", "100"],
             env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"},
         )
         assert result.exit_code == 0
@@ -380,7 +380,7 @@ class TestOffset:
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["--json", "summarize-all", "--exclude-collection-key", "COLTR02", "--limit", "100"],
+            ["--json", "metadata", "summarize-all", "--exclude-collection-key", "COLTR02", "--limit", "100"],
             env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"},
         )
         assert result.exit_code == 0

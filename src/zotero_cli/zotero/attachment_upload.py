@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from zotero_cli.core.mineru import file_sha256
+from zotero_cli.ai_pdf import file_sha256
 from zotero_cli.core.zotero.idempotency import (
     begin_mutation,
     failure_definitely_rejected,

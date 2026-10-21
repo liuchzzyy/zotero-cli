@@ -6,7 +6,7 @@ from unittest.mock import patch
 from tests.integration.test_workspace_rag import _patch_workspace
 from tests.support import invoke_cli
 
-from zotero_cli.core.rag.index import RagIndex
+from zotero_cli.workspace.rag.index import RagIndex
 from zotero_cli.zotero.reader import ZoteroReader
 
 
@@ -39,7 +39,7 @@ def test_note_change_reindexes_without_force(tmp_path):
     notes = [("NOTE1", "old marker")]
     with (
         _patch_workspace(tmp_path),
-        patch("zotero_cli.commands.workspace.indexing._collect_note_refs", side_effect=lambda *_: notes),
+        patch("zotero_cli.cli.workspace.indexing._collect_note_refs", side_effect=lambda *_: notes),
     ):
         invoke_cli(["workspace", "new", "notes-regression"])
         invoke_cli(["workspace", "add", "notes-regression", "ATTN001"])

@@ -11,23 +11,23 @@ import pytest
 from click.testing import CliRunner
 from tests.support import FIXTURES_DIR
 
-from zotero_cli.cli import main
-from zotero_cli.config import AiNoteConfig
-from zotero_cli.core.mineru import MinerUParseResult
-from zotero_cli.core.notes import pipeline as pipeline_module
-from zotero_cli.core.notes.classification import _chat, build_classify_prompt, extract_json_object, wrap_untrusted
-from zotero_cli.core.notes.client import AiClient
-from zotero_cli.core.notes.constants import (
+from zotero_cli.ai_notes import pipeline as pipeline_module
+from zotero_cli.ai_notes.classification import _chat, build_classify_prompt, extract_json_object, wrap_untrusted
+from zotero_cli.ai_notes.client import AiClient
+from zotero_cli.ai_notes.constants import (
     ANALYZED_TAG,
     KEYWORDS_TAG,
     NO_KEYWORDS_TAG,
     NOT_ANALYZED_TAG,
     NOTE_TITLE_PREFIX,
 )
-from zotero_cli.core.notes.documents import _sections_to_text
-from zotero_cli.core.notes.errors import NoteAnalysisError
-from zotero_cli.core.notes.pipeline import analyze_item
-from zotero_cli.core.notes.short_note import normalize_short_note, validate_short_note
+from zotero_cli.ai_notes.documents import _sections_to_text
+from zotero_cli.ai_notes.errors import NoteAnalysisError
+from zotero_cli.ai_notes.pipeline import analyze_item
+from zotero_cli.ai_notes.short_note import normalize_short_note, validate_short_note
+from zotero_cli.ai_pdf import MinerUParseResult
+from zotero_cli.cli import main
+from zotero_cli.config import AiNoteConfig
 from zotero_cli.core.zotero.idempotency import PendingMutationError
 from zotero_cli.core.zotero.short_note_merge import merge_short_note_into_extra
 from zotero_cli.core.zotero.writer import ZoteroWriteError
@@ -104,7 +104,7 @@ def _parsed_result(att: Attachment, markdown: str, tmp_path, name: str = "mineru
 
 def _patch_mineru(att: Attachment, markdown: str, tmp_path):
     parsed = _parsed_result(att, markdown, tmp_path)
-    return patch("zotero_cli.core.notes.pipeline.MinerUParseCache.ensure_many", return_value={att.path: parsed})
+    return patch("zotero_cli.ai_notes.pipeline.MinerUParseCache.ensure_many", return_value={att.path: parsed})
 
 
 class TestExtractJsonObject:
@@ -678,7 +678,7 @@ class TestAiClient:
         assert client._client._client.trust_env is False
 
 
-class TestAiAnalyzeCLI:
+class TestAiNoteCLI:
     def _run(self, args, env=None):
         runner = CliRunner()
         base_env = {
@@ -690,10 +690,10 @@ class TestAiAnalyzeCLI:
         if env:
             base_env.update(env)
         # `[ai_notes]` is read from the Git-ignored `.zot/config.toml`, so a
-        # clean checkout has no key and `ai_analyze` exits 3 before these tests
+        # clean checkout has no key and `ai-note` exits 3 before these tests
         # reach the behavior under test. Stub the loader instead.
         with patch(
-            "zotero_cli.commands.notes.ai_analyze.load_ai_note_config",
+            "zotero_cli.cli.ai_notes.load_ai_note_config",
             return_value=_make_ai_config(),
         ):
             return runner.invoke(main, args, env=base_env)
@@ -710,12 +710,12 @@ class TestAiAnalyzeCLI:
             "prompt_preview": "preview",
         }
         with (
-            patch("zotero_cli.commands.notes.ai_analyze.analyze_item", return_value=result),
-            patch("zotero_cli.commands.notes.ai_analyze.ZoteroReader"),
-            patch("zotero_cli.commands.notes.ai_analyze.ZoteroWriter"),
-            patch("zotero_cli.commands.notes.ai_analyze.AiClient"),
+            patch("zotero_cli.cli.ai_notes.analyze_item", return_value=result),
+            patch("zotero_cli.cli.ai_notes.ZoteroReader"),
+            patch("zotero_cli.cli.ai_notes.ZoteroWriter"),
+            patch("zotero_cli.cli.ai_notes.AiClient"),
         ):
-            res = self._run(["ai_analyze", "ABC123", "--dry-run"])
+            res = self._run(["ai-note", "ABC123", "--dry-run"])
 
         assert res.exit_code == 0
         data = json.loads(res.output)["data"]
@@ -725,14 +725,14 @@ class TestAiAnalyzeCLI:
     def test_not_found_error_exit_code(self):
         with (
             patch(
-                "zotero_cli.commands.notes.ai_analyze.analyze_item",
+                "zotero_cli.cli.ai_notes.analyze_item",
                 side_effect=NoteAnalysisError("条目 'X' 不存在", code="not_found"),
             ),
-            patch("zotero_cli.commands.notes.ai_analyze.ZoteroReader"),
-            patch("zotero_cli.commands.notes.ai_analyze.ZoteroWriter"),
-            patch("zotero_cli.commands.notes.ai_analyze.AiClient"),
+            patch("zotero_cli.cli.ai_notes.ZoteroReader"),
+            patch("zotero_cli.cli.ai_notes.ZoteroWriter"),
+            patch("zotero_cli.cli.ai_notes.AiClient"),
         ):
-            res = self._run(["ai_analyze", "X"])
+            res = self._run(["ai-note", "X"])
 
         assert res.exit_code == 4
         env = json.loads(res.output)
@@ -742,15 +742,15 @@ class TestAiAnalyzeCLI:
         expected = {"status": "dry_run", "item_key": "ABC123"}
         runner = CliRunner()
         with (
-            patch("zotero_cli.commands.notes.ai_analyze.load_ai_note_config", return_value=AiNoteConfig()),
-            patch("zotero_cli.commands.notes.ai_analyze.analyze_item", return_value=expected) as analyze,
-            patch("zotero_cli.commands.notes.ai_analyze.ZoteroReader"),
-            patch("zotero_cli.commands.notes.ai_analyze.ZoteroWriter"),
-            patch("zotero_cli.commands.notes.ai_analyze.AiClient") as client_cls,
+            patch("zotero_cli.cli.ai_notes.load_ai_note_config", return_value=AiNoteConfig()),
+            patch("zotero_cli.cli.ai_notes.analyze_item", return_value=expected) as analyze,
+            patch("zotero_cli.cli.ai_notes.ZoteroReader"),
+            patch("zotero_cli.cli.ai_notes.ZoteroWriter"),
+            patch("zotero_cli.cli.ai_notes.AiClient") as client_cls,
         ):
             res = runner.invoke(
                 main,
-                ["--json", "ai_analyze", "ABC123", "--dry-run"],
+                ["--json", "ai-note", "ABC123", "--dry-run"],
                 env={
                     "ZOT_DATA_DIR": str(FIXTURES_DIR),
                     "ZOT_LIBRARY_ID": "",
@@ -767,13 +767,13 @@ class TestAiAnalyzeCLI:
     def test_idempotency_cached_replay_skips_analysis(self):
         cached = {"ok": True, "data": {"status": "ok", "note_key": "NOTE1"}, "meta": {"count": 1}}
         with (
-            patch("zotero_cli.commands.notes.ai_analyze.begin_mutation", return_value=cached),
-            patch("zotero_cli.commands.notes.ai_analyze.analyze_item") as analyze,
-            patch("zotero_cli.commands.notes.ai_analyze.ZoteroReader"),
-            patch("zotero_cli.commands.notes.ai_analyze.ZoteroWriter"),
-            patch("zotero_cli.commands.notes.ai_analyze.AiClient"),
+            patch("zotero_cli.cli.ai_notes.begin_mutation", return_value=cached),
+            patch("zotero_cli.cli.ai_notes.analyze_item") as analyze,
+            patch("zotero_cli.cli.ai_notes.ZoteroReader"),
+            patch("zotero_cli.cli.ai_notes.ZoteroWriter"),
+            patch("zotero_cli.cli.ai_notes.AiClient"),
         ):
-            res = self._run(["ai_analyze", "ABC123", "--idempotency-key", "k1"])
+            res = self._run(["ai-note", "ABC123", "--idempotency-key", "k1"])
         assert res.exit_code == 0, res.output
         analyze.assert_not_called()
         assert json.loads(res.output) == cached
@@ -789,14 +789,14 @@ class TestAiAnalyzeCLI:
             "short_note_error": "",
         }
         with (
-            patch("zotero_cli.commands.notes.ai_analyze.begin_mutation", return_value=None),
-            patch("zotero_cli.commands.notes.ai_analyze.store_cached") as store,
-            patch("zotero_cli.commands.notes.ai_analyze.analyze_item", return_value=result),
-            patch("zotero_cli.commands.notes.ai_analyze.ZoteroReader"),
-            patch("zotero_cli.commands.notes.ai_analyze.ZoteroWriter"),
-            patch("zotero_cli.commands.notes.ai_analyze.AiClient"),
+            patch("zotero_cli.cli.ai_notes.begin_mutation", return_value=None),
+            patch("zotero_cli.cli.ai_notes.store_cached") as store,
+            patch("zotero_cli.cli.ai_notes.analyze_item", return_value=result),
+            patch("zotero_cli.cli.ai_notes.ZoteroReader"),
+            patch("zotero_cli.cli.ai_notes.ZoteroWriter"),
+            patch("zotero_cli.cli.ai_notes.AiClient"),
         ):
-            res = self._run(["ai_analyze", "ABC123", "--idempotency-key", "k1"])
+            res = self._run(["ai-note", "ABC123", "--idempotency-key", "k1"])
         assert res.exit_code == 0, res.output
         store.assert_called_once()
         envelope = store.call_args.args[2]
@@ -804,31 +804,31 @@ class TestAiAnalyzeCLI:
 
     def test_idempotency_released_on_pre_write_error(self):
         with (
-            patch("zotero_cli.commands.notes.ai_analyze.begin_mutation", return_value=None),
-            patch("zotero_cli.commands.notes.ai_analyze.release_rejected_mutation") as release,
+            patch("zotero_cli.cli.ai_notes.begin_mutation", return_value=None),
+            patch("zotero_cli.cli.ai_notes.release_rejected_mutation") as release,
             patch(
-                "zotero_cli.commands.notes.ai_analyze.analyze_item",
+                "zotero_cli.cli.ai_notes.analyze_item",
                 side_effect=NoteAnalysisError("条目 'X' 不存在", code="not_found"),
             ),
-            patch("zotero_cli.commands.notes.ai_analyze.ZoteroReader"),
-            patch("zotero_cli.commands.notes.ai_analyze.ZoteroWriter"),
-            patch("zotero_cli.commands.notes.ai_analyze.AiClient"),
+            patch("zotero_cli.cli.ai_notes.ZoteroReader"),
+            patch("zotero_cli.cli.ai_notes.ZoteroWriter"),
+            patch("zotero_cli.cli.ai_notes.AiClient"),
         ):
-            res = self._run(["ai_analyze", "X", "--idempotency-key", "k1"])
+            res = self._run(["ai-note", "X", "--idempotency-key", "k1"])
         assert res.exit_code == 4
         release.assert_called_once()
 
     def test_idempotency_released_for_definite_rejection(self):
         error = NoteAnalysisError("Bad request", code="auth_invalid", retryable=False, committed=False)
         with (
-            patch("zotero_cli.commands.notes.ai_analyze.begin_mutation", return_value=None),
-            patch("zotero_cli.commands.notes.ai_analyze.release_rejected_mutation") as release,
-            patch("zotero_cli.commands.notes.ai_analyze.analyze_item", side_effect=error),
-            patch("zotero_cli.commands.notes.ai_analyze.ZoteroReader"),
-            patch("zotero_cli.commands.notes.ai_analyze.ZoteroWriter"),
-            patch("zotero_cli.commands.notes.ai_analyze.AiClient"),
+            patch("zotero_cli.cli.ai_notes.begin_mutation", return_value=None),
+            patch("zotero_cli.cli.ai_notes.release_rejected_mutation") as release,
+            patch("zotero_cli.cli.ai_notes.analyze_item", side_effect=error),
+            patch("zotero_cli.cli.ai_notes.ZoteroReader"),
+            patch("zotero_cli.cli.ai_notes.ZoteroWriter"),
+            patch("zotero_cli.cli.ai_notes.AiClient"),
         ):
-            res = self._run(["ai_analyze", "ABC123", "--idempotency-key", "k1"])
+            res = self._run(["ai-note", "ABC123", "--idempotency-key", "k1"])
         assert res.exit_code == 2
         release.assert_called_once()
         assert json.loads(res.output)["error"]["retryable"] is False
@@ -836,14 +836,14 @@ class TestAiAnalyzeCLI:
     def test_idempotency_reservation_kept_when_write_may_have_committed(self):
         error = NoteAnalysisError("note 已写入但 tag 失败", code="api_error", committed=True)
         with (
-            patch("zotero_cli.commands.notes.ai_analyze.begin_mutation", return_value=None),
-            patch("zotero_cli.commands.notes.ai_analyze.release_rejected_mutation") as release,
-            patch("zotero_cli.commands.notes.ai_analyze.analyze_item", side_effect=error),
-            patch("zotero_cli.commands.notes.ai_analyze.ZoteroReader"),
-            patch("zotero_cli.commands.notes.ai_analyze.ZoteroWriter"),
-            patch("zotero_cli.commands.notes.ai_analyze.AiClient"),
+            patch("zotero_cli.cli.ai_notes.begin_mutation", return_value=None),
+            patch("zotero_cli.cli.ai_notes.release_rejected_mutation") as release,
+            patch("zotero_cli.cli.ai_notes.analyze_item", side_effect=error),
+            patch("zotero_cli.cli.ai_notes.ZoteroReader"),
+            patch("zotero_cli.cli.ai_notes.ZoteroWriter"),
+            patch("zotero_cli.cli.ai_notes.AiClient"),
         ):
-            res = self._run(["ai_analyze", "ABC123", "--idempotency-key", "k1"])
+            res = self._run(["ai-note", "ABC123", "--idempotency-key", "k1"])
         assert res.exit_code == 1
         release.assert_not_called()
         assert json.loads(res.output)["error"]["retryable"] is False
@@ -851,48 +851,48 @@ class TestAiAnalyzeCLI:
     def test_idempotency_pending_conflict(self):
         with (
             patch(
-                "zotero_cli.commands.notes.ai_analyze.begin_mutation",
+                "zotero_cli.cli.ai_notes.begin_mutation",
                 side_effect=PendingMutationError("pending"),
             ),
-            patch("zotero_cli.commands.notes.ai_analyze.analyze_item") as analyze,
-            patch("zotero_cli.commands.notes.ai_analyze.ZoteroReader"),
-            patch("zotero_cli.commands.notes.ai_analyze.ZoteroWriter"),
-            patch("zotero_cli.commands.notes.ai_analyze.AiClient"),
+            patch("zotero_cli.cli.ai_notes.analyze_item") as analyze,
+            patch("zotero_cli.cli.ai_notes.ZoteroReader"),
+            patch("zotero_cli.cli.ai_notes.ZoteroWriter"),
+            patch("zotero_cli.cli.ai_notes.AiClient"),
         ):
-            res = self._run(["ai_analyze", "ABC123", "--idempotency-key", "k1"])
+            res = self._run(["ai-note", "ABC123", "--idempotency-key", "k1"])
         assert res.exit_code == 6
         analyze.assert_not_called()
 
     def test_provider_auth_error_exits_2(self):
         with (
             patch(
-                "zotero_cli.commands.notes.ai_analyze.analyze_item",
+                "zotero_cli.cli.ai_notes.analyze_item",
                 side_effect=NoteAnalysisError("401 Unauthorized", code="auth_invalid"),
             ),
-            patch("zotero_cli.commands.notes.ai_analyze.ZoteroReader"),
-            patch("zotero_cli.commands.notes.ai_analyze.ZoteroWriter"),
-            patch("zotero_cli.commands.notes.ai_analyze.AiClient"),
+            patch("zotero_cli.cli.ai_notes.ZoteroReader"),
+            patch("zotero_cli.cli.ai_notes.ZoteroWriter"),
+            patch("zotero_cli.cli.ai_notes.AiClient"),
         ):
-            res = self._run(["ai_analyze", "ABC123"])
+            res = self._run(["ai-note", "ABC123"])
         assert res.exit_code == 2
         assert json.loads(res.output)["error"]["code"] == "auth_invalid"
 
     def test_help_lists_new_surface(self):
-        res = CliRunner().invoke(main, ["ai_analyze", "--help"])
+        res = CliRunner().invoke(main, ["ai-note", "--help"])
         assert res.exit_code == 0
         assert "--idempotency-key" in res.output
-        assert "无需 AI 配置" in res.output
+        assert "只输出分类结果" in res.output
 
     def test_idempotency_key_is_ignored_under_dry_run(self):
         expected = {"status": "dry_run", "item_key": "ABC123"}
         with (
-            patch("zotero_cli.commands.notes.ai_analyze.begin_mutation") as begin,
-            patch("zotero_cli.commands.notes.ai_analyze.analyze_item", return_value=expected),
-            patch("zotero_cli.commands.notes.ai_analyze.ZoteroReader"),
-            patch("zotero_cli.commands.notes.ai_analyze.ZoteroWriter"),
-            patch("zotero_cli.commands.notes.ai_analyze.AiClient"),
+            patch("zotero_cli.cli.ai_notes.begin_mutation") as begin,
+            patch("zotero_cli.cli.ai_notes.analyze_item", return_value=expected),
+            patch("zotero_cli.cli.ai_notes.ZoteroReader"),
+            patch("zotero_cli.cli.ai_notes.ZoteroWriter"),
+            patch("zotero_cli.cli.ai_notes.AiClient"),
         ):
-            res = self._run(["ai_analyze", "ABC123", "--dry-run", "--idempotency-key", "k1"])
+            res = self._run(["ai-note", "ABC123", "--dry-run", "--idempotency-key", "k1"])
         assert res.exit_code == 0, res.output
         begin.assert_not_called()
 
@@ -902,12 +902,12 @@ class TestAiAnalyzeCLI:
             return {"status": "dry_run", "item_key": key}
 
         with (
-            patch("zotero_cli.commands.notes.ai_analyze.analyze_item", side_effect=fake_analyze),
-            patch("zotero_cli.commands.notes.ai_analyze.ZoteroReader"),
-            patch("zotero_cli.commands.notes.ai_analyze.ZoteroWriter"),
-            patch("zotero_cli.commands.notes.ai_analyze.AiClient"),
+            patch("zotero_cli.cli.ai_notes.analyze_item", side_effect=fake_analyze),
+            patch("zotero_cli.cli.ai_notes.ZoteroReader"),
+            patch("zotero_cli.cli.ai_notes.ZoteroWriter"),
+            patch("zotero_cli.cli.ai_notes.AiClient"),
         ):
-            res = self._run(["--no-json", "ai_analyze", "ABC123", "--dry-run"])
+            res = self._run(["--no-json", "ai-note", "ABC123", "--dry-run"])
         assert res.exit_code == 0, res.output
         assert "\r" not in res.stderr
         assert "[analyze] paper_type=research_article" in res.stderr
@@ -1003,8 +1003,8 @@ class TestDuplicateDocumentFigureNumbering:
         ai_client.config = _make_ai_config()
         capture = _PromptCapture()
         with (
-            patch("zotero_cli.core.notes.pipeline.MinerUParseCache.ensure_many", return_value=parses),
-            patch("zotero_cli.core.notes.templates.format_template", side_effect=capture),
+            patch("zotero_cli.ai_notes.pipeline.MinerUParseCache.ensure_many", return_value=parses),
+            patch("zotero_cli.ai_notes.templates.format_template", side_effect=capture),
         ):
             result = analyze_item(reader, MagicMock(), ai_client, "ABC123", dry_run=True)
         return result, capture.prompts[-1] if capture.prompts else result["prompt_preview"]
@@ -1040,10 +1040,10 @@ class TestDuplicateDocumentFigureNumbering:
         ai_client.config = _make_ai_config()
         capture = _PromptCapture()
         with (
-            patch("zotero_cli.core.notes.pipeline.MinerUParseCache.ensure_many", return_value=parses),
-            patch("zotero_cli.core.notes.templates.format_template", side_effect=capture),
+            patch("zotero_cli.ai_notes.pipeline.MinerUParseCache.ensure_many", return_value=parses),
+            patch("zotero_cli.ai_notes.templates.format_template", side_effect=capture),
             patch(
-                "zotero_cli.core.notes.pipeline.resolve_pdf_kinds",
+                "zotero_cli.ai_notes.pipeline.resolve_pdf_kinds",
                 return_value={att.key: "supplementary" for att in attachments},
             ),
         ):
@@ -1080,8 +1080,8 @@ class TestPromptInjectionHardening:
         capture = _PromptCapture()
         parsed = _parsed_result(att, "Introduction text. This is the main body.", tmp_path)
         with (
-            patch("zotero_cli.core.notes.pipeline.MinerUParseCache.ensure_many", return_value={att.path: parsed}),
-            patch("zotero_cli.core.notes.templates.format_template", side_effect=capture),
+            patch("zotero_cli.ai_notes.pipeline.MinerUParseCache.ensure_many", return_value={att.path: parsed}),
+            patch("zotero_cli.ai_notes.templates.format_template", side_effect=capture),
         ):
             result = analyze_item(reader, MagicMock(), ai_client, "ABC123", dry_run=True)
         prompt = capture.prompts[-1] if capture.prompts else result["prompt_preview"]
@@ -1148,7 +1148,7 @@ class TestAiClientBounds:
             def __init__(self, **kwargs):
                 captured.update(kwargs)
 
-        monkeypatch.setattr("zotero_cli.core.notes.client.OpenAI", FakeOpenAI)
+        monkeypatch.setattr("zotero_cli.ai_notes.client.OpenAI", FakeOpenAI)
         config = _make_ai_config()
         config.timeout_seconds = 45.0
         config.max_retries = 1
@@ -1163,7 +1163,7 @@ class TestAiClientBounds:
             def __init__(self, **kwargs):
                 captured.update(kwargs)
 
-        monkeypatch.setattr("zotero_cli.core.notes.client.OpenAI", FakeOpenAI)
+        monkeypatch.setattr("zotero_cli.ai_notes.client.OpenAI", FakeOpenAI)
         AiClient(_make_ai_config())
         assert captured["timeout"] == 300.0
         assert captured["max_retries"] == 2
@@ -1325,7 +1325,7 @@ class TestFigureCapAnnotation:
             '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
             _sections_json(12),
         ]
-        with patch("zotero_cli.core.notes.pipeline.MinerUParseCache.ensure_many", return_value={att.path: parsed}):
+        with patch("zotero_cli.ai_notes.pipeline.MinerUParseCache.ensure_many", return_value={att.path: parsed}):
             result = analyze_item(reader, writer, ai_client, "ABC123", no_short_note=True)
         assert result["status"] == "ok"
         assert len(ai_client.chat.call_args.kwargs["figures"]) == 20

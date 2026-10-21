@@ -27,7 +27,7 @@ def attach(
     ctx: typer.Context,
     key: str = typer.Argument(help="父条目的 Zotero 键。"),
     file_path: Path = typer.Option(..., "--file", exists=True, dir_okay=False, help="上传的本地文件。"),
-    dry_run: bool = typer.Option(False, help="仅预览，不调用 Web API。"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="仅预览，不调用 Web API。"),
     idempotency_key: str | None = typer.Option(None, help="重复请求复用已确认的结果；未知写入需先核对。"),
 ) -> None:
     """将本地文件上传为 Zotero 条目附件；非预览模式会写入库。"""

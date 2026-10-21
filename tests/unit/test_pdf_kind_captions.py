@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from zotero_cli.core.rag import CaptionCounts, PdfDocument, caption_counts, resolve_pdf_kinds
+from zotero_cli.workspace.rag import CaptionCounts, PdfDocument, caption_counts, resolve_pdf_kinds
 
 # Article front matter: what keeps a document out of the "supplementary" role.
 _FRONT_MATTER = "Abstract: aqueous zinc batteries. \n1. Introduction\n"

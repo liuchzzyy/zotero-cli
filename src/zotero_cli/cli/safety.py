@@ -29,15 +29,13 @@ SAFETY_TIERS: dict[tuple[str, ...], str] = {
     # read-only commands
     ("config",): READ,
     ("zotero",): READ,
-    ("summarize",): READ,
-    ("summarize-all",): READ,
-    ("pdf",): READ,
+    ("metadata",): READ,
+    ("ai-pdf",): READ,
+    ("ai-note",): WRITE,
     ("completions",): READ,
     ("workspace",): READ,
     ("schema",): READ,
-    # 尚未迁移的派生命令
-    ("ai_analyze",): WRITE,
-    ("update-status",): DESTRUCTIVE,
+    ("metadata", "update-status"): WRITE,
     # Zotero 基础库写入及破坏性命令
     ("zotero", "add"): WRITE,
     ("zotero", "attach"): WRITE,

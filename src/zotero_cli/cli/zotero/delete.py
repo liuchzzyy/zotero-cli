@@ -33,8 +33,8 @@ PERMANENT_DELETE_WARNING = (
 def delete_cmd(
     ctx: typer.Context,
     keys: list[str] = typer.Argument(..., help="要永久删除的条目键。"),
-    yes: bool = typer.Option(False, help="明确确认永久删除。"),
-    dry_run: bool = typer.Option(False, help="仅预览永久删除，不发起写入。"),
+    yes: bool = typer.Option(False, "--yes", help="明确确认永久删除。"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="仅预览永久删除，不发起写入。"),
     idempotency_key: str | None = typer.Option(None, help="防止结果未知时重复删除的幂等键。"),
 ) -> None:
     """通过 Web API 永久删除条目，不会移入回收站，也无法恢复。"""

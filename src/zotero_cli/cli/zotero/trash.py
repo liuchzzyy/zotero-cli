@@ -52,7 +52,7 @@ def trash_list_cmd(ctx: typer.Context, limit: int | None = typer.Option(None, he
 def trash_restore_cmd(
     ctx: typer.Context,
     keys: list[str] = typer.Argument(..., help="要从回收站恢复的条目键。"),
-    dry_run: bool = typer.Option(False, help="只预览，不发起写入。"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="只预览，不发起写入。"),
 ) -> None:
     """通过 Web API 恢复回收站条目；永久删除的条目无法恢复。"""
     cfg = load_config(profile=ctx.obj.get("profile"))

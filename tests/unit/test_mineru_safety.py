@@ -14,7 +14,7 @@ from requests import PreparedRequest, Response, Session
 from requests.adapters import BaseAdapter
 
 from zotero_cli import config
-from zotero_cli.core.mineru import MinerUClient, MinerUError, MinerUParseCache, MinerUParseResult, file_sha256
+from zotero_cli.ai_pdf import MinerUClient, MinerUError, MinerUParseCache, MinerUParseResult, file_sha256
 
 _API_BASE = "https://mineru.example.invalid/api/v4"
 _TOKEN = "test-only-mineru-token"

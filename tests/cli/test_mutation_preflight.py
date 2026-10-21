@@ -75,7 +75,7 @@ def test_add_unsupported_idempotency_combination_fails_before_services(
     cache_write = Mock()
     monkeypatch.setattr("zotero_cli.cli.zotero.add.ZoteroWriter", writer)
     monkeypatch.setattr("zotero_cli.cli.zotero.add.resolve_doi", resolver)
-    monkeypatch.setattr("zotero_cli.core.mineru.MinerUParseCache", parser)
+    monkeypatch.setattr("zotero_cli.ai_pdf.MinerUParseCache", parser)
     monkeypatch.setattr(idempotency, "get_cached", cache_read)
     monkeypatch.setattr(idempotency, "store_cached", cache_write)
     args = ["--json" if json_output else "--no-json", "zotero", "add", source, str(path), "--idempotency-key", "retry"]

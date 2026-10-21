@@ -296,7 +296,7 @@ class TestCacheCommands:
     def test_cache_list_empty(self):
         cache = MagicMock()
         cache.entries.return_value = []
-        with patch("zotero_cli.core.mineru.MinerUParseCache", return_value=cache):
+        with patch("zotero_cli.ai_pdf.MinerUParseCache", return_value=cache):
             result = _invoke(["config", "cache", "list"])
         assert result.exit_code == 0
         assert "Cache is empty." in result.output
@@ -311,7 +311,7 @@ class TestCacheCommands:
                 "parsed_at": "2024-01-15T10:30:00+00:00",
             }
         ]
-        with patch("zotero_cli.core.mineru.MinerUParseCache", return_value=cache):
+        with patch("zotero_cli.ai_pdf.MinerUParseCache", return_value=cache):
             result = _invoke(["config", "cache", "list"])
         assert result.exit_code == 0
         assert "paper1.pdf" in result.output
@@ -326,7 +326,7 @@ class TestCacheCommands:
             "parsed_at": "2024-06-01T08:00:00+00:00",
         }
         cache.entries.return_value = [entry]
-        with patch("zotero_cli.core.mineru.MinerUParseCache", return_value=cache):
+        with patch("zotero_cli.ai_pdf.MinerUParseCache", return_value=cache):
             result = _invoke(["--json", "config", "cache", "list"])
         assert result.exit_code == 0
         data = json.loads(result.output)["data"]
@@ -334,7 +334,7 @@ class TestCacheCommands:
 
     def test_cache_list_reports_initialization_error_without_secondary_exception(self):
         with patch(
-            "zotero_cli.core.mineru.MinerUParseCache",
+            "zotero_cli.ai_pdf.MinerUParseCache",
             side_effect=OSError("cache unavailable"),
         ):
             result = _invoke(["config", "cache", "list"])
@@ -344,7 +344,7 @@ class TestCacheCommands:
     def test_cache_clear_requires_yes(self):
         cache = MagicMock()
         cache.stats.return_value = {"entries": 3, "total_bytes": 1234}
-        with patch("zotero_cli.core.mineru.MinerUParseCache", return_value=cache):
+        with patch("zotero_cli.ai_pdf.MinerUParseCache", return_value=cache):
             result = _invoke(["--json", "config", "cache", "clear"])
         assert result.exit_code == 3, result.output
         envelope = json.loads(result.output)
@@ -354,7 +354,7 @@ class TestCacheCommands:
     def test_cache_clear_dry_run_json(self):
         cache = MagicMock()
         cache.stats.return_value = {"entries": 3, "total_bytes": 1234}
-        with patch("zotero_cli.core.mineru.MinerUParseCache", return_value=cache):
+        with patch("zotero_cli.ai_pdf.MinerUParseCache", return_value=cache):
             result = _invoke(["--json", "config", "cache", "clear", "--dry-run"])
         assert result.exit_code == 0, result.output
         envelope = json.loads(result.output)
@@ -368,7 +368,7 @@ class TestCacheCommands:
         cache = MagicMock()
         cache.stats.return_value = {"entries": 3, "total_bytes": 1234}
         cache.clear.return_value = 3
-        with patch("zotero_cli.core.mineru.MinerUParseCache", return_value=cache):
+        with patch("zotero_cli.ai_pdf.MinerUParseCache", return_value=cache):
             result = _invoke(["--json", "config", "cache", "clear", "--yes"])
         assert result.exit_code == 0, result.output
         envelope = json.loads(result.output)
@@ -378,7 +378,7 @@ class TestCacheCommands:
     def test_cache_stats_json(self):
         cache = MagicMock()
         cache.stats.return_value = {"entries": 4, "total_bytes": 5678}
-        with patch("zotero_cli.core.mineru.MinerUParseCache", return_value=cache):
+        with patch("zotero_cli.ai_pdf.MinerUParseCache", return_value=cache):
             result = _invoke(["--json", "config", "cache", "stats"])
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)["data"]
@@ -668,7 +668,7 @@ class TestCacheListLimits:
     def test_default_limit_bounds_json_output(self):
         cache = MagicMock()
         cache.entries.return_value = _cache_entries(250)
-        with patch("zotero_cli.core.mineru.MinerUParseCache", return_value=cache):
+        with patch("zotero_cli.ai_pdf.MinerUParseCache", return_value=cache):
             result = _invoke(["--json", "config", "cache", "list"])
         assert result.exit_code == 0, result.output
         envelope = json.loads(result.output)
@@ -681,7 +681,7 @@ class TestCacheListLimits:
     def test_limit_zero_lists_all(self):
         cache = MagicMock()
         cache.entries.return_value = _cache_entries(250)
-        with patch("zotero_cli.core.mineru.MinerUParseCache", return_value=cache):
+        with patch("zotero_cli.ai_pdf.MinerUParseCache", return_value=cache):
             result = _invoke(["--json", "config", "cache", "list", "--limit", "0"])
         assert result.exit_code == 0, result.output
         envelope = json.loads(result.output)
@@ -691,7 +691,7 @@ class TestCacheListLimits:
     def test_custom_limit(self):
         cache = MagicMock()
         cache.entries.return_value = _cache_entries(250)
-        with patch("zotero_cli.core.mineru.MinerUParseCache", return_value=cache):
+        with patch("zotero_cli.ai_pdf.MinerUParseCache", return_value=cache):
             result = _invoke(["--json", "config", "cache", "list", "--limit", "7"])
         assert result.exit_code == 0, result.output
         envelope = json.loads(result.output)
@@ -700,7 +700,7 @@ class TestCacheListLimits:
     def test_human_output_announces_truncation(self):
         cache = MagicMock()
         cache.entries.return_value = _cache_entries(250)
-        with patch("zotero_cli.core.mineru.MinerUParseCache", return_value=cache):
+        with patch("zotero_cli.ai_pdf.MinerUParseCache", return_value=cache):
             result = _invoke(["--no-json", "config", "cache", "list"])
         assert result.exit_code == 0, result.output
         assert "Showing 100 of 250" in result.output
@@ -711,7 +711,7 @@ class TestCacheClearEnvelope:
         cache = MagicMock()
         cache.stats.return_value = {"entries": 3, "total_bytes": 1234}
         cache.clear.return_value = 3
-        with patch("zotero_cli.core.mineru.MinerUParseCache", return_value=cache):
+        with patch("zotero_cli.ai_pdf.MinerUParseCache", return_value=cache):
             result = _invoke(["--json", "config", "cache", "clear", "--yes"])
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)["data"]
@@ -721,7 +721,7 @@ class TestCacheClearEnvelope:
     def test_dry_run_keeps_would_remove_marker(self):
         cache = MagicMock()
         cache.stats.return_value = {"entries": 3, "total_bytes": 1234}
-        with patch("zotero_cli.core.mineru.MinerUParseCache", return_value=cache):
+        with patch("zotero_cli.ai_pdf.MinerUParseCache", return_value=cache):
             result = _invoke(["--json", "config", "cache", "clear", "--dry-run"])
         assert result.exit_code == 0, result.output
         envelope = json.loads(result.output)

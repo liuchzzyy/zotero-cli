@@ -6,9 +6,9 @@ import pytest
 from qdrant_client.models import Distance, VectorParams
 
 from zotero_cli.config import VectorStoreConfig
-from zotero_cli.core.rag import weighted_reciprocal_rank_fusion
-from zotero_cli.core.rag.index import RagIndex
-from zotero_cli.core.rag.vector_store import (
+from zotero_cli.workspace.rag import weighted_reciprocal_rank_fusion
+from zotero_cli.workspace.rag.index import RagIndex
+from zotero_cli.workspace.rag.vector_store import (
     MANAGED_STORE_MARKER,
     QdrantVectorStore,
     drop_collection,
@@ -58,7 +58,7 @@ def test_qdrant_empty_collection_search(tmp_path):
 
 
 def test_resolve_vector_store_path_relative(tmp_path, monkeypatch):
-    monkeypatch.setattr("zotero_cli.core.rag.vector_store.data_root", lambda: tmp_path)
+    monkeypatch.setattr("zotero_cli.workspace.rag.vector_store.data_root", lambda: tmp_path)
     cfg = VectorStoreConfig(path=".workspace/_qdrant")
     assert resolve_vector_store_path(cfg) == tmp_path / ".workspace" / "_qdrant"
 

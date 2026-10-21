@@ -1,6 +1,6 @@
 # `zotero-cli` 重构方案
 
-> 状态：已确认重建方向，本文记录实施计划；不包含业务代码或数据改动。
+> 状态：区块一与区块二 A/B/C/D 已完成；实际用户数据重建、迁移与清理均未执行。
 >
 > 审查日期：2026-10-20
 
@@ -57,8 +57,8 @@ uv run pytest -q
 | --- | --- | --- |
 | `commands/items/`、`collections/`、`attachments/attach.py`、`notes/note.py` | Zotero 基础条目、集合、标签、附件与笔记命令当前散落在顶层 | 区块一：`zot zotero ...` |
 | `core/zotero/reader.py`、`writer.py` | 本地只读与远程写入实现已存在，读取器约 1,347 行 | 区块一：按读写职责整理，保留安全不变量 |
-| `commands/attachments/pdf.py`、`commands/notes/ai_analyze.py` | 读取 Zotero 条目后调用 MinerU 或模型 | 区块二：`ai_pdf` 与 AI 笔记 |
-| `commands/workspace/`、`core/rag/`、`core/workspace_store.py` | workspace 与索引跨越 CLI、文件、检索实现 | 区块二：workspace 与检索 |
+| `commands/attachments/pdf.py`、`commands/notes/ai_analyze.py` | 读取 Zotero 条目后调用 MinerU 或模型 | 区块二：`ai_pdf` 与 AI 笔记（已迁移） |
+| `cli/workspace/`、`workspace/rag/`、`workspace/store.py` | workspace 与索引跨越 CLI、文件、检索实现 | 区块二：workspace 与检索（已迁移） |
 | `config/loaders.py`、`output/`、`cli/` | 配置、契约和框架是基础命令运行所需横切能力 | 区块一先完成最小可用部分，后续随功能扩展 |
 | `tools/` | 批处理助手包含业务代码和测试 | 本轮保留现状，不迁入 `zot`，也不改动其行为 |
 
@@ -139,7 +139,7 @@ tests/
 4. 未迁移功能标记为“旧路径待迁移”。某功能迁移完成时，同一变更更新其调用方、测试、README、skill 与命令示例，并删除或改写旧命令和实现，不长期双轨运行。
 5. 本计划不授权修改用户数据。涉及现有配置、缓存、workspace、manifest、索引或产物的迁移、覆盖、失效和删除，必须先说明影响并取得确认。
 
-### 4.2 区块一：`zot zotero` 基础读写
+### 4.2 区块一：`zot zotero` 基础读写（已完成）
 
 **目标**：在一个可运行的 Typer 命令组中交付所有直接对接 Zotero 的基础条目、集合、标签、附件、PDF、笔记和引文能力。区块内包含最小 `zot` 根入口、`.zot/` 配置读取、输出/错误边界以及基础读写实现；MinerU 解析、模型生成和 workspace/RAG 留给区块二。
 
@@ -154,19 +154,19 @@ tests/
 
 每个子区块独立完成自己的 Python 能力、Typer 命令、相关测试和说明；不得把它们推迟到后续统一迁移 CLI。全部命令仍通过 `zot` 入口提供。
 
-#### A：`ai_pdf` / MinerU
+#### A：`ai_pdf` / MinerU（已完成）
 
 迁移基于 Zotero PDF 的 MinerU 调用、解析包缓存、结构化内容和结果呈现。基础 PDF 的选择、附件读取与写入已在区块一完成；本子区块只处理外部 AI PDF 解析。建立 `zot ai-pdf ...` 命令，用临时 `.zot/cache/`、假客户端和 fixture PDF 验证；缓存失效或重建若影响现有产物，先确认。为 AI 笔记和 workspace 提供可复用的 Python 解析结果。
 
-#### B：AI 笔记
+#### B：AI 笔记（已完成）
 
-迁移 AI 分析、证据构建、模型调用、笔记渲染及通过 Web API 写回（建议 `zot ai-note ...`）。测试覆盖预检、模型/网络失败、dry-run、幂等和提交状态；dry-run 不得远程写入，未知写入结果不得盲重试。`summarize` 与 `summarize-all` 不归入本子区块，而是作为 Zotero 元数据功能归入二 D。
+已将 AI 分析、证据构建、模型调用、笔记渲染及通过 Web API 写回迁移至 `ai_notes` 包和 `zot ai-note ...`。测试覆盖预检、模型/网络失败、dry-run、幂等和提交状态；dry-run 不得远程写入，未知写入结果不得盲重试。`summarize` 与 `summarize-all` 不归入本子区块，而是作为 Zotero 元数据功能归入二 D。
 
-#### C：workspace / RAG
+#### C：workspace / RAG（已完成）
 
 迁移 workspace 创建、成员管理、导入导出、索引、嵌入和检索查询（建议 `zot workspace ...`），复用区块一读取能力与 A 的 `ai_pdf` 解析结果。索引必须先成功解析并建立替代结果再替换可用索引；只清理本工具创建的数据。既有 workspace manifest、RAG 索引和向量缓存不迁移，按已确认决策失效后重建；实际清理前必须输出受影响路径并取得该次执行的明确确认。
 
-#### D：Zotero 元数据与正式流水线
+#### D：Zotero 元数据与正式流水线（已完成）
 
 迁移面向 Zotero 元数据的跨条目处理与正式用户流水线（建议 `zot metadata ...`）。`summarize`、`summarize-all` 与 `update-status` 均归入此区块：前两者按新的元数据生成/更新工作流重建，后者默认预览，只有显式 `--apply` 才写入。须覆盖部分成功、幂等、恢复点与未知写入结果。现有 `tools/ainote`、`tools/paper2zotero`、`tools/paperrag` 不属于本轮迁移范围，保留其当前入口、实现和测试，不纳入 `zot metadata` 或其他新命令。
 
@@ -183,10 +183,10 @@ tests/
 | 基础 PDF 选择、读取、导出与附加写入 | 区块一 `zot zotero pdf ...` | 不调用 MinerU，不进行 AI PDF 内容解析 |
 | `commands/notes/note.py` | 区块一基础笔记 | 不含模型生成 |
 | `commands/attachments/pdf.py`、MinerU 解析与缓存 | 区块二 A `zot ai-pdf ...` | 仅处理 AI PDF 解析；用户缓存处置需确认 |
-| `commands/notes/ai_analyze.py`、AI 生成和写回 | 区块二 B | dry-run、幂等、提交状态需覆盖测试 |
+| `commands/notes/ai_analyze.py`、AI 生成和写回 | 区块二 B `zot ai-note` / `ai_notes` | 已迁移；保留 dry-run、幂等与提交状态测试 |
 | `summarize`、`summarize-all` | 区块二 D `zot metadata ...` | 确认作为 Zotero 元数据生成/更新功能重建 |
-| `commands/workspace/`、`core/rag/`、`core/workspace_store.py` | 区块二 C | workspace/RAG 一体迁移；既有 manifest、索引和向量数据失效后重建 |
-| `update-status` | 区块二 D `zot metadata update-status` | 确认默认预览、显式 `--apply` 写入，并保留部分成功语义 |
+| `cli/workspace/`、`workspace/rag/`、`workspace/store.py` | 区块二 C `zot workspace` | 已迁移；替代索引构建成功后才原子替换现有索引；未重建任何用户数据 |
+| `update-status` | 区块二 D `zot metadata update-status` | 已迁移；默认预览、显式 `--apply` 写入，并保留部分成功语义 |
 | `tools/ainote` | 本轮不处理 | 保留当前入口、实现、测试与本机状态；不迁入 `zot` 命令 |
 | `tools/paper2zotero` | 本轮不处理 | 保留当前入口、实现、测试与本机状态；不迁入 `zot` 命令 |
 | `tools/paperrag` | 本轮不处理 | 保留当前入口、实现、测试与本机状态；不迁入 workspace/RAG 命令 |
