@@ -7,7 +7,7 @@ import json
 from tests.support import FIXTURES_DIR
 from tests.support import invoke_cli as _invoke
 
-from zotero_cli.core.zotero.reader import ZoteroReader
+from zotero_cli.zotero.reader import ZoteroReader
 
 
 class TestGroupReader:
@@ -102,14 +102,14 @@ class TestGroupReader:
 
 class TestGroupCLI:
     def test_library_option_user(self):
-        result = _invoke(["--library", "user", "search", "attention"], json_output=True)
+        result = _invoke(["--library", "user", "zotero", "search", "attention"], json_output=True)
         assert result.exit_code == 0
         data = json.loads(result.output)["data"]
         keys = [i["key"] for i in data]
         assert "ATTN001" in keys
 
     def test_library_option_group(self):
-        result = _invoke(["--library", "group:99999", "search", ""], json_output=True)
+        result = _invoke(["--library", "group:99999", "zotero", "search", ""], json_output=True)
         assert result.exit_code == 0
         data = json.loads(result.output)["data"]
         keys = [i["key"] for i in data]

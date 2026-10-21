@@ -381,7 +381,7 @@ class ZoteroReader(CitationExportMixin):
                 item_ids &= col_item_ids
             else:
                 raise ValueError(
-                    f"Collection '{collection}' not found. Use 'zot collection list' to see available names."
+                    f"Collection '{collection}' not found. Use 'zot zotero collection list' to see available names."
                 )
 
         # Filter by item type (batched to respect SQLite's variable limit)
@@ -1059,7 +1059,7 @@ class ZoteroReader(CitationExportMixin):
                 item_ids &= {r["itemID"] for r in col_items}
             else:
                 raise ValueError(
-                    f"Collection '{collection}' not found. Use 'zot collection list' to see available names."
+                    f"Collection '{collection}' not found. Use 'zot zotero collection list' to see available names."
                 )
 
         target_ids = sorted(item_ids)[:limit]

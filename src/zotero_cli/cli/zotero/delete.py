@@ -1,4 +1,4 @@
-"""zot delete: PERMANENTLY delete items through the Web API (irreversible)."""
+"""通过 Web API 永久删除条目。"""
 
 from __future__ import annotations
 
@@ -6,8 +6,9 @@ import json
 import sqlite3
 import sys
 
-import click
+import typer
 
+from zotero_cli.cli.zotero.reading import app
 from zotero_cli.config import load_config, resolve_write_credentials
 from zotero_cli.core.zotero.idempotency import (
     PendingMutationError,
@@ -24,45 +25,28 @@ from zotero_cli.output.exit_codes import emit_error, exit_code_for
 
 PERMANENT_DELETE_WARNING = (
     "Permanently deleted remotely. Zotero's Web API DELETE is irreversible: the item is not moved to "
-    "the Zotero trash, and 'zot trash restore' cannot recover it."
+    "the Zotero trash, and 'zot zotero trash restore' cannot recover it."
 )
 
 
-@click.command("delete")
-@click.argument("keys", nargs=-1, required=True)
-@click.option("--yes", is_flag=True, help="Skip confirmation")
-@click.option("--dry-run", is_flag=True, help="Show what would be permanently deleted without executing")
-@click.option("--idempotency-key", default=None, help="Key so retries are safe; same key returns the original result")
-@click.pass_context
+@app.command(name="delete")
 def delete_cmd(
-    ctx: click.Context,
-    keys: tuple[str, ...],
-    yes: bool,
-    dry_run: bool,
-    idempotency_key: str | None,
+    ctx: typer.Context,
+    keys: list[str] = typer.Argument(..., help="要永久删除的条目键。"),
+    yes: bool = typer.Option(False, help="明确确认永久删除。"),
+    dry_run: bool = typer.Option(False, help="仅预览永久删除，不发起写入。"),
+    idempotency_key: str | None = typer.Option(None, help="防止结果未知时重复删除的幂等键。"),
 ) -> None:
-    """Permanently delete one or more items. MUTATES LIBRARY; IRREVERSIBLE.
-
-    Zotero's Web API DELETE permanently removes the item on the server. It does
-    not move the item to the Zotero trash, and 'zot trash restore' cannot bring
-    it back. The local database only reflects the removal after Zotero Desktop
-    syncs.
-
-    \b
-    Examples:
-      zot delete ABC123 --yes
-      zot --json delete KEY1 KEY2 --yes
-      zot delete ABC123 --dry-run
-    """
+    """通过 Web API 永久删除条目，不会移入回收站，也无法恢复。"""
     cfg = load_config(profile=ctx.obj.get("profile"))
     json_out = ctx.obj.get("json", False)
     if dry_run:
         data = {"would_delete": list(keys), "count": len(keys), "permanent": True}
         if json_out:
-            click.echo(json.dumps(envelope_ok(data, dry_run=True), indent=2, ensure_ascii=False))
+            typer.echo(json.dumps(envelope_ok(data, dry_run=True), indent=2, ensure_ascii=False))
         else:
             for key in keys:
-                click.echo(f"[dry-run] Would permanently delete item '{key}' (irreversible)")
+                typer.echo(f"[dry-run] Would permanently delete item '{key}' (irreversible)")
         return
     library_type = ctx.obj.get("library_type", "user")
     group_id = ctx.obj.get("group_id")
@@ -75,8 +59,7 @@ def delete_cmd(
             hint="Run 'zot config init' to set up API credentials",
             context="delete",
         )
-    # Destructive commands require explicit --yes. --no-interaction never
-    # authorizes permanent deletion.
+    # 必须明确传入 --yes；非交互模式不能代替永久删除确认。
     if not yes:
         if ctx.obj.get("no_interaction", False) or not sys.stdin.isatty():
             emit_error(
@@ -88,11 +71,11 @@ def delete_cmd(
                 context="delete",
             )
         label = ", ".join(keys)
-        if not click.confirm(f"Permanently delete {len(keys)} item(s): {label}? This cannot be undone."):
+        if not typer.confirm(f"Permanently delete {len(keys)} item(s): {label}? This cannot be undone."):
             if json_out:
-                click.echo(json.dumps(envelope_ok({"cancelled": True, "permanent": True}), indent=2))
+                typer.echo(json.dumps(envelope_ok({"cancelled": True, "permanent": True}), indent=2))
             else:
-                click.echo("Cancelled.", err=True)
+                typer.echo("Cancelled.", err=True)
             return
 
     cache_scope = request_scope("delete", library_type, str(library_id), sorted(keys))
@@ -119,9 +102,9 @@ def delete_cmd(
             )
         if cached is not None:
             if json_out:
-                click.echo(json.dumps(cached, indent=2, ensure_ascii=False))
+                typer.echo(json.dumps(cached, indent=2, ensure_ascii=False))
             else:
-                click.echo(f"Deleted {len(keys)} item(s) permanently (cached).")
+                typer.echo(f"Deleted {len(keys)} item(s) permanently (cached).")
             return
 
     writer = ZoteroWriter(library_id=library_id, api_key=api_key, library_type=library_type)
@@ -133,7 +116,7 @@ def delete_cmd(
             writer.delete_item(key)
             succeeded.append(key)
             if not json_out:
-                click.echo(f"Item '{key}' permanently deleted.")
+                typer.echo(f"Item '{key}' permanently deleted.")
         except ZoteroWriteError as e:
             rejected = False
             if idempotency_key:
@@ -156,7 +139,7 @@ def delete_cmd(
                 }
             )
             if not json_out:
-                click.echo(f"Error: permanent delete failed for '{key}': {e}", err=True)
+                typer.echo(f"Error: permanent delete failed for '{key}': {e}", err=True)
     retry_blocked = bool(
         idempotency_key and failed and not (rejected_count == len(failed) and all(not f["committed"] for f in failed))
     )
@@ -174,12 +157,12 @@ def delete_cmd(
             try:
                 store_cached(cache_scope, idempotency_key, env)
             except (OSError, sqlite3.Error) as exc:
-                click.echo(f"Warning: delete result could not be cached: {exc}", err=True)
+                typer.echo(f"Warning: delete result could not be cached: {exc}", err=True)
         if json_out:
-            click.echo(json.dumps(env, indent=2, ensure_ascii=False))
+            typer.echo(json.dumps(env, indent=2, ensure_ascii=False))
         else:
-            click.echo(PERMANENT_DELETE_WARNING, err=True)
-            click.echo(SYNC_REMINDER, err=True)
+            typer.echo(PERMANENT_DELETE_WARNING, err=True)
+            typer.echo(SYNC_REMINDER, err=True)
         return
 
     first = failed[0]
@@ -194,9 +177,9 @@ def delete_cmd(
             },
         )
         if json_out:
-            click.echo(json.dumps(env, indent=2, ensure_ascii=False))
+            typer.echo(json.dumps(env, indent=2, ensure_ascii=False))
         else:
-            click.echo(f"Permanently deleted {len(succeeded)} item(s); {len(failed)} failed.", err=True)
+            typer.echo(f"Permanently deleted {len(succeeded)} item(s); {len(failed)} failed.", err=True)
         raise SystemExit(exit_code)
     committed_extra = {"committed": True} if first["committed"] else {}
     env = envelope_error(
@@ -213,5 +196,5 @@ def delete_cmd(
         context="delete",
     )
     if json_out:
-        click.echo(json.dumps(env, indent=2, ensure_ascii=False))
+        typer.echo(json.dumps(env, indent=2, ensure_ascii=False))
     raise SystemExit(exit_code)

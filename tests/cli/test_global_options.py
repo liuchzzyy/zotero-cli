@@ -20,7 +20,7 @@ _WRITE_ENV = {"ZOT_LIBRARY_ID": "abc", "ZOT_API_KEY": "xyz"}
 def test_delete_no_interaction_requires_yes():
     """--no-interaction never implies --yes for destructive commands (H-05)."""
     runner = CliRunner()
-    result = runner.invoke(main, ["--json", "--no-interaction", "delete", "FAKEKEY"], env=_WRITE_ENV)
+    result = runner.invoke(main, ["--json", "--no-interaction", "zotero", "delete", "FAKEKEY"], env=_WRITE_ENV)
     assert result.exit_code == 3
     envelope = json.loads(result.stdout)
     assert envelope["error"]["code"] == "confirmation_required"
@@ -30,7 +30,7 @@ def test_delete_no_interaction_requires_yes():
 def test_delete_no_interaction_hoisted_after_subcommand():
     """The global --no-interaction flag is hoisted from after the subcommand too."""
     runner = CliRunner()
-    result = runner.invoke(main, ["--json", "delete", "FAKEKEY", "--no-interaction"], env=_WRITE_ENV)
+    result = runner.invoke(main, ["--json", "zotero", "delete", "FAKEKEY", "--no-interaction"], env=_WRITE_ENV)
     assert result.exit_code == 3
     envelope = json.loads(result.stdout)
     assert envelope["error"]["code"] == "confirmation_required"
@@ -40,7 +40,7 @@ def test_detail_flag_hoisted_after_subcommand(test_db_path):
     runner = CliRunner()
     result = runner.invoke(
         main,
-        ["--json", "list", "--detail", "minimal", "--limit", "1"],
+        ["--json", "zotero", "list", "--detail", "minimal", "--limit", "1"],
         env={"ZOT_DATA_DIR": str(test_db_path.parent)},
     )
     assert result.exit_code == 0, result.output
@@ -93,7 +93,7 @@ def test_detail_minimal_flag():
 
 def test_detail_invalid_value():
     runner = CliRunner()
-    result = runner.invoke(main, ["--detail", "invalid", "search", "test"])
+    result = runner.invoke(main, ["--detail", "invalid", "zotero", "search", "test"])
     assert result.exit_code != 0
 
 
@@ -124,16 +124,16 @@ def test_detail_missing_value_reports_flag_error_without_swallowing_tokens(test_
     env = {"ZOT_DATA_DIR": str(test_db_path.parent)}
     runner = CliRunner()
     for args in (
-        ["--json", "list", "--detail"],
-        ["list", "--detail", "--json"],
-        ["--detail", "--json", "list"],
+        ["--json", "zotero", "list", "--detail"],
+        ["zotero", "list", "--detail", "--json"],
+        ["--detail", "--json", "zotero", "list"],
     ):
         result = runner.invoke(main, args, env=env)
         assert result.exit_code == 3, (args, result.output)
         envelope = json.loads(result.stdout)
         assert envelope["error"]["code"] == "validation_error"
         message = envelope["error"]["message"]
-        assert "'--detail'" in message
+        assert "detail" in message
         # The subcommand name must not be reported as the bad --detail value.
         assert "'list'" not in message, message
 

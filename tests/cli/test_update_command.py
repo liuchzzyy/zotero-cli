@@ -27,29 +27,30 @@ def _parse_json_output(output: str) -> dict:
 
 
 class TestUpdateCommand:
-    @patch("zotero_cli.commands.items.update.ZoteroWriter")
+    @patch("zotero_cli.cli.zotero.update.ZoteroWriter")
     def test_update_title(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
-        result = _invoke(["update", "ATTN001", "--title", "New Title"])
+        result = _invoke(["zotero", "update", "ATTN001", "--title", "New Title"])
         assert result.exit_code == 0
         mock_writer.update_item.assert_called_once_with("ATTN001", {"title": "New Title"})
         assert "Updated" in result.output
 
-    @patch("zotero_cli.commands.items.update.ZoteroWriter")
+    @patch("zotero_cli.cli.zotero.update.ZoteroWriter")
     def test_update_date(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
-        result = _invoke(["update", "ATTN001", "--date", "2025-01-01"])
+        result = _invoke(["zotero", "update", "ATTN001", "--date", "2025-01-01"])
         assert result.exit_code == 0
         mock_writer.update_item.assert_called_once_with("ATTN001", {"date": "2025-01-01"})
 
-    @patch("zotero_cli.commands.items.update.ZoteroWriter")
+    @patch("zotero_cli.cli.zotero.update.ZoteroWriter")
     def test_update_multiple_fields(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
         result = _invoke(
             [
+                "zotero",
                 "update",
                 "ATTN001",
                 "--title",
@@ -66,36 +67,38 @@ class TestUpdateCommand:
             {"title": "New Title", "date": "2025-01-01", "abstractNote": "New abstract"},
         )
 
-    @patch("zotero_cli.commands.items.update.ZoteroWriter")
+    @patch("zotero_cli.cli.zotero.update.ZoteroWriter")
     def test_update_field_option(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
-        result = _invoke(["update", "ATTN001", "--field", "volume=42"])
+        result = _invoke(["zotero", "update", "ATTN001", "--field", "volume=42"])
         assert result.exit_code == 0
         mock_writer.update_item.assert_called_once_with("ATTN001", {"volume": "42"})
 
     def test_update_no_fields(self):
-        result = _invoke(["update", "ATTN001"])
+        result = _invoke(["zotero", "update", "ATTN001"])
         assert result.exit_code != 0
         assert "No fields" in result.output
 
     def test_update_no_credentials(self):
         runner = CliRunner()
         env = {"ZOT_DATA_DIR": str(FIXTURES_DIR), "ZOT_LIBRARY_ID": "", "ZOT_API_KEY": "", "ZOT_FORMAT": "table"}
-        result = runner.invoke(main, ["update", "ATTN001", "--title", "X"], env=env)
+        result = runner.invoke(main, ["zotero", "update", "ATTN001", "--title", "X"], env=env)
         assert result.exit_code != 0
         assert "credentials" in result.output.lower() or "config" in result.output.lower()
 
     def test_update_invalid_field_format(self):
-        result = _invoke(["update", "ATTN001", "--field", "no_equals_sign"])
+        result = _invoke(["zotero", "update", "ATTN001", "--field", "no_equals_sign"])
         assert result.exit_code != 0
         assert "Invalid" in result.output or "key=value" in result.output
 
-    @patch("zotero_cli.commands.items.update.ZoteroWriter")
+    @patch("zotero_cli.cli.zotero.update.ZoteroWriter")
     def test_update_json_output(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
-        result = _invoke(["update", "ATTN001", "--title", "New", "--add-tag", "update/metadata"], json_output=True)
+        result = _invoke(
+            ["zotero", "update", "ATTN001", "--title", "New", "--add-tag", "update/metadata"], json_output=True
+        )
         assert result.exit_code == 0
         data = json.loads(result.output)["data"]
         assert data["key"] == "ATTN001"
@@ -103,17 +106,17 @@ class TestUpdateCommand:
         assert data["tags_added"] == ["update/metadata"]
         assert data["sync_required"] is True
 
-    @patch("zotero_cli.commands.items.update.ZoteroWriter")
+    @patch("zotero_cli.cli.zotero.update.ZoteroWriter")
     def test_update_api_error(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
         mock_writer.update_item.side_effect = ZoteroWriteError("Item 'X' not found")
-        result = _invoke(["update", "X", "--title", "Y"])
+        result = _invoke(["zotero", "update", "X", "--title", "Y"])
         assert result.exit_code != 0
         assert "not found" in result.output
 
     def test_update_schema_includes_from_jsonl(self):
-        result = _invoke(["schema", "update"], json_output=True)
+        result = _invoke(["schema", "zotero", "update"], json_output=True)
         assert result.exit_code == 0
         env = json.loads(result.output)
         params = {p["name"]: p for p in env["data"]["params"]}
@@ -122,7 +125,7 @@ class TestUpdateCommand:
         assert "add_tags" in params
         assert "--add-tag" in params["add_tags"]["flags"]
 
-    @patch("zotero_cli.commands.items.update.ZoteroWriter")
+    @patch("zotero_cli.cli.zotero.update.ZoteroWriter")
     def test_update_from_jsonl_dry_run(self, mock_writer_cls, tmp_path):
         path = tmp_path / "updates.jsonl"
         path.write_text(
@@ -130,7 +133,8 @@ class TestUpdateCommand:
             encoding="utf-8",
         )
         result = _invoke(
-            ["update", "--from-jsonl", str(path), "--add-tag", "update/metadata", "--dry-run"], json_output=True
+            ["zotero", "update", "--from-jsonl", str(path), "--add-tag", "update/metadata", "--dry-run"],
+            json_output=True,
         )
         assert result.exit_code == 0
         env = json.loads(result.output)
@@ -140,7 +144,7 @@ class TestUpdateCommand:
         assert env["data"]["would"]["tags_to_add"] == ["update/metadata"]
         mock_writer_cls.assert_not_called()
 
-    @patch("zotero_cli.commands.items.update.ZoteroWriter")
+    @patch("zotero_cli.cli.zotero.update.ZoteroWriter")
     def test_update_from_jsonl_success(self, mock_writer_cls, tmp_path):
         path = tmp_path / "updates.jsonl"
         path.write_text(
@@ -155,7 +159,9 @@ class TestUpdateCommand:
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
 
-        result = _invoke(["update", "--from-jsonl", str(path), "--add-tag", "update/metadata"], json_output=True)
+        result = _invoke(
+            ["zotero", "update", "--from-jsonl", str(path), "--add-tag", "update/metadata"], json_output=True
+        )
         assert result.exit_code == 0
         env = _parse_json_output(result.output)
         assert env["ok"] is True
@@ -169,7 +175,7 @@ class TestUpdateCommand:
         assert mock_writer.add_tags.call_args_list[0].args == ("ATTN001", ["update/metadata"])
         assert mock_writer.add_tags.call_args_list[1].args == ("BERT002", ["update/metadata"])
 
-    @patch("zotero_cli.commands.items.update.ZoteroWriter")
+    @patch("zotero_cli.cli.zotero.update.ZoteroWriter")
     def test_update_from_jsonl_partial_failure(self, mock_writer_cls, tmp_path):
         path = tmp_path / "updates.jsonl"
         path.write_text(
@@ -188,7 +194,9 @@ class TestUpdateCommand:
         ]
         mock_writer_cls.return_value = mock_writer
 
-        result = _invoke(["update", "--from-jsonl", str(path), "--add-tag", "update/metadata"], json_output=True)
+        result = _invoke(
+            ["zotero", "update", "--from-jsonl", str(path), "--add-tag", "update/metadata"], json_output=True
+        )
         assert result.exit_code == 0
         env = _parse_json_output(result.output)
         assert env["ok"] == "partial"
@@ -201,7 +209,7 @@ class TestUpdateCommand:
     def test_update_from_jsonl_invalid_json(self, tmp_path):
         path = tmp_path / "updates.jsonl"
         path.write_text('{"key":"ATTN001","fields":{"title":"ok"}}\nnot-json\n', encoding="utf-8")
-        result = _invoke(["update", "--from-jsonl", str(path)], json_output=True)
+        result = _invoke(["zotero", "update", "--from-jsonl", str(path)], json_output=True)
         assert result.exit_code != 0
         env = json.loads(result.output)
         assert env["error"]["code"] == "validation_error"
@@ -210,7 +218,7 @@ class TestUpdateCommand:
     def test_update_from_jsonl_rejects_mixed_inline_fields(self, tmp_path):
         path = tmp_path / "updates.jsonl"
         path.write_text(json.dumps({"key": "ATTN001", "fields": {"title": "New Title"}}), encoding="utf-8")
-        result = _invoke(["update", "--from-jsonl", str(path), "--title", "X"], json_output=True)
+        result = _invoke(["zotero", "update", "--from-jsonl", str(path), "--title", "X"], json_output=True)
         assert result.exit_code != 0
         env = json.loads(result.output)
         assert env["error"]["code"] == "validation_error"
@@ -219,7 +227,7 @@ class TestUpdateCommand:
     def test_update_from_jsonl_rejects_item_key_argument(self, tmp_path):
         path = tmp_path / "updates.jsonl"
         path.write_text(json.dumps({"key": "ATTN001", "fields": {"title": "New Title"}}), encoding="utf-8")
-        result = _invoke(["update", "ATTN001", "--from-jsonl", str(path)], json_output=True)
+        result = _invoke(["zotero", "update", "ATTN001", "--from-jsonl", str(path)], json_output=True)
         assert result.exit_code != 0
         env = json.loads(result.output)
         assert env["error"]["code"] == "validation_error"

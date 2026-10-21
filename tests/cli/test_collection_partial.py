@@ -5,17 +5,16 @@ from click.testing import CliRunner
 from tests.support import FIXTURES_DIR
 
 from zotero_cli.cli import main
-from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
+from zotero_cli.zotero.reader import ZoteroReader
 
 
 def test_reorganize_partial_failure_is_not_success(tmp_path):
     plan = tmp_path / "plan.json"
     plan.write_text(json.dumps({"collections": [{"name": "A", "items": ["GOOD", "BAD"]}]}))
-    with patch("zotero_cli.commands.collections.reorganize.ZoteroWriter") as cls:
+    with patch("zotero_cli.cli.zotero.collection_reorganize.ZoteroWriter") as cls:
         cls.return_value.create_collection.return_value = "COL1"
-        # True move replaces collection membership in one write; one item
-        # fails and must surface as a typed partial result.
+        # 单次写入替换集合归属；部分条目失败必须保留类型化错误。
 
         def set_collections(item_key, _keys):
             if item_key == "BAD":
@@ -24,7 +23,7 @@ def test_reorganize_partial_failure_is_not_success(tmp_path):
         cls.return_value.set_item_collections.side_effect = set_collections
         result = CliRunner().invoke(
             main,
-            ["--json", "collection", "reorganize", str(plan)],
+            ["--json", "zotero", "collection", "reorganize", str(plan)],
             env={"ZOT_LIBRARY_ID": "123", "ZOT_API_KEY": "fake"},
         )
     payload = json.loads(result.output)
@@ -40,7 +39,7 @@ def test_reorganize_partial_failure_is_not_success(tmp_path):
 def _collection_key() -> str:
     from tests.support import invoke_cli as invoke
 
-    listed = invoke(["collection", "list"], json_output=True)
+    listed = invoke(["zotero", "collection", "list"], json_output=True)
     payload = json.loads(listed.output)
     assert payload["ok"] is True
     return payload["data"][0]["key"]
@@ -55,7 +54,7 @@ def _run_json(args: list[str], tmp_path=None):
 def test_reorganize_empty_plan_dry_run_includes_marker(tmp_path):
     plan = tmp_path / "plan.json"
     plan.write_text(json.dumps({"collections": []}))
-    result = CliRunner().invoke(main, ["--json", "collection", "reorganize", str(plan), "--dry-run"], env={})
+    result = CliRunner().invoke(main, ["--json", "zotero", "collection", "reorganize", str(plan), "--dry-run"], env={})
     payload = json.loads(result.output)
     assert result.exit_code == 0, result.output
     assert payload["ok"] is True
@@ -70,8 +69,8 @@ def test_reorganize_valid_plan_dry_run_makes_no_api_call(tmp_path, monkeypatch):
     def fail(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("dry-run must not construct a writer")
 
-    monkeypatch.setattr("zotero_cli.commands.collections.reorganize.ZoteroWriter", fail)
-    result = _run_json(["collection", "reorganize", str(plan), "--dry-run"], tmp_path)
+    monkeypatch.setattr("zotero_cli.cli.zotero.collection_reorganize.ZoteroWriter", fail)
+    result = _run_json(["zotero", "collection", "reorganize", str(plan), "--dry-run"], tmp_path)
     payload = json.loads(result.output)
     assert result.exit_code == 0, result.output
     assert payload["dry_run"] is True
@@ -79,7 +78,7 @@ def test_reorganize_valid_plan_dry_run_makes_no_api_call(tmp_path, monkeypatch):
 
 
 def test_collection_delete_dry_run_previews_nested_cascade():
-    result = _run_json(["collection", "delete", "NOSUCHKEY", "--dry-run"])
+    result = _run_json(["zotero", "collection", "delete", "NOSUCHKEY", "--dry-run"])
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["dry_run"] is True
@@ -90,7 +89,7 @@ def test_collection_delete_dry_run_previews_nested_cascade():
 
 def test_collection_delete_dry_run_accepts_known_key():
     key = _collection_key()
-    result = _run_json(["collection", "delete", key, "--dry-run"])
+    result = _run_json(["zotero", "collection", "delete", key, "--dry-run"])
     payload = json.loads(result.output)
     assert result.exit_code == 0, result.output
     assert payload["dry_run"] is True
@@ -99,7 +98,7 @@ def test_collection_delete_dry_run_accepts_known_key():
 
 def test_collection_delete_without_yes_requires_confirmation():
     key = _collection_key()
-    result = _run_json(["collection", "delete", key])
+    result = _run_json(["zotero", "collection", "delete", key])
     assert result.exit_code == 3, result.output
     payload = json.loads(result.output)
     assert payload["error"]["code"] == "confirmation_required"
@@ -109,12 +108,12 @@ def test_collection_create_move_rename_dry_run_makes_no_api_call(monkeypatch):
     def fail(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("dry-run must not construct a writer")
 
-    for module in ("zotero_cli.commands.collections.commands.ZoteroWriter",):
+    for module in ("zotero_cli.cli.zotero.collection.ZoteroWriter",):
         monkeypatch.setattr(module, fail)
     cases = [
-        (["collection", "create", "New Col", "--parent", "PARENT"], "would_create"),
-        (["collection", "move", "ITEM1", "DESTCOL", "--from", "SRCCOL"], "would_change"),
-        (["collection", "rename", "COL1", "New Name"], "would_rename"),
+        (["zotero", "collection", "create", "New Col", "--parent", "PARENT"], "would_create"),
+        (["zotero", "collection", "move", "ITEM1", "DESTCOL", "--from", "SRCCOL"], "would_change"),
+        (["zotero", "collection", "rename", "COL1", "New Name"], "would_rename"),
     ]
     for args, marker in cases:
         result = _run_json([*args, "--dry-run"])
@@ -125,14 +124,14 @@ def test_collection_create_move_rename_dry_run_makes_no_api_call(monkeypatch):
 
 
 def test_collection_items_unknown_key_is_not_found():
-    result = _run_json(["collection", "items", "NOSUCHKEY"])
+    result = _run_json(["zotero", "collection", "items", "NOSUCHKEY"])
     assert result.exit_code == 4, result.output
     assert json.loads(result.output)["error"]["code"] == "not_found"
 
 
 def test_collection_items_known_key_returns_envelope():
     key = _collection_key()
-    result = _run_json(["collection", "items", key])
+    result = _run_json(["zotero", "collection", "items", key])
     payload = json.loads(result.output)
     assert result.exit_code == 0, result.output
     assert payload["ok"] is True
@@ -147,7 +146,7 @@ def test_collection_delete_dry_run_surfaces_nested_cascade_from_local_tree() -> 
         reader.close()
     parent = next((collection for collection in collections if collection.children), None)
     assert parent is not None, "fixture must contain a nested collection"
-    result = _run_json(["collection", "delete", parent.key, "--dry-run"])
+    result = _run_json(["zotero", "collection", "delete", parent.key, "--dry-run"])
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["data"]["would_delete"] is True
@@ -166,7 +165,7 @@ def test_collection_delete_confirmation_mentions_nested_cascade() -> None:
     finally:
         reader.close()
     parent = next(collection for collection in collections if collection.children)
-    result = _run_json(["collection", "delete", parent.key])
+    result = _run_json(["zotero", "collection", "delete", parent.key])
     assert result.exit_code == 3, result.output
     payload = json.loads(result.output)
     assert payload["error"]["code"] == "confirmation_required"
@@ -176,13 +175,13 @@ def test_collection_delete_confirmation_mentions_nested_cascade() -> None:
 def test_collection_create_typed_error_is_not_runtime_error() -> None:
     with (
         patch(
-            "zotero_cli.commands.collections.commands.resolve_write_credentials",
+            "zotero_cli.cli.zotero.collection.resolve_write_credentials",
             return_value=("123", "fake"),
         ),
-        patch("zotero_cli.commands.collections.commands.ZoteroWriter") as writer_cls,
+        patch("zotero_cli.cli.zotero.collection.ZoteroWriter") as writer_cls,
     ):
         writer_cls.return_value.create_collection.side_effect = ZoteroWriteError("collection missing", code="not_found")
-        result = _run_json(["collection", "create", "New Col"])
+        result = _run_json(["zotero", "collection", "create", "New Col"])
     assert result.exit_code == 4, result.output
     payload = json.loads(result.output)
     assert payload["error"]["code"] == "not_found"

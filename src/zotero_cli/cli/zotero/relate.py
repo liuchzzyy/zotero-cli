@@ -4,20 +4,22 @@ from __future__ import annotations
 
 import json
 
-import click
+import typer
 
+from zotero_cli.cli.zotero.reading import app
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id
-from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.output.renderers import format_items
+from zotero_cli.zotero.reader import ZoteroReader
 
 
-@click.command("relate")
-@click.argument("key")
-@click.option("--limit", default=None, type=int, help="Limit results (overrides global --limit)")
-@click.pass_context
-def relate_cmd(ctx: click.Context, key: str, limit: int | None) -> None:
+@app.command(name="relate")
+def relate(
+    ctx: typer.Context,
+    key: str = typer.Argument(help="Zotero 条目键。"),
+    limit: int | None = typer.Option(None, help="覆盖全局结果上限。"),
+) -> None:
     """Find related items via shared tags, collections, or explicit relations.
 
     \b
@@ -37,7 +39,7 @@ def relate_cmd(ctx: click.Context, key: str, limit: int | None) -> None:
                 "not_found",
                 f"Item '{key}' not found",
                 output_json=json_out,
-                hint="Run 'zot search' to find valid item keys",
+                hint="Run 'zot zotero search' to find valid item keys",
                 context="relate",
             )
         limit = limit if limit is not None else ctx.obj.get("limit", 20)
@@ -45,13 +47,13 @@ def relate_cmd(ctx: click.Context, key: str, limit: int | None) -> None:
         if not items:
             # Empty result is a normal outcome, not an error — exit 0 with a friendly message.
             if json_out:
-                click.echo(json.dumps(envelope_ok([], meta={"count": 0}), indent=2, ensure_ascii=False))
+                typer.echo(json.dumps(envelope_ok([], meta={"count": 0}), indent=2, ensure_ascii=False))
             else:
-                click.echo(
+                typer.echo(
                     f"No related items found for '{key}'. Items need shared tags or collections to find relations."
                 )
             return
         detail = ctx.obj.get("detail", "standard")
-        click.echo(format_items(items, output_json=json_out, detail=detail))
+        typer.echo(format_items(items, output_json=json_out, detail=detail))
     finally:
         reader.close()

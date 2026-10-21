@@ -63,8 +63,8 @@ from zotero_cli.config import (  # noqa: E402
     state_dir,
 )
 from zotero_cli.core.notes.client import AiClient  # noqa: E402
-from zotero_cli.core.zotero.reader import ZoteroReader  # noqa: E402
 from zotero_cli.core.zotero.writer import ZoteroWriter  # noqa: E402
+from zotero_cli.zotero.reader import ZoteroReader  # noqa: E402
 
 PAPER2ZOTERO_STATE_SUBDIR = "paper2zotero"
 MANUAL_ABSTRACTS_ENV = "ZOT_PAPER2ZOTERO_MANUAL_ABSTRACTS"

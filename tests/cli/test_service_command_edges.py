@@ -165,7 +165,7 @@ def test_attach_dry_run_with_no_credentials_never_constructs_writer(
 ) -> None:
     result = _invoke(
         sandbox,
-        ["attach", "ATTN001", "--file", str(sandbox.pdf), "--dry-run", "--idempotency-key", "preview"],
+        ["zotero", "attach", "ATTN001", "--file", str(sandbox.pdf), "--dry-run", "--idempotency-key", "preview"],
         json_output=json_output,
         credentials=False,
     )
@@ -189,7 +189,7 @@ def test_attach_dry_run_with_no_credentials_never_constructs_writer(
 @pytest.mark.parametrize("missing", ["ZOT_LIBRARY_ID", "ZOT_API_KEY"])
 def test_attach_incomplete_credentials_fail_before_service_or_cache(sandbox: ServiceSandbox, missing: str) -> None:
     result = invoke_cli(
-        ["attach", "ATTN001", "--file", str(sandbox.pdf), "--idempotency-key", "no-auth"],
+        ["zotero", "attach", "ATTN001", "--file", str(sandbox.pdf), "--idempotency-key", "no-auth"],
         json_output=True,
         env={**sandbox.env, missing: ""},
     )
@@ -207,7 +207,7 @@ def test_attach_success_with_credentials_preserves_output_and_sync_contract(
     sandbox: ServiceSandbox,
     json_output: bool,
 ) -> None:
-    result = _invoke(sandbox, ["attach", "ATTN001", "--file", str(sandbox.pdf)], json_output=json_output)
+    result = _invoke(sandbox, ["zotero", "attach", "ATTN001", "--file", str(sandbox.pdf)], json_output=json_output)
     assert result.exit_code == 0, result.output
     sandbox.constructor.assert_called_once_with("12345", "user", "offline-write-key")
     sandbox.zotero.attachment_simple.assert_called_once_with([str(sandbox.pdf)], parentid="ATTN001")
@@ -220,7 +220,7 @@ def test_attach_success_with_credentials_preserves_output_and_sync_contract(
             "file": str(sandbox.pdf),
             "sync_required": True,
         }
-        assert payload["next"] == ["zot read ATTN001"]
+        assert payload["next"] == ["zot zotero read ATTN001"]
         assert result.stderr == ""
     else:
         assert "Attachment uploaded: NEWATT01" in result.stdout
@@ -232,7 +232,7 @@ def test_attach_retry_replays_real_sqlite_cache_without_another_upload(
     sandbox: ServiceSandbox,
     json_output: bool,
 ) -> None:
-    args = ["attach", "ATTN001", "--file", str(sandbox.pdf), "--idempotency-key", "retry-once"]
+    args = ["zotero", "attach", "ATTN001", "--file", str(sandbox.pdf), "--idempotency-key", "retry-once"]
     first = _invoke(sandbox, args)
     second = _invoke(sandbox, args, json_output=json_output)
     assert first.exit_code == second.exit_code == 0, first.output + second.output
@@ -254,13 +254,13 @@ def test_attach_retry_replays_real_sqlite_cache_without_another_upload(
 
 @pytest.mark.parametrize("change", ["contents", "parent", "library"])
 def test_attach_retry_key_is_bound_to_contents_parent_and_library(sandbox: ServiceSandbox, change: str) -> None:
-    args = ["attach", "ATTN001", "--file", str(sandbox.pdf), "--idempotency-key", "shared-retry"]
+    args = ["zotero", "attach", "ATTN001", "--file", str(sandbox.pdf), "--idempotency-key", "shared-retry"]
     first = _invoke(sandbox, args)
     env = sandbox.env
     if change == "contents":
         sandbox.pdf.write_bytes(b"%PDF-1.4 changed offline fixture\n")
     elif change == "parent":
-        args[1] = "BERT002"
+        args[2] = "BERT002"
     else:
         env = {**env, "ZOT_LIBRARY_ID": "67890"}
     second = invoke_cli(args, json_output=True, env=env)
@@ -271,7 +271,7 @@ def test_attach_retry_key_is_bound_to_contents_parent_and_library(sandbox: Servi
 
 
 def test_attach_group_credentials_use_public_group_id(sandbox: ServiceSandbox) -> None:
-    result = _invoke(sandbox, ["--library", "group:9876", "attach", "GROUP001", "--file", str(sandbox.pdf)])
+    result = _invoke(sandbox, ["--library", "group:9876", "zotero", "attach", "GROUP001", "--file", str(sandbox.pdf)])
     assert result.exit_code == 0, result.output
     sandbox.constructor.assert_called_once_with("9876", "group", "offline-write-key")
     sandbox.zotero.attachment_simple.assert_called_once_with([str(sandbox.pdf)], parentid="GROUP001")
@@ -289,7 +289,7 @@ def test_attach_failure_keeps_reservation_for_unknown_outcome(sandbox: ServiceSa
             "failure": [{"message": "offline upload rejected"}] if failure == "upload" else [],
         }
         expected_code, expected_exit = "api_error", 1
-    args = ["attach", "ATTN001", "--file", str(sandbox.pdf), "--idempotency-key", "retry-failed"]
+    args = ["zotero", "attach", "ATTN001", "--file", str(sandbox.pdf), "--idempotency-key", "retry-failed"]
     failed = _invoke(sandbox, args)
     assert failed.exit_code == expected_exit, failed.output
     error = parse_json_output(failed.output)["error"]
@@ -311,7 +311,7 @@ def test_attach_failure_keeps_reservation_for_unknown_outcome(sandbox: ServiceSa
 
 
 def test_attach_missing_path_is_rejected_before_credentials(sandbox: ServiceSandbox) -> None:
-    result = _invoke(sandbox, ["attach", "ATTN001", "--file", str(sandbox.root / "missing.pdf")])
+    result = _invoke(sandbox, ["zotero", "attach", "ATTN001", "--file", str(sandbox.root / "missing.pdf")])
     assert result.exit_code != 0
     assert "does not exist" in result.output
     sandbox.constructor.assert_not_called()
@@ -322,7 +322,7 @@ def test_attach_missing_path_is_rejected_before_credentials(sandbox: ServiceSand
 def test_attach_directory_is_rejected_before_any_upload(sandbox: ServiceSandbox, mode: str) -> None:
     directory = sandbox.root / "not-a-file.pdf"
     directory.mkdir()
-    args = ["attach", "ATTN001", "--file", str(directory)]
+    args = ["zotero", "attach", "ATTN001", "--file", str(directory)]
     if mode == "dry-run":
         args.append("--dry-run")
     elif mode == "idempotent-upload":

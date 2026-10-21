@@ -6,14 +6,15 @@ import json
 import subprocess
 import sys
 
-import click
+import typer
 
+from zotero_cli.cli.zotero.reading import app
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id
-from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.models import Item
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.output.renderers import sanitize_text
+from zotero_cli.zotero.reader import ZoteroReader
 
 
 def _copy_to_clipboard(text: str) -> bool:
@@ -187,17 +188,13 @@ STYLES = {
 }
 
 
-@click.command("cite")
-@click.argument("key")
-@click.option(
-    "--style",
-    default="apa",
-    type=click.Choice(["apa", "nature", "vancouver"]),
-    help="Citation style (default: apa)",
-)
-@click.option("--no-copy", is_flag=True, help="Print only, do not copy to clipboard")
-@click.pass_context
-def cite_cmd(ctx: click.Context, key: str, style: str, no_copy: bool) -> None:
+@app.command(name="cite")
+def cite(
+    ctx: typer.Context,
+    key: str = typer.Argument(help="Zotero 条目键。"),
+    style: str = typer.Option("apa", help="引文样式。"),
+    no_copy: bool = typer.Option(False, "--no-copy", help="仅打印，不复制到剪贴板。"),
+) -> None:
     """Format a citation and copy it to the clipboard.
 
     Human mode prints the citation and copies it to the system clipboard unless
@@ -213,6 +210,8 @@ def cite_cmd(ctx: click.Context, key: str, style: str, no_copy: bool) -> None:
       zot cite ABC123 --no-copy          Print without copying
       zot --json cite ABC123             Envelope only, no clipboard write
     """
+    if style not in STYLES:
+        raise typer.BadParameter("style 必须是 apa、nature 或 vancouver")
     cfg = load_config(profile=ctx.obj.get("profile"))
     data_dir = get_data_dir(cfg)
     db_path = data_dir / "zotero.sqlite"
@@ -226,14 +225,14 @@ def cite_cmd(ctx: click.Context, key: str, style: str, no_copy: bool) -> None:
                 "not_found",
                 f"Item '{key}' not found",
                 output_json=json_out,
-                hint="Run 'zot search' to find valid item keys",
+                hint="Run 'zot zotero search' to find valid item keys",
                 context="cite",
             )
         formatter = STYLES[style]
         citation = formatter(item)
         if json_out:
             # Machine mode: report the citation, do not mutate the clipboard.
-            click.echo(
+            typer.echo(
                 json.dumps(
                     envelope_ok({"citation": citation, "style": style, "copied": False}),
                     indent=2,
@@ -241,11 +240,11 @@ def cite_cmd(ctx: click.Context, key: str, style: str, no_copy: bool) -> None:
                 )
             )
             return
-        click.echo(sanitize_text(citation))
+        typer.echo(sanitize_text(citation))
         if not no_copy:
             if _copy_to_clipboard(citation):
-                click.echo("(copied to clipboard)")
+                typer.echo("(copied to clipboard)")
             else:
-                click.echo("(clipboard not available)")
+                typer.echo("(clipboard not available)")
     finally:
         reader.close()

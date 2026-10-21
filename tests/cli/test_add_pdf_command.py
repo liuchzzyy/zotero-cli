@@ -40,14 +40,14 @@ class TestAddPdfCLI:
             "ZOT_FORMAT": "",
         }
         with (
-            patch("zotero_cli.commands.items.add.resolve_doi", return_value={"title": "T"}),
-            patch("zotero_cli.commands.items.add.ZoteroWriter") as mock_writer_cls,
+            patch("zotero_cli.cli.zotero.add.resolve_doi", return_value={"title": "T"}),
+            patch("zotero_cli.cli.zotero.add.ZoteroWriter") as mock_writer_cls,
         ):
             mock_writer = MagicMock()
             mock_writer_cls.return_value = mock_writer
             mock_writer.add_item.return_value = "NEW001"
             mock_writer.upload_attachment.return_value = "ATT001"
-            result = runner.invoke(main, ["add", "--pdf", str(pdf), "--doi", "10.1234/test"], env=env)
+            result = runner.invoke(main, ["zotero", "add", "--pdf", str(pdf), "--doi", "10.1234/test"], env=env)
 
         assert result.exit_code == 0
         mock_writer.add_item.assert_called_once_with(doi="10.1234/test", extra_fields={"title": "T"})
@@ -72,7 +72,7 @@ class TestAddPdfCLI:
             cache = cache_cls.return_value
             cache.get.return_value = None
             cache.ensure.return_value.markdown = "No DOI here"
-            result = runner.invoke(main, ["add", "--pdf", str(pdf)], env=env)
+            result = runner.invoke(main, ["zotero", "add", "--pdf", str(pdf)], env=env)
 
         assert result.exit_code == 3
         env_data = json.loads(result.output)
@@ -91,8 +91,8 @@ class TestAddPdfCLI:
         with (
             patch("zotero_cli.config.load_pdf_config", return_value=PdfConfig(mineru_token="token")),
             patch("zotero_cli.core.mineru.MinerUParseCache") as cache_cls,
-            patch("zotero_cli.commands.items.add.resolve_doi", return_value={"title": "T"}),
-            patch("zotero_cli.commands.items.add.ZoteroWriter") as mock_writer_cls,
+            patch("zotero_cli.cli.zotero.add.resolve_doi", return_value={"title": "T"}),
+            patch("zotero_cli.cli.zotero.add.ZoteroWriter") as mock_writer_cls,
         ):
             cache = cache_cls.return_value
             cache.get.return_value = None
@@ -101,7 +101,7 @@ class TestAddPdfCLI:
             mock_writer_cls.return_value = mock_writer
             mock_writer.add_item.return_value = "NEW001"
             mock_writer.upload_attachment.return_value = "ATT001"
-            result = runner.invoke(main, ["add", "--pdf", str(pdf)], env=env)
+            result = runner.invoke(main, ["zotero", "add", "--pdf", str(pdf)], env=env)
 
         assert result.exit_code == 0
         cache.ensure.assert_called_once_with(pdf)

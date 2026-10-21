@@ -17,9 +17,11 @@ import sys
 from typing import Any
 
 import click
+import typer._click as typer_click
+from typer.core import TyperGroup
 
 from zotero_cli.cli.global_flags import _hoist_global_flags, detect_json_output
-from zotero_cli.cli.safety import DESTRUCTIVE_COMMANDS, READ_COMMANDS, WRITE_COMMANDS
+from zotero_cli.cli.safety import DESTRUCTIVE, READ, WRITE, safety_tier_for_path
 from zotero_cli.output.exit_codes import (
     EXIT_RUNTIME,
     EXIT_VALIDATION,
@@ -31,7 +33,7 @@ from zotero_cli.output.exit_codes import (
 )
 
 
-class TieredGroup(click.Group):
+class TieredGroup(TyperGroup):
     """A Click Group that renders the command list grouped by safety tier."""
 
     def main(  # type: ignore[override]
@@ -71,10 +73,14 @@ class TieredGroup(click.Group):
                 **extra,
             )
         except SystemExit:
-            # Explicit exits (help/version/completion, ctx.exit(n)) keep their code.
+            # 显式退出（版本等）保留原始退出码。
             raise
-        except click.ClickException as exc:
-            if isinstance(exc, click.UsageError):
+        except click.exceptions.Exit as exc:
+            # Typer 在 standalone_mode=False 时保留 Click 的 Exit 异常；
+            # 统一转换为 SystemExit，维持现有 CLI 与测试观察到的退出码。
+            raise SystemExit(exc.exit_code) from None
+        except (click.ClickException, typer_click.ClickException) as exc:
+            if isinstance(exc, (click.UsageError, typer_click.exceptions.UsageError)):
                 if json_output:
                     emit_usage_error(exc, output_json=True)
                 exc.show()
@@ -115,21 +121,24 @@ class TieredGroup(click.Group):
                 continue
             commands.append((name, cmd))
 
-        def rows_for(names: frozenset[str]) -> list[tuple[str, str]]:
-            rows = []
-            for name, cmd in commands:
-                if name in names:
-                    rows.append((name, cmd.get_short_help_str(limit=70)))
-            return rows
+        path: list[str] = []
+        ancestor = ctx
+        while ancestor.parent is not None:
+            path.insert(0, ancestor.info_name or "")
+            ancestor = ancestor.parent
+
+        def rows_for(tier: str) -> list[tuple[str, str]]:
+            return [
+                (name, cmd.get_short_help_str(limit=70))
+                for name, cmd in commands
+                if safety_tier_for_path([*path, name]) == tier
+            ]
 
         sections = [
-            ("Read commands", rows_for(READ_COMMANDS)),
-            ("Write commands (MUTATES LIBRARY)", rows_for(WRITE_COMMANDS)),
-            ("Destructive commands (MUTATES LIBRARY)", rows_for(DESTRUCTIVE_COMMANDS)),
+            ("Read commands", rows_for(READ)),
+            ("Write commands (MUTATES LIBRARY)", rows_for(WRITE)),
+            ("Destructive commands (MUTATES LIBRARY)", rows_for(DESTRUCTIVE)),
         ]
-        other = rows_for(frozenset(n for n, _ in commands) - READ_COMMANDS - WRITE_COMMANDS - DESTRUCTIVE_COMMANDS)
-        if other:
-            sections.append(("Other", other))
 
         for title, rows in sections:
             if not rows:

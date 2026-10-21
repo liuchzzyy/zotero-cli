@@ -725,7 +725,7 @@ def test_resolve_library_id_missing_group_raises_typed_error(monkeypatch, tmp_pa
         def close(self) -> None:
             pass
 
-    monkeypatch.setattr("zotero_cli.core.zotero.reader.ZoteroReader", FakeReader)
+    monkeypatch.setattr("zotero_cli.zotero.reader.ZoteroReader", FakeReader)
     with pytest.raises(LibraryResolutionError) as error:
         resolve_library_id(tmp_path / "zotero.sqlite", {"library_type": "group", "group_id": "42"})
     assert error.value.code == "not_found"
@@ -737,7 +737,7 @@ def test_resolve_library_id_user_library_does_not_open_the_db(monkeypatch, tmp_p
     def fail(*_args: object, **_kwargs: object):
         raise AssertionError("user library resolution must not read the database")
 
-    monkeypatch.setattr("zotero_cli.core.zotero.reader.ZoteroReader", fail)
+    monkeypatch.setattr("zotero_cli.zotero.reader.ZoteroReader", fail)
     assert resolve_library_id(tmp_path / "missing.sqlite", {"library_type": "user"}) == 1
 
 

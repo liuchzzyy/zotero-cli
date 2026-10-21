@@ -1,4 +1,4 @@
-"""Collection CRUD commands and shared write output helpers."""
+"""集合增删改查与写入结果呈现。"""
 
 from __future__ import annotations
 
@@ -6,38 +6,40 @@ import json
 import sys
 from typing import Any
 
-import click
+import typer
 
-from zotero_cli.commands.collections import collection_group
+from zotero_cli.cli.tiered_group import TieredGroup
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id, resolve_write_credentials
-from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.core.zotero.writer import SYNC_REMINDER, ZoteroWriter
 from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
 from zotero_cli.models import Collection
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.output.renderers import format_collections, format_items, format_success
+from zotero_cli.zotero.reader import ZoteroReader
 
-_COLLECTION_HINT = "Use 'zot collection list' to list available collections"
+app = typer.Typer(cls=TieredGroup, help="管理 Zotero 集合。", no_args_is_help=True, rich_markup_mode=None)
+
+_COLLECTION_HINT = "Use 'zot zotero collection list' to list available collections"
 
 
 def _emit_json_or_text(data: Any, *, output_json: bool, human_text: str, meta: dict[str, Any] | None = None) -> None:
-    click.echo(format_success(data, output_json=output_json, human_text=human_text, meta=meta))
+    typer.echo(format_success(data, output_json=output_json, human_text=human_text, meta=meta))
 
 
 def _emit_sync_success(data: Any, *, output_json: bool, human_text: str, meta: dict[str, Any] | None = None) -> None:
     if output_json:
         _emit_json_or_text(data, output_json=True, human_text=human_text, meta=meta)
         return
-    click.echo(human_text)
-    click.echo(SYNC_REMINDER)
+    typer.echo(human_text)
+    typer.echo(SYNC_REMINDER)
 
 
-def _emit_dry_run(ctx: click.Context, data: Any, *, human_text: str, meta: dict[str, Any] | None = None) -> None:
+def _emit_dry_run(ctx: typer.Context, data: Any, *, human_text: str, meta: dict[str, Any] | None = None) -> None:
     if ctx.obj.get("json", False):
-        click.echo(json.dumps(envelope_ok(data, meta=meta, dry_run=True), indent=2, ensure_ascii=False))
+        typer.echo(json.dumps(envelope_ok(data, meta=meta, dry_run=True), indent=2, ensure_ascii=False))
     else:
-        click.echo(human_text)
+        typer.echo(human_text)
 
 
 def emit_write_error(
@@ -47,7 +49,7 @@ def emit_write_error(
     output_json: bool,
     hint: str = "",
 ) -> None:
-    """Emit a typed collection write failure, preserving code/retryable/committed."""
+    """保留写入失败的错误码与提交状态。"""
     emit_error(
         error.code,
         str(error),
@@ -71,7 +73,7 @@ def _flatten_collection_keys(collections: list[Collection]) -> set[str]:
     return {collection.key for collection in _flatten_collections(collections)}
 
 
-def _load_collections(ctx: click.Context) -> list[Collection]:
+def _load_collections(ctx: typer.Context) -> list[Collection]:
     cfg = load_config(profile=ctx.obj.get("profile"))
     data_dir = get_data_dir(cfg)
     db_path = data_dir / "zotero.sqlite"
@@ -83,12 +85,12 @@ def _load_collections(ctx: click.Context) -> list[Collection]:
         reader.close()
 
 
-def _known_collection_keys(ctx: click.Context) -> set[str]:
+def _known_collection_keys(ctx: typer.Context) -> set[str]:
     return _flatten_collection_keys(_load_collections(ctx))
 
 
-def _descendant_collections(ctx: click.Context, key: str) -> list[dict[str, str]]:
-    """Return locally-known descendant collections of key (nested deletes cascade)."""
+def _descendant_collections(ctx: typer.Context, key: str) -> list[dict[str, str]]:
+    """获取本地已知的子集合，以预览级联删除范围。"""
     descendants: list[dict[str, str]] = []
 
     def walk(collections: list[Collection], inside: bool) -> None:
@@ -99,12 +101,12 @@ def _descendant_collections(ctx: click.Context, key: str) -> list[dict[str, str]
 
     try:
         walk(_load_collections(ctx), False)
-    except Exception:  # noqa: BLE001 - local snapshot may be unavailable/stale
+    except Exception:  # noqa: BLE001 - 本地快照可能不可用或过期
         return []
     return descendants
 
 
-def _validate_collection_key(ctx: click.Context, key: str, *, context: str) -> None:
+def _validate_collection_key(ctx: typer.Context, key: str, *, context: str) -> None:
     if key not in _known_collection_keys(ctx):
         emit_error(
             "not_found",
@@ -115,7 +117,7 @@ def _validate_collection_key(ctx: click.Context, key: str, *, context: str) -> N
         )
 
 
-def _write_credentials(ctx: click.Context, cfg: Any) -> tuple[str, str, str]:
+def _write_credentials(ctx: typer.Context, cfg: Any) -> tuple[str, str, str]:
     library_type = ctx.obj.get("library_type", "user")
     group_id = ctx.obj.get("group_id")
     library_id, api_key = resolve_write_credentials(cfg, library_type=library_type, group_id=group_id)
@@ -130,18 +132,15 @@ def _write_credentials(ctx: click.Context, cfg: Any) -> tuple[str, str, str]:
     return library_id, api_key, library_type
 
 
-@collection_group.command("list")
-@click.pass_context
-def collection_list(ctx: click.Context) -> None:
-    """List all collections."""
-    click.echo(format_collections(_load_collections(ctx), output_json=ctx.obj.get("json", False)))
+@app.command("list")
+def collection_list(ctx: typer.Context) -> None:
+    """列出所有集合。"""
+    typer.echo(format_collections(_load_collections(ctx), output_json=ctx.obj.get("json", False)))
 
 
-@collection_group.command("items")
-@click.argument("key")
-@click.pass_context
-def collection_items(ctx: click.Context, key: str) -> None:
-    """List items in a collection."""
+@app.command("items")
+def collection_items(ctx: typer.Context, key: str) -> None:
+    """列出集合内的条目。"""
     _validate_collection_key(ctx, key, context="collection items")
     cfg = load_config(profile=ctx.obj.get("profile"))
     data_dir = get_data_dir(cfg)
@@ -150,18 +149,19 @@ def collection_items(ctx: click.Context, key: str) -> None:
     reader = ZoteroReader(db_path, library_id=library_id)
     try:
         items = reader.get_collection_items(key)
-        click.echo(format_items(items, output_json=ctx.obj.get("json", False)))
+        typer.echo(format_items(items, output_json=ctx.obj.get("json", False)))
     finally:
         reader.close()
 
 
-@collection_group.command("create")
-@click.argument("name")
-@click.option("--parent", default=None, help="Parent collection key")
-@click.option("--dry-run", is_flag=True, help="Preview the collection without creating it")
-@click.pass_context
-def collection_create(ctx: click.Context, name: str, parent: str | None, dry_run: bool) -> None:
-    """Create a new collection."""
+@app.command("create")
+def collection_create(
+    ctx: typer.Context,
+    name: str = typer.Argument(help="集合名称。"),
+    parent: str | None = typer.Option(None, help="父集合键。"),
+    dry_run: bool = typer.Option(False, help="仅预览创建结果。"),
+) -> None:
+    """创建集合。"""
     json_out = ctx.obj.get("json", False)
     if dry_run:
         _emit_dry_run(
@@ -184,21 +184,15 @@ def collection_create(ctx: click.Context, name: str, parent: str | None, dry_run
     )
 
 
-@collection_group.command("move")
-@click.argument("item_key")
-@click.argument("collection_key")
-@click.option(
-    "--from",
-    "source_collection",
-    default=None,
-    help="Source collection key to remove. Without this, the item is only added to the target collection.",
-)
-@click.option("--dry-run", is_flag=True, help="Preview the move without changing any collection")
-@click.pass_context
+@app.command("move")
 def collection_move(
-    ctx: click.Context, item_key: str, collection_key: str, source_collection: str | None, dry_run: bool
+    ctx: typer.Context,
+    item_key: str = typer.Argument(help="条目键。"),
+    collection_key: str = typer.Argument(help="目标集合键。"),
+    source_collection: str | None = typer.Option(None, "--from", help="可选的来源集合键。"),
+    dry_run: bool = typer.Option(False, help="仅预览移动结果。"),
 ) -> None:
-    """Add an item to a collection, or move it from a source collection."""
+    """添加条目到集合，或从来源集合移动条目。"""
     json_out = ctx.obj.get("json", False)
     if dry_run:
         action = "moved" if source_collection else "added"
@@ -245,13 +239,14 @@ def collection_move(
     )
 
 
-@collection_group.command("delete")
-@click.argument("key")
-@click.option("--yes", is_flag=True, help="Skip confirmation")
-@click.option("--dry-run", is_flag=True, help="Validate and show what would be deleted without deleting")
-@click.pass_context
-def collection_delete(ctx: click.Context, key: str, yes: bool, dry_run: bool) -> None:
-    """Delete a collection (nested collections are deleted too)."""
+@app.command("delete")
+def collection_delete(
+    ctx: typer.Context,
+    key: str = typer.Argument(help="集合键。"),
+    yes: bool = typer.Option(False, help="跳过交互确认。"),
+    dry_run: bool = typer.Option(False, help="仅预览删除及子集合。"),
+) -> None:
+    """删除集合及其子集合。"""
     json_out = ctx.obj.get("json", False)
     descendants = _descendant_collections(ctx, key)
     descendant_payload = {"descendant_collections": descendants, "descendant_count": len(descendants)}
@@ -278,7 +273,7 @@ def collection_delete(ctx: click.Context, key: str, yes: bool, dry_run: bool) ->
         prompt = f"Delete collection '{key}'?"
         if descendants:
             prompt = f"Delete collection '{key}' and {len(descendants)} nested collection(s)?"
-        if not click.confirm(prompt):
+        if not typer.confirm(prompt):
             _emit_json_or_text({"key": key, "cancelled": True}, output_json=json_out, human_text="Cancelled.")
             return
     library_id, api_key, library_type = _write_credentials(ctx, cfg)
@@ -297,13 +292,14 @@ def collection_delete(ctx: click.Context, key: str, yes: bool, dry_run: bool) ->
     )
 
 
-@collection_group.command("rename")
-@click.argument("key")
-@click.argument("new_name")
-@click.option("--dry-run", is_flag=True, help="Preview the rename without renaming the collection")
-@click.pass_context
-def collection_rename(ctx: click.Context, key: str, new_name: str, dry_run: bool) -> None:
-    """Rename a collection."""
+@app.command("rename")
+def collection_rename(
+    ctx: typer.Context,
+    key: str = typer.Argument(help="集合键。"),
+    new_name: str = typer.Argument(help="新名称。"),
+    dry_run: bool = typer.Option(False, help="仅预览重命名结果。"),
+) -> None:
+    """重命名集合。"""
     json_out = ctx.obj.get("json", False)
     if dry_run:
         _emit_dry_run(
@@ -324,3 +320,6 @@ def collection_rename(ctx: click.Context, key: str, new_name: str, dry_run: bool
         output_json=json_out,
         human_text=f"Collection {key} renamed to '{new_name}'",
     )
+
+
+from zotero_cli.cli.zotero import collection_reorganize  # noqa: E402, F401

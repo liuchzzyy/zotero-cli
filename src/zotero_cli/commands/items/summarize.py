@@ -7,10 +7,10 @@ import json
 import click
 
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id
-from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.output.renderers import sanitize_text
+from zotero_cli.zotero.reader import ZoteroReader
 
 
 @click.command("summarize")
@@ -38,7 +38,7 @@ def summarize_cmd(ctx: click.Context, key: str) -> None:
                 "not_found",
                 f"Item '{key}' not found",
                 output_json=json_out,
-                hint="Run 'zot search' to find valid item keys",
+                hint="Run 'zot zotero search' to find valid item keys",
                 context="summarize",
             )
         notes = reader.get_notes(key)

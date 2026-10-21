@@ -189,7 +189,7 @@ def _is_zotero_schema_error(exc: BaseException) -> bool:
     if _class_name_is(exc, "ZoteroSchemaError"):
         return True
     try:
-        from zotero_cli.core.zotero.reader import ZoteroSchemaError
+        from zotero_cli.zotero.reader import ZoteroSchemaError
     except Exception:
         return False
     return isinstance(exc, ZoteroSchemaError)
@@ -229,7 +229,7 @@ def classify_exception(exc: BaseException, *, context: str = "cli") -> ErrorSpec
         return ErrorSpec(
             code="not_found",
             message=str(exc) or "Requested library is not available in the local database",
-            hint="Run 'zot collection list' to see available collections",
+            hint="Run 'zot zotero collection list' to see available collections",
             context=context,
         )
     if _typed_config_exception(exc, "ConfigError"):

@@ -1,6 +1,6 @@
 """Citation export formatting for item records.
 
-Query and connection concerns stay in zotero_cli.core.zotero.reader; this
+Query and connection concerns stay in zotero_cli.zotero.reader; this
 module only renders an already-hydrated zotero_cli.models.Item as BibTeX,
 CSL-JSON, or RIS. ZoteroReader composes CitationExportMixin, so callers keep
 using reader.export_citation().

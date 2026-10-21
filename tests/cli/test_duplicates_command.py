@@ -11,7 +11,7 @@ from unittest.mock import patch
 from tests.support import FIXTURES_DIR
 from tests.support import invoke_cli as _invoke
 
-from zotero_cli.core.zotero.reader import ZoteroReader
+from zotero_cli.zotero.reader import ZoteroReader
 
 
 class TestDuplicateReader:
@@ -95,7 +95,7 @@ class TestDuplicateReader:
     def test_find_duplicates_stops_after_doi_limit(self):
         reader = ZoteroReader(FIXTURES_DIR / "zotero.sqlite")
         try:
-            with patch("zotero_cli.core.zotero.reader.SequenceMatcher") as matcher:
+            with patch("zotero_cli.zotero.reader.SequenceMatcher") as matcher:
                 groups = reader.find_duplicates(strategy="both", limit=1)
             assert len(groups) == 1
             assert groups[0].match_type == "doi"
@@ -106,20 +106,20 @@ class TestDuplicateReader:
 
 class TestDuplicatesCLI:
     def test_duplicates_json(self):
-        result = _invoke(["duplicates", "--by", "doi"], json_output=True)
+        result = _invoke(["zotero", "duplicates", "--by", "doi"], json_output=True)
         assert result.exit_code != 0
         data = json.loads(result.output)["data"]
         assert len(data) >= 1
         assert data[0]["match_type"] == "doi"
 
     def test_duplicates_table(self):
-        result = _invoke(["duplicates"])
+        result = _invoke(["zotero", "duplicates"])
         assert result.exit_code != 0
         assert "ATTN001" in result.output or "DUPE008" in result.output
 
     def test_duplicates_by_title(self):
         # Default 0.85 threshold may not match; lower it for this fixture.
-        result = _invoke(["duplicates", "--by", "title", "--threshold", "0.7"], json_output=True)
+        result = _invoke(["zotero", "duplicates", "--by", "title", "--threshold", "0.7"], json_output=True)
         assert result.exit_code != 0
 
 
@@ -156,7 +156,7 @@ def test_find_duplicates_scoped_to_requested_library() -> None:
 
 def test_find_duplicates_uses_blocking_instead_of_full_scan(tmp_path: Path, monkeypatch) -> None:
     """Blocking keeps SequenceMatcher calls far below the quadratic baseline."""
-    from zotero_cli.core.zotero import reader as reader_module
+    from zotero_cli.zotero import reader as reader_module
 
     db_path = tmp_path / "zotero.sqlite"
     shutil.copy2(FIXTURES_DIR / "zotero.sqlite", db_path)

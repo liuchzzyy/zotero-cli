@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from zotero_cli.core.zotero import reader as reader_module
-from zotero_cli.core.zotero.reader import ZoteroReader
+from zotero_cli.zotero import reader as reader_module
+from zotero_cli.zotero.reader import ZoteroReader
 
 
 @pytest.fixture
@@ -245,7 +245,7 @@ class TestRelatedItems:
 
 
 def test_like_pattern_escapes_user_wildcards() -> None:
-    from zotero_cli.core.zotero.reader import ZoteroReader
+    from zotero_cli.zotero.reader import ZoteroReader
 
     assert ZoteroReader._like_pattern("100%") == "%100\\%%"
     assert ZoteroReader._like_pattern("a_b") == "%a\\_b%"

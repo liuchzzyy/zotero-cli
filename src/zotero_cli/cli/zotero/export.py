@@ -5,22 +5,22 @@ from __future__ import annotations
 import json
 from dataclasses import asdict
 
-import click
+import typer
 
+from zotero_cli.cli.zotero.reading import app
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id
-from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.output.renderers import sanitize_text
+from zotero_cli.zotero.reader import ZoteroReader
 
 
-@click.command("export")
-@click.argument("key")
-@click.option(
-    "--format", "fmt", default="bibtex", type=click.Choice(["bibtex", "csl-json", "ris", "json"]), help="Export format"
-)
-@click.pass_context
-def export_cmd(ctx: click.Context, key: str, fmt: str) -> None:
+@app.command(name="export")
+def export(
+    ctx: typer.Context,
+    key: str = typer.Argument(help="Zotero 条目键。"),
+    fmt: str = typer.Option("bibtex", "--format", help="导出格式。"),
+) -> None:
     """Export citation in BibTeX, CSL-JSON, RIS, or raw JSON format.
 
     \b
@@ -30,6 +30,8 @@ def export_cmd(ctx: click.Context, key: str, fmt: str) -> None:
       zot export ABC123 --format ris       RIS
       zot export ABC123 --format json      Raw JSON metadata
     """
+    if fmt not in {"bibtex", "csl-json", "ris", "json"}:
+        raise typer.BadParameter("format 必须是 bibtex、csl-json、ris 或 json")
     cfg = load_config(profile=ctx.obj.get("profile"))
     data_dir = get_data_dir(cfg)
     db_path = data_dir / "zotero.sqlite"
@@ -44,15 +46,15 @@ def export_cmd(ctx: click.Context, key: str, fmt: str) -> None:
                     "not_found",
                     f"Item '{key}' not found",
                     output_json=json_out,
-                    hint="Run 'zot search' to find valid item keys",
+                    hint="Run 'zot zotero search' to find valid item keys",
                     context="export",
                 )
             data = asdict(item)
             if json_out:
-                click.echo(json.dumps(envelope_ok(data, meta={"format": "json"}), indent=2, ensure_ascii=False))
+                typer.echo(json.dumps(envelope_ok(data, meta={"format": "json"}), indent=2, ensure_ascii=False))
             else:
-                # Text mode keeps the historical raw-JSON payload so it can be piped directly.
-                click.echo(json.dumps(data, indent=2, ensure_ascii=False))
+                # 文本模式保留原始 JSON 负载，以便直接传递给其他程序。
+                typer.echo(json.dumps(data, indent=2, ensure_ascii=False))
         else:
             result = reader.export_citation(key, fmt=fmt)
             if result is None:
@@ -60,11 +62,11 @@ def export_cmd(ctx: click.Context, key: str, fmt: str) -> None:
                     "not_found",
                     f"Item '{key}' not found",
                     output_json=json_out,
-                    hint="Run 'zot search' to find valid item keys",
+                    hint="Run 'zot zotero search' to find valid item keys",
                     context="export",
                 )
             if json_out:
-                click.echo(
+                typer.echo(
                     json.dumps(
                         envelope_ok({"format": fmt, "citation": result}, meta={"format": fmt}),
                         indent=2,
@@ -72,6 +74,6 @@ def export_cmd(ctx: click.Context, key: str, fmt: str) -> None:
                     )
                 )
             else:
-                click.echo(sanitize_text(result))
+                typer.echo(sanitize_text(result))
     finally:
         reader.close()

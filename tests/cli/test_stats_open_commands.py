@@ -14,7 +14,9 @@ from zotero_cli.cli import main
 class TestStatsCmd:
     def test_stats_human(self, test_db_path: Path):
         runner = CliRunner()
-        result = runner.invoke(main, ["stats"], env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"})
+        result = runner.invoke(
+            main, ["zotero", "stats"], env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"}
+        )
         assert result.exit_code == 0
         assert "Total items:" in result.output
         assert "Items by type:" in result.output
@@ -24,7 +26,7 @@ class TestStatsCmd:
     def test_stats_json(self, test_db_path: Path):
         runner = CliRunner()
         result = runner.invoke(
-            main, ["--json", "stats"], env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"}
+            main, ["--json", "zotero", "stats"], env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"}
         )
         assert result.exit_code == 0
         envelope = json.loads(result.output)
@@ -44,7 +46,7 @@ class TestOpenCmd:
     def test_open_nonexistent_item(self, test_db_path: Path):
         runner = CliRunner()
         result = runner.invoke(
-            main, ["open", "NONEXIST"], env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"}
+            main, ["zotero", "open", "NONEXIST"], env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"}
         )
         assert result.exit_code != 0
         assert "not found" in result.output
@@ -52,16 +54,18 @@ class TestOpenCmd:
     def test_open_no_pdf(self, test_db_path: Path):
         runner = CliRunner()
         result = runner.invoke(
-            main, ["open", "DEEP003"], env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"}
+            main, ["zotero", "open", "DEEP003"], env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"}
         )
         assert result.exit_code != 0
         assert "No PDF" in result.output
 
-    @patch("zotero_cli.commands.items.open_item._open_path")
+    @patch("zotero_cli.cli.zotero.open_item._open_path")
     def test_open_url(self, mock_open, test_db_path: Path):
         runner = CliRunner()
         result = runner.invoke(
-            main, ["open", "--url", "ATTN001"], env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"}
+            main,
+            ["zotero", "open", "--url", "ATTN001"],
+            env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"},
         )
         assert result.exit_code == 0
         assert "Opening" in result.output
@@ -71,14 +75,16 @@ class TestOpenCmd:
         runner = CliRunner()
         # DEEP003 is a book, might not have URL - test the error path
         result = runner.invoke(
-            main, ["open", "--url", "DEEP003"], env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"}
+            main,
+            ["zotero", "open", "--url", "DEEP003"],
+            env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"},
         )
         assert result.exit_code != 0
 
 
 class TestGetStats:
     def test_get_stats(self, test_db_path: Path):
-        from zotero_cli.core.zotero.reader import ZoteroReader
+        from zotero_cli.zotero.reader import ZoteroReader
 
         reader = ZoteroReader(test_db_path)
         try:
@@ -100,12 +106,12 @@ class TestOpenPath:
         import os
         import sys
 
-        from zotero_cli.commands.items.open_item import _open_path
+        from zotero_cli.cli.zotero.open_item import _open_path
 
         opened: list[str] = []
         monkeypatch.setattr(sys, "platform", "win32")
         monkeypatch.setattr(os, "startfile", lambda path: opened.append(path), raising=False)
-        with patch("zotero_cli.commands.items.open_item.subprocess.run") as run:
+        with patch("zotero_cli.cli.zotero.open_item.subprocess.run") as run:
             _open_path(r"C:\\papers\\paper.pdf")
         assert opened == [r"C:\\papers\\paper.pdf"]
         run.assert_not_called()
@@ -113,19 +119,19 @@ class TestOpenPath:
     def test_darwin_uses_open_binary(self, monkeypatch):
         import sys
 
-        from zotero_cli.commands.items.open_item import _open_path
+        from zotero_cli.cli.zotero.open_item import _open_path
 
         monkeypatch.setattr(sys, "platform", "darwin")
-        with patch("zotero_cli.commands.items.open_item.subprocess.run") as run:
+        with patch("zotero_cli.cli.zotero.open_item.subprocess.run") as run:
             _open_path("/tmp/paper.pdf")
         run.assert_called_once_with(["open", "/tmp/paper.pdf"], check=True)
 
     def test_linux_uses_xdg_open_binary(self, monkeypatch):
         import sys
 
-        from zotero_cli.commands.items.open_item import _open_path
+        from zotero_cli.cli.zotero.open_item import _open_path
 
         monkeypatch.setattr(sys, "platform", "linux")
-        with patch("zotero_cli.commands.items.open_item.subprocess.run") as run:
+        with patch("zotero_cli.cli.zotero.open_item.subprocess.run") as run:
             _open_path("/tmp/paper.pdf")
         run.assert_called_once_with(["xdg-open", "/tmp/paper.pdf"], check=True)

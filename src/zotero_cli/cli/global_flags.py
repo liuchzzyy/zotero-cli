@@ -62,7 +62,7 @@ def _hoist_global_flags(args: list[str], command: click.Command) -> list[str]:
         return {
             flag: param
             for param in cmd.params
-            if isinstance(param, click.Option)
+            if hasattr(param, "opts") and hasattr(param, "secondary_opts")
             for flag in param.opts + param.secondary_opts
         }
 
@@ -94,7 +94,8 @@ def _hoist_global_flags(args: list[str], command: click.Command) -> list[str]:
                 continue
             following = args[index + 1] if index + 1 < len(args) else None
             is_flag_like = following is None or following.startswith("-")
-            is_subcommand = isinstance(command, click.Group) and following in command.commands
+            commands = getattr(command, "commands", {})
+            is_subcommand = following in commands
             if following is not None and not is_flag_like and not is_subcommand:
                 flags.extend([tok, following])
                 index += 2
@@ -118,7 +119,7 @@ def _hoist_global_flags(args: list[str], command: click.Command) -> list[str]:
                     break
         if option is not None and not option.is_flag and not option.count:
             values_left = max(0, option.nargs - int(attached_value))
-        elif isinstance(command, click.Group) and tok in command.commands:
+        elif tok in getattr(command, "commands", {}):
             command = command.commands[tok]
             options = options_for(command)
         index += 1

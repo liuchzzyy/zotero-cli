@@ -22,8 +22,8 @@ def test_flag_like_option_values_do_not_disable_dry_run(
     monkeypatch: pytest.MonkeyPatch, command: str, option: str, value: str
 ) -> None:
     module_path = {
-        "update": "zotero_cli.commands.items.update",
-        "note": "zotero_cli.commands.notes.note",
+        "update": "zotero_cli.cli.zotero.update",
+        "note": "zotero_cli.cli.zotero.notes",
     }[command]
     module = importlib.import_module(module_path)
     monkeypatch.setattr(module, "load_config", Mock(return_value=AppConfig()))
@@ -33,7 +33,7 @@ def test_flag_like_option_values_do_not_disable_dry_run(
 
     result = CliRunner().invoke(
         main,
-        [command, "ABC123", option, value, "--dry-run"],
+        ["zotero"] + [command, "ABC123", option, value, "--dry-run"],
         env={"ZOT_FORMAT": "json", "ZOT_LIBRARY_ID": "123", "ZOT_API_KEY": "test-key"},
     )
 
@@ -66,8 +66,8 @@ def test_nested_option_values_are_preserved(monkeypatch: pytest.MonkeyPatch, opt
     "args",
     [
         ["--profile", "VALUE", "schema"],
-        ["update", "ABC123", "--title", "VALUE", "--dry-run"],
-        ["note", "ABC123", "--add", "VALUE", "--dry-run"],
+        ["zotero", "update", "ABC123", "--title", "VALUE", "--dry-run"],
+        ["zotero", "note", "ABC123", "--add", "VALUE", "--dry-run"],
         ["workspace", "new", "flag-safety", "--description", "VALUE"],
         ["workspace", "new", "flag-safety", "-d", "VALUE"],
     ],
@@ -86,7 +86,7 @@ def test_attached_values_do_not_consume_separate_output_flags(prefix: str, value
 
 
 @pytest.mark.parametrize("output_flag", ["--json", "--no-json"])
-@pytest.mark.parametrize("args", [["schema"], ["schema", "search"], ["workspace", "--help"]])
+@pytest.mark.parametrize("args", [["schema"], ["schema", "zotero", "search"], ["workspace", "--help"]])
 def test_standalone_output_flags_still_follow_subcommands(args: list[str], output_flag: str) -> None:
     result = CliRunner().invoke(main, [*args, output_flag])
     assert result.exit_code == 0, result.output

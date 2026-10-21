@@ -1,37 +1,34 @@
-"""zot tag: view or manage tags on one or more items."""
+"""查看或管理条目标签。"""
 
 from __future__ import annotations
 
 import json
 from typing import Any
 
-import click
+import typer
 
+from zotero_cli.cli.zotero.reading import app
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id, resolve_write_credentials
-from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.core.zotero.writer import SYNC_REMINDER, ZoteroWriter
 from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
 from zotero_cli.models import ErrorInfo
 from zotero_cli.output.envelope import envelope_error, envelope_ok, envelope_partial
 from zotero_cli.output.exit_codes import EXIT_NOT_FOUND, emit_error, exit_code_for
 from zotero_cli.output.renderers import print_error
+from zotero_cli.zotero.reader import ZoteroReader
 
 
-@click.command("tag")
-@click.argument("keys", nargs=-1, required=True)
-@click.option("--add", "add_tag", default=None, help="Add a tag")
-@click.option("--remove", "remove_tag", default=None, help="Remove a tag")
-@click.option("--dry-run", is_flag=True, help="Show what would change without executing")
-@click.pass_context
+@app.command("tag")
 def tag_cmd(
-    ctx: click.Context, keys: tuple[str, ...], add_tag: str | None, remove_tag: str | None, dry_run: bool
+    ctx: typer.Context,
+    keys: list[str] = typer.Argument(help="至少一个条目键。"),
+    add_tag: str | None = typer.Option(None, "--add", help="新增标签。"),
+    remove_tag: str | None = typer.Option(None, "--remove", help="移除标签。"),
+    dry_run: bool = typer.Option(False, help="仅预览，不写入。"),
 ) -> None:
-    """View or manage tags for one or more items.
-
-    View tags: zot tag KEY
-    Batch add: zot tag KEY1 KEY2 KEY3 --add "newtag"
-    Batch remove: zot tag KEY1 KEY2 --remove "oldtag"
-    """
+    """查看或批量管理条目标签。"""
+    if not keys:
+        raise typer.BadParameter("至少提供一个条目键")
     cfg = load_config(profile=ctx.obj.get("profile"))
     json_out = ctx.obj.get("json", False)
 
@@ -42,13 +39,13 @@ def tag_cmd(
         if remove_tag:
             data["would_remove"] = remove_tag
         if json_out:
-            click.echo(json.dumps(envelope_ok(data, dry_run=True), indent=2, ensure_ascii=False))
+            typer.echo(json.dumps(envelope_ok(data, dry_run=True), indent=2, ensure_ascii=False))
             return
         for key in keys:
             if add_tag:
-                click.echo(f"[dry-run] Would add tag '{add_tag}' to '{key}'")
+                typer.echo(f"[dry-run] Would add tag '{add_tag}' to '{key}'")
             if remove_tag:
-                click.echo(f"[dry-run] Would remove tag '{remove_tag}' from '{key}'")
+                typer.echo(f"[dry-run] Would remove tag '{remove_tag}' from '{key}'")
         return
 
     if add_tag or remove_tag:
@@ -72,12 +69,12 @@ def tag_cmd(
                     writer.add_tags(key, [add_tag])
                     succeeded.append({"key": key, "tags_added": [add_tag]})
                     if not json_out:
-                        click.echo(f"Tag '{add_tag}' added to '{key}'.")
+                        typer.echo(f"Tag '{add_tag}' added to '{key}'.")
                 if remove_tag:
                     writer.remove_tags(key, [remove_tag])
                     succeeded.append({"key": key, "tags_removed": [remove_tag]})
                     if not json_out:
-                        click.echo(f"Tag '{remove_tag}' removed from '{key}'.")
+                        typer.echo(f"Tag '{remove_tag}' removed from '{key}'.")
             except ZoteroWriteError as e:
                 failed.append(
                     {
@@ -110,7 +107,7 @@ def tag_cmd(
                 assert first_failure is not None
             if failed and succeeded:
                 env = envelope_partial(succeeded, failed, meta={"sync_required": bool(succeeded)})
-                click.echo(json.dumps(env, indent=2, ensure_ascii=False))
+                typer.echo(json.dumps(env, indent=2, ensure_ascii=False))
                 raise SystemExit(exit_code)
             if failed:
                 assert first_failure is not None
@@ -127,22 +124,22 @@ def tag_cmd(
                         else "Check item keys and API credentials"
                     ),
                 )
-                click.echo(json.dumps(env, indent=2, ensure_ascii=False))
+                typer.echo(json.dumps(env, indent=2, ensure_ascii=False))
                 raise SystemExit(exit_code)
             env = envelope_ok(
                 {"succeeded": succeeded, "sync_required": True},
                 meta={"count": len(succeeded)},
-                next=[f"zot read {keys[0]}"] if len(keys) == 1 else None,
+                next=[f"zot zotero read {keys[0]}"] if len(keys) == 1 else None,
             )
-            click.echo(json.dumps(env, indent=2, ensure_ascii=False))
+            typer.echo(json.dumps(env, indent=2, ensure_ascii=False))
             return
         if not failed:
-            click.echo(SYNC_REMINDER)
+            typer.echo(SYNC_REMINDER)
         else:
-            # Surface failures via typed exit so agents/scripts detect them.
+            # 写入失败时保留类型化退出码。
             raise SystemExit(exit_code)
     else:
-        # View mode — show tags for each key
+        # 读取模式逐条展示标签
         data_dir = get_data_dir(cfg)
         db_path = data_dir / "zotero.sqlite"
         library_id = resolve_library_id(db_path, ctx.obj)
@@ -167,17 +164,17 @@ def tag_cmd(
                             ErrorInfo(
                                 message=f"Item '{key}' not found",
                                 context="tag",
-                                hint="Run 'zot search' to find valid item keys",
+                                hint="Run 'zot zotero search' to find valid item keys",
                             ),
                             output_json=False,
                         )
                     continue
                 results.append({"key": key, "tags": item.tags})
                 if not json_out:
-                    click.echo(f"Tags for {key}: {', '.join(item.tags) if item.tags else '(none)'}")
+                    typer.echo(f"Tags for {key}: {', '.join(item.tags) if item.tags else '(none)'}")
             if json_out:
                 if missing and results:
-                    click.echo(
+                    typer.echo(
                         json.dumps(
                             envelope_partial(results, missing, meta={"count": len(results)}),
                             indent=2,
@@ -186,20 +183,20 @@ def tag_cmd(
                     )
                     return
                 if missing:
-                    click.echo(
+                    typer.echo(
                         json.dumps(
                             envelope_error(
                                 "not_found",
                                 f"{len(missing)} item(s) not found",
                                 retryable=False,
                                 failed=missing,
-                                hint="Run 'zot search' to find valid item keys",
+                                hint="Run 'zot zotero search' to find valid item keys",
                             ),
                             indent=2,
                             ensure_ascii=False,
                         )
                     )
                     raise SystemExit(EXIT_NOT_FOUND)
-                click.echo(json.dumps(envelope_ok(results, meta={"count": len(results)}), indent=2, ensure_ascii=False))
+                typer.echo(json.dumps(envelope_ok(results, meta={"count": len(results)}), indent=2, ensure_ascii=False))
         finally:
             reader.close()

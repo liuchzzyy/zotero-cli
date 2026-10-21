@@ -17,6 +17,7 @@ dependencies = [
     "openai>=3.35",
     "requests>=2.31",
     "qdrant-client>=1.19.0",
+    "typer>=0.27.3",
 ]
 
 [project.scripts]

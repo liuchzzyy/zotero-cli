@@ -1,4 +1,4 @@
-"""zot add: create items from a DOI, URL, batch file, or PDF."""
+"""通过 DOI、URL、文件和 PDF 写入条目。"""
 
 from __future__ import annotations
 
@@ -6,8 +6,9 @@ import json
 import sqlite3
 from pathlib import Path
 
-import click
+import typer
 
+from zotero_cli.cli.zotero.reading import app
 from zotero_cli.config import load_config, resolve_write_credentials
 from zotero_cli.core.zotero.metadata import MetadataResolveError, resolve_doi
 from zotero_cli.core.zotero.writer import SYNC_REMINDER, ZoteroWriter
@@ -18,13 +19,7 @@ from zotero_cli.output.streaming import emit_progress
 
 
 def _resolve_metadata(doi: str) -> tuple[dict | None, str | None]:
-    """Resolve DOI → Zotero fields via Crossref. Returns (fields, warning).
-
-    On success: (fields_dict, None). On miss: (None, "no_match"). On error:
-    (None, "<error message>"). The caller is responsible for surfacing the
-    warning; resolution never aborts the add, the item is still created (bare
-    or partially populated) so retries don't lose work.
-    """
+    """解析 DOI 元数据；查询失败时返回警告，不中断条目创建以避免重复写入。"""
     try:
         fields = resolve_doi(doi)
     except MetadataResolveError as e:
@@ -35,7 +30,7 @@ def _resolve_metadata(doi: str) -> tuple[dict | None, str | None]:
 
 
 def _resolved_summary(fields: dict) -> dict:
-    """Compact summary of the resolved metadata for JSON envelopes / human output."""
+    """提取适合展示的元数据摘要。"""
     summary: dict = {}
     if "title" in fields:
         summary["title"] = fields["title"]
@@ -52,58 +47,20 @@ def _resolved_summary(fields: dict) -> dict:
     return summary
 
 
-@click.command("add")
-@click.option("--doi", default=None, help="DOI to add")
-@click.option("--url", default=None, help="URL to add")
-@click.option(
-    "--from-file",
-    "from_file",
-    default=None,
-    type=click.Path(exists=True),
-    help="File with one DOI or URL per line",
-)
-@click.option(
-    "--pdf",
-    "pdf_file",
-    default=None,
-    type=click.Path(exists=True),
-    help="PDF file to extract DOI from and attach (metadata not auto-resolved by API)",
-)
-@click.option("--dry-run", is_flag=True, help="Preview what would be added without calling the API")
-@click.option("--idempotency-key", default=None, help="Key so retries are safe; same key returns the original result")
-@click.option(
-    "--no-resolve",
-    "no_resolve",
-    is_flag=True,
-    help="Skip Crossref DOI metadata lookup (faster, but creates a bare item)",
-)
-@click.pass_context
+@app.command(name="add")
 def add_cmd(
-    ctx: click.Context,
-    doi: str | None,
-    url: str | None,
-    from_file: str | None,
-    pdf_file: str | None,
-    dry_run: bool,
-    idempotency_key: str | None,
-    no_resolve: bool,
+    ctx: typer.Context,
+    doi: str | None = typer.Option(None, help="DOI to add"),
+    url: str | None = typer.Option(None, help="URL to add"),
+    from_file: Path | None = typer.Option(None, "--from-file", exists=True, help="File with one DOI or URL per line"),
+    pdf_file: Path | None = typer.Option(None, "--pdf", exists=True, help="PDF file to extract DOI from and attach"),
+    dry_run: bool = typer.Option(False, help="Preview what would be added without calling the API"),
+    idempotency_key: str | None = typer.Option(
+        None, help="Key so retries are safe; same key returns the original result"
+    ),
+    no_resolve: bool = typer.Option(False, "--no-resolve", help="Skip Crossref DOI metadata lookup"),
 ) -> None:
-    """Add items to the Zotero library via DOI, URL, batch file, or PDF. MUTATES LIBRARY.
-
-    For --doi inputs, metadata (title, authors, journal, year, ...) is
-    fetched from Crossref before posting so the created item is not a bare
-    shell. Pass --no-resolve to skip the lookup. Requires API credentials
-    (run 'zot config init' first).
-
-    \b
-    Examples:
-      zot add --doi "10.1038/s41586-023-06139-9"
-      zot add --doi "10.1038/s41586-023-06139-9" --no-resolve   # skip Crossref
-      zot add --url "https://arxiv.org/abs/2301.00001"
-      zot add --from-file dois.txt
-      zot add --pdf paper.pdf
-      zot add --pdf paper.pdf --doi "10.1234/override"
-    """
+    """通过 DOI、URL、批处理文件或 PDF 添加条目。"""
     json_out = ctx.obj.get("json", False)
     if idempotency_key is not None and from_file:
         emit_error(
@@ -130,13 +87,13 @@ def add_cmd(
                 "validation_error",
                 "Provide --doi, --url, --from-file, or --pdf",
                 output_json=json_out,
-                hint="Example: zot add --doi '10.1038/...' --dry-run",
+                hint="Example: zot zotero add --doi '10.1038/...' --dry-run",
                 context="add",
             )
         if json_out:
-            click.echo(json.dumps(envelope_ok({"would": would}, dry_run=True), indent=2, ensure_ascii=False))
+            typer.echo(json.dumps(envelope_ok({"would": would}, dry_run=True), indent=2, ensure_ascii=False))
         else:
-            click.echo(f"[dry-run] Would add: {would}")
+            typer.echo(f"[dry-run] Would add: {would}")
         return
 
     library_type = ctx.obj.get("library_type", "user")
@@ -175,7 +132,7 @@ def add_cmd(
             "validation_error",
             "Provide --doi, --url, or --from-file",
             output_json=json_out,
-            hint="Example: zot add --doi '10.1038/...' or --from-file dois.txt",
+            hint="Example: zot zotero add --doi '10.1038/...' or --from-file dois.txt",
             context="add",
         )
 
@@ -214,9 +171,9 @@ def add_cmd(
             )
         if cached is not None:
             if json_out:
-                click.echo(json.dumps(cached, indent=2, ensure_ascii=False))
+                typer.echo(json.dumps(cached, indent=2, ensure_ascii=False))
             else:
-                click.echo(f"Item added: {cached.get('data', {}).get('key', '?')} (cached).")
+                typer.echo(f"Item added: {cached.get('data', {}).get('key', '?')} (cached).")
             return
 
     extra_fields: dict | None = None
@@ -239,12 +196,12 @@ def add_cmd(
                 )
                 if meta:
                     bits.append(f"  {meta}")
-                click.echo("\n".join(bits), err=True)
+                typer.echo("\n".join(bits), err=True)
         elif not json_out:
             if resolve_warning == "no_match":
-                click.echo("Crossref has no record for this DOI — creating a bare item (no metadata).", err=True)
+                typer.echo("Crossref has no record for this DOI — creating a bare item (no metadata).", err=True)
             else:
-                click.echo(
+                typer.echo(
                     f"Could not resolve metadata via Crossref ({resolve_warning}); creating bare item.",
                     err=True,
                 )
@@ -287,22 +244,22 @@ def add_cmd(
         data["resolve_warning"] = resolve_warning
     env = envelope_ok(
         data,
-        next=[f"zot attach {key} --file <path>"],
+        next=[f"zot zotero attach {key} --file <path>"],
     )
     if idempotency_key:
         try:
             store_cached(cache_scope, idempotency_key, env)
         except (OSError, sqlite3.Error) as exc:
-            click.echo(f"Warning: item was added but the retry result could not be cached: {exc}", err=True)
+            typer.echo(f"Warning: item was added but the retry result could not be cached: {exc}", err=True)
     if json_out:
-        click.echo(json.dumps(env, indent=2, ensure_ascii=False))
+        typer.echo(json.dumps(env, indent=2, ensure_ascii=False))
     else:
-        click.echo(f"Item added: {key}")
-        click.echo(SYNC_REMINDER, err=True)
+        typer.echo(f"Item added: {key}")
+        typer.echo(SYNC_REMINDER, err=True)
 
 
 def _pdf_scope_payload(pdf_path: Path, doi_override: str | None, resolve: bool) -> dict:
-    """Stable request identity for --pdf idempotency (path, size, mtime, overrides)."""
+    """以路径、大小、修改时间和覆盖参数标识 PDF 幂等请求。"""
     try:
         stat = pdf_path.stat()
         size = stat.st_size
@@ -323,13 +280,7 @@ def _add_from_pdf(
     resolve: bool = True,
     idempotency_key: str | None = None,
 ) -> None:
-    """Add item from PDF: parse with MinerU, extract DOI, create item, upload attachment.
-
-    If the item is created but the attachment upload fails, a partial envelope
-    (ok="partial", data + next retry hint) is emitted and the process exits with
-    the attachment error's typed exit code. With --idempotency-key the key stays
-    reserved in that case (a blind retry could duplicate the item).
-    """
+    """解析 PDF 后创建条目和上传附件；部分成功时保留幂等预留，防止盲重试。"""
     import sqlite3 as _sqlite3
 
     from zotero_cli.config import load_pdf_config
@@ -372,9 +323,9 @@ def _add_from_pdf(
             )
         if cached is not None:
             if json_out:
-                click.echo(json.dumps(cached, indent=2, ensure_ascii=False))
+                typer.echo(json.dumps(cached, indent=2, ensure_ascii=False))
             else:
-                click.echo(f"Item added: {cached.get('data', {}).get('key', '?')} (cached).")
+                typer.echo(f"Item added: {cached.get('data', {}).get('key', '?')} (cached).")
             return
 
     def _release() -> None:
@@ -415,7 +366,7 @@ def _add_from_pdf(
             "validation_error",
             "No DOI found in PDF",
             output_json=json_out,
-            hint="Use --doi to specify the DOI manually: zot add --pdf paper.pdf --doi '10.1234/...'",
+            hint="Use --doi to specify the DOI manually: zot zotero add --pdf paper.pdf --doi '10.1234/...'",
             context="add",
         )
 
@@ -474,20 +425,20 @@ def _add_from_pdf(
         data["attachment_error"] = str(attach_error)
         data["attachment_error_code"] = attach_error.code
         data["attachment_committed"] = attach_error.committed
-        env = envelope_partial_data(data, next=[f"zot attach {key} --file {pdf_path}"])
+        env = envelope_partial_data(data, next=[f"zot zotero attach {key} --file {pdf_path}"])
         if json_out:
-            click.echo(json.dumps(env, indent=2, ensure_ascii=False))
+            typer.echo(json.dumps(env, indent=2, ensure_ascii=False))
         else:
-            click.echo(f"Item created: {key} (DOI: {doi})")
-            click.echo(f"Attachment upload failed: {attach_error}", err=True)
+            typer.echo(f"Item created: {key} (DOI: {doi})")
+            typer.echo(f"Attachment upload failed: {attach_error}", err=True)
             if idempotency_key:
-                click.echo(
+                typer.echo(
                     "The idempotency key stays reserved because the item already exists; retry the attachment "
-                    f"with: zot attach {key} --file {pdf_path}",
+                    f"with: zot zotero attach {key} --file {pdf_path}",
                     err=True,
                 )
             else:
-                click.echo(f"Retry with: zot attach {key} --file {pdf_path}", err=True)
+                typer.echo(f"Retry with: zot zotero attach {key} --file {pdf_path}", err=True)
         raise SystemExit(exit_code_for(attach_error.code))
 
     env = envelope_ok(data)
@@ -495,27 +446,27 @@ def _add_from_pdf(
         try:
             store_cached(cache_scope, idempotency_key, env)
         except (OSError, _sqlite3.Error) as exc:
-            click.echo(f"Warning: item was added but the retry result could not be cached: {exc}", err=True)
+            typer.echo(f"Warning: item was added but the retry result could not be cached: {exc}", err=True)
     if json_out:
-        click.echo(json.dumps(env, indent=2, ensure_ascii=False))
+        typer.echo(json.dumps(env, indent=2, ensure_ascii=False))
     else:
-        click.echo(f"Item created: {key} (DOI: {doi})")
+        typer.echo(f"Item created: {key} (DOI: {doi})")
         if resolved_summary:
             meta = " · ".join(
                 v
                 for v in (resolved_summary.get("author"), resolved_summary.get("journal"), resolved_summary.get("date"))
                 if v
             )
-            click.echo(f"  {resolved_summary.get('title', '')}", err=True)
+            typer.echo(f"  {resolved_summary.get('title', '')}", err=True)
             if meta:
-                click.echo(f"  {meta}", err=True)
+                typer.echo(f"  {meta}", err=True)
         elif resolve and resolve_warning:
             if resolve_warning == "no_match":
-                click.echo("Crossref has no record for this DOI — item created without metadata.", err=True)
+                typer.echo("Crossref has no record for this DOI — item created without metadata.", err=True)
             else:
-                click.echo(f"Crossref lookup failed ({resolve_warning}); item created without metadata.", err=True)
-        click.echo(f"Attachment uploaded: {att_key}")
-        click.echo(SYNC_REMINDER, err=True)
+                typer.echo(f"Crossref lookup failed ({resolve_warning}); item created without metadata.", err=True)
+        typer.echo(f"Attachment uploaded: {att_key}")
+        typer.echo(SYNC_REMINDER, err=True)
 
 
 def _add_from_file(
@@ -526,7 +477,7 @@ def _add_from_file(
     library_type: str = "user",
     resolve: bool = True,
 ) -> None:
-    """Batch add items from a file with one DOI or URL per line."""
+    """逐行读取 DOI 或 URL 并批量创建条目。"""
     lines = [line.strip() for line in file_path.read_text().splitlines() if line.strip() and not line.startswith("#")]
     if not lines:
         emit_error(
@@ -539,7 +490,7 @@ def _add_from_file(
 
     emit_progress("start", phase="batch_add", total=len(lines), source=str(file_path))
     if not json_out:
-        click.echo(f"Adding {len(lines)} items from {file_path}...", err=True)
+        typer.echo(f"Adding {len(lines)} items from {file_path}...", err=True)
     writer = ZoteroWriter(library_id=library_id, api_key=api_key, library_type=library_type)
     succeeded: list[dict] = []
     failed: list[dict] = []
@@ -567,7 +518,7 @@ def _add_from_file(
                 key = writer.add_item(url=entry)
                 succeeded.append({"entry": entry, "key": key})
             if not json_out:
-                click.echo(f"  [{i}/{len(lines)}] Added: {key} ({entry})", err=True)
+                typer.echo(f"  [{i}/{len(lines)}] Added: {key} ({entry})", err=True)
         except ZoteroWriteError as e:
             failed.append(
                 {
@@ -581,7 +532,7 @@ def _add_from_file(
                 }
             )
             if not json_out:
-                click.echo(f"  [{i}/{len(lines)}] Failed: {entry} ({e})", err=True)
+                typer.echo(f"  [{i}/{len(lines)}] Failed: {entry} ({e})", err=True)
 
     emit_progress(
         "complete", phase="batch_add", done=len(lines), total=len(lines), succeeded=len(succeeded), failed=len(failed)
@@ -589,17 +540,17 @@ def _add_from_file(
     if json_out:
         if failed:
             env = envelope_partial(succeeded, failed, meta={"total": len(lines), "sync_required": bool(succeeded)})
-            click.echo(json.dumps(env, indent=2, ensure_ascii=False))
+            typer.echo(json.dumps(env, indent=2, ensure_ascii=False))
             raise SystemExit(exit_code_for(failed[0]["error"]["code"]))
         env = envelope_ok(
             {"succeeded": succeeded, "failed": []},
             meta={"total": len(lines), "sync_required": bool(succeeded)},
         )
-        click.echo(json.dumps(env, indent=2, ensure_ascii=False))
+        typer.echo(json.dumps(env, indent=2, ensure_ascii=False))
         return
 
-    click.echo(f"\nDone: {len(succeeded)} added, {len(failed)} failed", err=True)
+    typer.echo(f"\nDone: {len(succeeded)} added, {len(failed)} failed", err=True)
     if succeeded:
-        click.echo(SYNC_REMINDER, err=True)
+        typer.echo(SYNC_REMINDER, err=True)
     if failed:
         raise SystemExit(exit_code_for(failed[0]["error"]["code"]))

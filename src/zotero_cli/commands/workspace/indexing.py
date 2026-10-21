@@ -48,9 +48,9 @@ from zotero_cli.core.workspace_store import (
     WorkspaceItem,
     workspace_index_path,
 )
-from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.models import Item
 from zotero_cli.output.exit_codes import emit_error
+from zotero_cli.zotero.reader import ZoteroReader
 
 # Stored in the index metadata for every item; bump it when chunking or the
 # MinerU pipeline changes so incremental reindexing picks the change up.

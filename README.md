@@ -107,43 +107,43 @@ ZOT_RERANK_*（ACTIVE/PROVIDER/URL/KEY/MODEL/BATCH_SIZE）
 
 ```bash
 # 搜索、读取和引用
-uv run zot search "attention mechanism"
-uv run zot --json read ITEMKEY
-uv run zot cite ITEMKEY --style apa
-uv run zot export ITEMKEY --format bibtex
+uv run zot zotero search "attention mechanism"
+uv run zot --json zotero read ITEMKEY
+uv run zot zotero cite ITEMKEY --style apa
+uv run zot zotero export ITEMKEY --format bibtex
 
 # 浏览与检索辅助
-uv run zot list --collection "00 | 收件箱"
-uv run zot recent
-uv run zot relate ITEMKEY
-uv run zot duplicates                 # 发现重复组时 exit 6（conflict）；无重复 exit 0
+uv run zot zotero list --collection "00 | 收件箱"
+uv run zot zotero recent
+uv run zot zotero relate ITEMKEY
+uv run zot zotero duplicates                 # 发现重复组时 exit 6（conflict）；无重复 exit 0
 uv run zot summarize ITEMKEY
-uv run zot stats
+uv run zot zotero stats
 
 # 永久删除（Web API DELETE；不可恢复，不是移入回收站）
-uv run zot delete ITEMKEY --dry-run
-uv run zot delete ITEMKEY --yes
+uv run zot zotero delete ITEMKEY --dry-run
+uv run zot zotero delete ITEMKEY --yes
 
 # 回收站：list 读本地 deletedItems；restore 通过 Web API 恢复远端条目
-uv run zot trash list
-uv run zot trash restore ITEMKEY --dry-run
-uv run zot trash restore ITEMKEY
+uv run zot zotero trash list
+uv run zot zotero trash restore ITEMKEY --dry-run
+uv run zot zotero trash restore ITEMKEY
 
 # 引用与打开（JSON 模式不写剪贴板；open 会启动 GUI）
-uv run zot cite ITEMKEY --style apa    # 人类模式打印并复制到剪贴板
-uv run zot cite ITEMKEY --no-copy     # 只打印，不复制
-uv run zot --json cite ITEMKEY        # envelope {citation, style, copied:false}，不写剪贴板
-uv run zot --json open ITEMKEY        # 启动默认应用；envelope {target, kind: pdf|url, gui:true}
-uv run zot open --url https://example.com
-uv run zot open doi:10.1038/example --url   # KEY 可为 http(s) URL 或 doi:...；非 http scheme 返回 validation_error（exit 3）
+uv run zot zotero cite ITEMKEY --style apa    # 人类模式打印并复制到剪贴板
+uv run zot zotero cite ITEMKEY --no-copy     # 只打印，不复制
+uv run zot --json zotero cite ITEMKEY        # envelope {citation, style, copied:false}，不写剪贴板
+uv run zot --json zotero open ITEMKEY        # 启动默认应用；envelope {target, kind: pdf|url, gui:true}
+uv run zot zotero open --url https://example.com
+uv run zot zotero open doi:10.1038/example --url   # KEY 可为 http(s) URL 或 doi:...；非 http scheme 返回 validation_error（exit 3）
 
 # 查看完整命令契约
 uv run zot schema
-uv run zot schema search
+uv run zot schema zotero search
 uv run zot schema --diff prev.json   # 与缓存 schema 做结构 diff
 ```
 
-程序化调用统一使用 `--json`。命令按安全等级分组：read / write / destructive，分组结果同时反映在 `zot --help` 和 `zot schema` 中；嵌套的 workspace/config 变更子命令也分别归入 write/destructive。
+程序化调用统一使用 `--json`。Zotero 基础命令使用 `zot zotero` 分组：条目检索、读取、统计、最近记录、重复项、引文、PDF 附件定位和基础读写。MinerU 解析与 AI、workspace、元数据流水线仍待后续阶段迁移。命令按安全等级分组：read / write / destructive，分组结果同时反映在 `zot --help` 和 `zot schema` 中；嵌套的 workspace/config 变更子命令也分别归入 write/destructive。
 
 `zot schema --diff prev.json` 输出结构 diff；缓存文件结构非法返回 `validation_error`（exit 3）。不支持的本地 Zotero userdata schema 返回 `configuration_error`（exit 3，附修复提示）。
 
@@ -155,16 +155,29 @@ uv run zot schema --diff prev.json   # 与缓存 schema 做结构 diff
 - `next` 是官方可选的非空字符串数组，只在 success/partial envelope 出现，给出可直接执行的后续安全命令；它不是理解结果的唯一方式，也不保证远程写入会立刻在本地可读。
 - 每次调用在 stdout 只输出一个 envelope，进度和警告走 stderr。参数/用法错误也输出 JSON envelope，返回 `validation_error`（exit 3）；未捕获异常、数据库错误、损坏 TOML 等会转换成类型化错误，不泄漏 traceback。`--verbose`（或等价的 `ZOT_DEBUG` 环境变量）才把内部 traceback 写到 stderr；两者都只来自解析后的 flag/env，不匹配原始 argv 子串。
 - 写入是远端操作，随后立即读取本地 SQLite 可能仍是旧快照；先用 Web API 回读或等待 Zotero Desktop 同步，再判断写入是否生效。
-- `--stream` 对 `list` / `recent` / `search` 输出 NDJSON（每行一个 item envelope + 汇总行），优先于 `--no-json`；`recent` 的汇总带 `has_more`。
+- `--stream` 对 `zot zotero list` / `zot zotero recent` / `zot zotero search` 输出 NDJSON（每行一个 item envelope + 汇总行），优先于 `--no-json`；`recent` 的汇总带 `has_more`。
 - `search` / `list` 在 v130 有界全文扫描（4000 个 cache 文件 / 单文件 8 MiB / 总量 256 MiB）达到文件/字节预算、或退化为仅元数据匹配时，JSON `meta` 带 `fulltext_limited: true`，人类模式在 stderr 提示：这是“结果可能不完整”的提示，不是错误。
 - `stats`、`summarize`、`summarize-all`、`config profile list/set/cache stats/clear`、所有 `workspace`/`collection` 命令在 JSON 模式下都恰好输出一个 envelope。`completions --json` 返回 `{shell, script, fallback, warning}`（warning 仍走 stderr）；`zot schema` 根节点名为 `zot`。
 - 人类可读输出统一经过 sanitizer：去除 CR（`\r`）等 C0/C1 控制字符（保留 tab/换行），cite/open/update-status/cache-list 等文本不会把终端控制序列带到 stdout/stderr。
 - `export --format json` 在文本模式输出原始 JSON 元数据；加 `--json` 时仍使用 envelope。
-- 退出码：0 成功；1 运行时/内部错误；2 认证缺失或无效；3 参数/配置/确认错误；4 未找到；5 网络或限流；6 冲突。**`duplicates` 的 exit 6 是“发现潜在重复组”的正向信号，不是错误**：JSON 仍是 `ok: true` + `data`（组列表）+ `meta.count`，没有重复时 exit 0。脚本可安全地用 `if zot duplicates; then 无重复; else 处理重复; fi` 分支；不要把它当成通用冲突错误。`duplicates` 选项：`--by doi|title|both`（默认 both）、`--threshold`（默认 0.85）、`--limit`。
+- 退出码：0 成功；1 运行时/内部错误；2 认证缺失或无效；3 参数/配置/确认错误；4 未找到；5 网络或限流；6 冲突。**`duplicates` 的 exit 6 是“发现潜在重复组”的正向信号，不是错误**：JSON 仍是 `ok: true` + `data`（组列表）+ `meta.count`，没有重复时 exit 0。脚本可安全地用 `if zot zotero duplicates; then 无重复; else 处理重复; fi` 分支；不要把它当成通用冲突错误。`duplicates` 选项：`--by doi|title|both`（默认 both）、`--threshold`（默认 0.85）、`--limit`。
 
 ## PDF 阅读
 
-一个 Zotero 父条目可能包含正文、Supporting Information 和其他 PDF。先列出附件，再按 attachment key 选择，避免同名文件被错误解析：
+区块一的基础 PDF 命令读取本地附件元信息与路径，也可安全导出或通过 Zotero Web API 上传：
+
+```bash
+uv run zot --json zotero pdf list ITEMKEY
+uv run zot --json zotero pdf path ITEMKEY --attachment ATTACHMENTKEY
+uv run zot --json zotero pdf export ITEMKEY exported.pdf --attachment ATTACHMENTKEY --dry-run
+uv run zot --json zotero pdf export ITEMKEY exported.pdf --attachment ATTACHMENTKEY
+uv run zot --json zotero pdf upload ITEMKEY --file paper.pdf --dry-run
+uv run zot --json zotero pdf upload ITEMKEY --file paper.pdf --idempotency-key upload-001
+```
+
+多个 PDF 时 `path` 和 `export` 必须显式选择附件键；文件不存在则返回 `not_found`。`export` 仅创建全新的目标文件，现有文件（包括 symlink）绝不覆盖，失败会清理本次的残留输出且不改动源文件。`upload` 先验证 PDF 文件头，再使用 Zotero Web API 将其作为父条目附件上传；远端写入需要写权限凭据，重试时使用 `--idempotency-key`，未知写入结果必须先核对远端附件。
+
+以下 MinerU 解析仍走旧路径，待区块二 A 迁移。一个 Zotero 父条目可能包含正文、Supporting Information 和其他 PDF。先列出附件，再按 attachment key 选择，避免同名文件被错误解析：
 
 ```bash
 # 只列出附件，不调用 MinerU
@@ -224,28 +237,28 @@ uv run zot ai_analyze ITEMKEY --idempotency-key analyze-ITEMKEY-001
 
 ## 写入与安全操作
 
-`--dry-run` 覆盖所有写入/破坏性命令及子命令并保证零副作用（envelope 带 `dry_run` 标记），包括 `workspace new/add/remove/import/index/reindex/embed/delete`、`collection create/move/rename`（以及 `delete`）、`config init/profile set/cache clear`、`update-status`。
+`--dry-run` 覆盖所有写入/破坏性命令及子命令并保证零副作用（envelope 带 `dry_run` 标记），包括 `workspace new/add/remove/import/index/reindex/embed/delete`、`zot zotero collection create/move/rename`（以及 `delete`）、`config init/profile set/cache clear`、`update-status`。
 
-破坏性操作需要确认：`delete`（永久删除）、`workspace delete`、`collection delete`、`config cache clear` 要求 `--yes`（或先 `--dry-run`）；`--no-interaction` 绝不隐含 `--yes`；非交互终端下缺少 `--yes`/`--dry-run` 返回 `confirmation_required`（exit 3）。`trash restore` 恢复的是回收站中已有的条目，支持 `--dry-run` 预览；它不是 `delete` 的反操作（`delete` 永不进入回收站）。
+破坏性操作需要确认：`delete`（永久删除）、`workspace delete`、`zot zotero collection delete`、`config cache clear` 要求 `--yes`（或先 `--dry-run`）；`--no-interaction` 绝不隐含 `--yes`；非交互终端下缺少 `--yes`/`--dry-run` 返回 `confirmation_required`（exit 3）。`zot zotero trash restore` 恢复的是回收站中已有的条目，支持 `--dry-run` 预览；它不是 `delete` 的反操作（`delete` 永不进入回收站）。
 
 ```bash
 # 预览
-uv run zot add --doi "10.1038/example" --dry-run
-uv run zot update ITEMKEY --title "New title" --dry-run
-uv run zot attach ITEMKEY --file paper.pdf --dry-run
-uv run zot delete ITEMKEY --dry-run
+uv run zot zotero add --doi "10.1038/example" --dry-run
+uv run zot zotero update ITEMKEY --title "New title" --dry-run
+uv run zot zotero attach ITEMKEY --file paper.pdf --dry-run
+uv run zot zotero delete ITEMKEY --dry-run
 uv run zot workspace delete papers --dry-run
 
 # 幂等重试
-uv run zot update ITEMKEY \
+uv run zot zotero update ITEMKEY \
   --title "New title" --idempotency-key update-001
 ```
 
-主要写入命令：`add`、`update`、`attach`、`note`、`tag`、`ai_analyze`。`note --add` 空内容返回 `validation_error`；条目不存在与"条目存在但没有 note"分别返回带上下文的 `not_found`。
+主要写入命令：`zot zotero add`、`zot zotero update`、`zot zotero attach`、`zot zotero note`、`zot zotero tag`、`ai_analyze`。`note --add` 空内容返回 `validation_error`；条目不存在与"条目存在但没有 note"分别返回带上下文的 `not_found`。
 
-部分成功是正式契约：`add --from-file`、多条目 `update`/`tag`/`delete`、`add --pdf`（条目已创建但附件上传失败）以及 `update-status --apply`（部分写入失败）都返回 `ok: "partial"` + `data` + `next`，并以非零退出码退出（`update-status` 全部失败为 network/rate 时 exit 5，否则 exit 1）。`add --pdf` 支持 `--idempotency-key`，在 partial 时保持预留，避免盲目重试重复创建条目；`add --from-file` 不接受 `--idempotency-key`，会显式返回 `validation_error`。`delete` 的 JSON `data` 带 `permanent: true`；确定性拒绝（validation/not_found/auth 等）会释放幂等预留，只有可能已提交的失败才保留预留。类型化写入错误的 error envelope 在可能已提交时带 `error.committed: true`。
+部分成功是正式契约：`zot zotero add --from-file`、多条目 `update`/`tag`/`delete`、`add --pdf`（条目已创建但附件上传失败）以及 `update-status --apply`（部分写入失败）都返回 `ok: "partial"` + `data` + `next`，并以非零退出码退出（`update-status` 全部失败为 network/rate 时 exit 5，否则 exit 1）。`add --pdf` 支持 `--idempotency-key`，在 partial 时保持预留，避免盲目重试重复创建条目；`add --from-file` 不接受 `--idempotency-key`，会显式返回 `validation_error`。`delete` 的 JSON `data` 带 `permanent: true`；确定性拒绝（validation/not_found/auth 等）会释放幂等预留，只有可能已提交的失败才保留预留。类型化写入错误的 error envelope 在可能已提交时带 `error.committed: true`。
 
-集合管理（`collection`）父命令属于读取分组，但其 create/move/rename/delete/reorganize 子命令按安全等级归入 write/destructive，且都支持 `--dry-run`。`collection delete` 会级联删除子集合，dry-run/确认提示/envelope 都会列出 `descendant_collections`/`descendant_count`；`collection reorganize` 是真正的移动（替换旧集合成员关系，data 中 `items_moved[].replaced_existing_memberships=true`）；未知 key 等失败返回类型化 `not_found`/`conflict`（4/5/3/6）。`add --url` 在元数据解析失败时会以 URL 作为标题回退，不会创建空标题条目。`update-status` 默认是 dry-run 预览，`--apply` 才写；部分写入失败返回 `ok: "partial"` 且非零退出。
+集合管理（`zot zotero collection`）父命令属于读取分组，但其 create/move/rename/delete/reorganize 子命令按安全等级归入 write/destructive，且都支持 `--dry-run`。`zot zotero collection delete` 会级联删除子集合，dry-run/确认提示/envelope 都会列出 `descendant_collections`/`descendant_count`；`zot zotero collection reorganize` 是真正的移动（替换旧集合成员关系，data 中 `items_moved[].replaced_existing_memberships=true`）；未知 key 等失败返回类型化 `not_found`/`conflict`（4/5/3/6）。`zot zotero add --url` 在元数据解析失败时会以 URL 作为标题回退，不会创建空标题条目。`update-status` 默认是 dry-run 预览，`--apply` 才写；部分写入失败返回 `ok: "partial"` 且非零退出。
 
 ## Workspace RAG
 

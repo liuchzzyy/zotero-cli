@@ -34,9 +34,9 @@ from zotero_cli.core.notes.client import AiClient
 from zotero_cli.core.notes.constants import ANALYZED_TAG, NOT_ANALYZED_TAG
 from zotero_cli.core.notes.errors import NoteAnalysisError
 from zotero_cli.core.notes.pipeline import analyze_item
-from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.core.zotero.writer import ZoteroWriter
 from zotero_cli.models import Collection, Item
+from zotero_cli.zotero.reader import ZoteroReader
 
 logging.basicConfig(
     level=logging.INFO,

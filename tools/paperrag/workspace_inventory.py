@@ -16,8 +16,8 @@ from zotero_cli.core.workspace_store import (
     workspace_exists,
     workspace_index_path,
 )
-from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.models import Item
+from zotero_cli.zotero.reader import ZoteroReader
 
 
 def utc_now() -> str:

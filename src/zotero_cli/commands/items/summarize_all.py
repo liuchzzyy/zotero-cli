@@ -8,10 +8,10 @@ from dataclasses import asdict
 import click
 
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id
-from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.models import Item
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.streaming import emit_progress
+from zotero_cli.zotero.reader import ZoteroReader
 
 
 def _writable_fields_for_item(item: Item) -> dict[str, str]:

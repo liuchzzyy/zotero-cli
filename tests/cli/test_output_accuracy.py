@@ -12,9 +12,9 @@ from click.testing import CliRunner
 
 from zotero_cli.cli import main
 from zotero_cli.core.workspace_store import Workspace
-from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.models import Creator, DuplicateGroup, Item, Note
 from zotero_cli.output.renderers import format_duplicates, format_item_detail, format_items, format_workspace_list
+from zotero_cli.zotero.reader import ZoteroReader
 
 
 def _item() -> Item:
@@ -37,10 +37,10 @@ def _item() -> Item:
 @pytest.mark.parametrize(
     ("path", "tier"),
     [
-        (("collection", "delete"), "destructive"),
-        (("collection", "create"), "write"),
-        (("collection", "list"), "read"),
-        (("trash", "restore"), "write"),
+        (("zotero", "collection", "delete"), "destructive"),
+        (("zotero", "collection", "create"), "write"),
+        (("zotero", "collection", "list"), "read"),
+        (("zotero", "trash", "restore"), "write"),
         (("config", "profile", "list"), "read"),
         (("config", "init"), "write"),
         (("config", "profile", "set"), "write"),
@@ -67,7 +67,7 @@ def test_schema_dotted_paths_match_spaced_paths(path: tuple[str, ...], tier: str
     assert dotted_data["name"] == " ".join(path)
 
 
-@pytest.mark.parametrize("command", [["list"], ["search", ""]])
+@pytest.mark.parametrize("command", [["zotero", "list"], ["zotero", "search", ""]])
 @pytest.mark.parametrize("limit", [0, 1, 100])
 @pytest.mark.parametrize("global_limit", [False, True])
 def test_stream_reports_remaining_filtered_results(
@@ -115,9 +115,9 @@ def test_cite_apa_keeps_all_twenty_authors_before_abbreviation(author_count: int
     else:
         expected = ", ".join(names[:19]) + ", ... " + names[-1]
 
-    with patch("zotero_cli.commands.items.cite.ZoteroReader", autospec=True) as reader:
+    with patch("zotero_cli.cli.zotero.cite.ZoteroReader", autospec=True) as reader:
         reader.return_value.get_item.return_value = item
-        result = CliRunner().invoke(main, ["cite", item.key, "--style", "apa", "--no-copy"])
+        result = CliRunner().invoke(main, ["zotero", "cite", item.key, "--style", "apa", "--no-copy"])
 
     assert result.exit_code == 0, result.output
     assert result.stdout == f"{expected} (2026). Test article.\n"

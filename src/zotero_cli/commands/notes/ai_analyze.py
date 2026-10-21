@@ -26,10 +26,10 @@ from zotero_cli.core.zotero.idempotency import (
     request_scope,
     store_cached,
 )
-from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.core.zotero.writer import ZoteroWriter
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
+from zotero_cli.zotero.reader import ZoteroReader
 
 
 @click.command("ai_analyze")

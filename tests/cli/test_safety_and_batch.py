@@ -27,7 +27,7 @@ def _parse_json_output(output: str) -> dict:
 class TestDryRun:
     def test_delete_dry_run(self):
         runner = CliRunner()
-        result = runner.invoke(main, ["delete", "K1", "--dry-run"], env=WRITE_ENV)
+        result = runner.invoke(main, ["zotero", "delete", "K1", "--dry-run"], env=WRITE_ENV)
         assert result.exit_code == 0
         assert "[dry-run]" in result.output
         assert "K1" in result.output
@@ -35,7 +35,7 @@ class TestDryRun:
     def test_delete_dry_run_no_api_needed(self):
         """--dry-run should work even without API credentials."""
         runner = CliRunner()
-        result = runner.invoke(main, ["delete", "K1", "--dry-run"])
+        result = runner.invoke(main, ["zotero", "delete", "K1", "--dry-run"])
         # Dry-run bypasses the auth check, so exit is 0 and the preview is emitted.
         assert result.exit_code == 0
         # Text-mode preview line, not present in JSON envelope mode.
@@ -53,7 +53,7 @@ class TestDryRun:
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["--no-json", "collection", "reorganize", str(plan_file), "--dry-run"],
+            ["--no-json", "zotero", "collection", "reorganize", str(plan_file), "--dry-run"],
         )
         assert result.exit_code == 0
         assert "[dry-run] Would create collection 'Topic A'" in result.output
@@ -63,14 +63,14 @@ class TestDryRun:
         assert "2 collections to create" in result.output
 
     def test_collection_delete_dry_run(self):
-        # Dry-run validates the key against the local library (fixtures).
-        result = _invoke(["collection", "delete", "COLML01", "--dry-run"])
+        # 仅预览时使用本地快照展示结果。
+        result = _invoke(["zotero", "collection", "delete", "COLML01", "--dry-run"])
         assert result.exit_code == 0
         assert "[dry-run]" in result.output
         assert "COLML01" in result.output
 
     def test_collection_delete_dry_run_json_envelope(self):
-        result = _invoke(["collection", "delete", "COLML01", "--dry-run"], json_output=True)
+        result = _invoke(["zotero", "collection", "delete", "COLML01", "--dry-run"], json_output=True)
         assert result.exit_code == 0
         env = json.loads(result.stdout)
         assert env["ok"] is True
@@ -79,7 +79,7 @@ class TestDryRun:
         assert env["data"]["would_delete"] is True
 
     def test_collection_delete_dry_run_previews_cascade(self):
-        result = _invoke(["collection", "delete", "NOSUCHKEY", "--dry-run"], json_output=True)
+        result = _invoke(["zotero", "collection", "delete", "NOSUCHKEY", "--dry-run"], json_output=True)
         assert result.exit_code == 0
         env = json.loads(result.stdout)
         assert env["dry_run"] is True
@@ -98,7 +98,7 @@ class TestDryRun:
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["--json", "collection", "reorganize", str(plan_file), "--dry-run"],
+            ["--json", "zotero", "collection", "reorganize", str(plan_file), "--dry-run"],
         )
 
         assert result.exit_code == 0
@@ -112,7 +112,7 @@ class TestDryRun:
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["tag", "K1", "--add", "newtag", "--dry-run"],
+            ["zotero", "tag", "K1", "--add", "newtag", "--dry-run"],
             env=WRITE_ENV,
         )
         assert result.exit_code == 0
@@ -123,7 +123,7 @@ class TestDryRun:
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["tag", "K1", "--remove", "oldtag", "--dry-run"],
+            ["zotero", "tag", "K1", "--remove", "oldtag", "--dry-run"],
             env=WRITE_ENV,
         )
         assert result.exit_code == 0
@@ -132,7 +132,7 @@ class TestDryRun:
 
     def test_tag_add_dry_run_json_envelope(self):
         runner = CliRunner()
-        result = runner.invoke(main, ["--json", "tag", "K1", "--add", "newtag", "--dry-run"], env=WRITE_ENV)
+        result = runner.invoke(main, ["--json", "zotero", "tag", "K1", "--add", "newtag", "--dry-run"], env=WRITE_ENV)
         assert result.exit_code == 0
         env = json.loads(result.output)
         assert env["ok"] is True
@@ -141,7 +141,7 @@ class TestDryRun:
 
 
 class TestCollectionJsonOutput:
-    @patch("zotero_cli.commands.collections.commands.ZoteroWriter")
+    @patch("zotero_cli.cli.zotero.collection.ZoteroWriter")
     def test_collection_create_json_success_envelope(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
@@ -150,7 +150,7 @@ class TestCollectionJsonOutput:
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["--json", "collection", "create", "New Col", "--parent", "PARENT"],
+            ["--json", "zotero", "collection", "create", "New Col", "--parent", "PARENT"],
             env=WRITE_ENV,
         )
 
@@ -166,7 +166,7 @@ class TestCollectionJsonOutput:
         assert SYNC_REMINDER not in result.output
         mock_writer.create_collection.assert_called_once_with("New Col", parent_key="PARENT")
 
-    @patch("zotero_cli.commands.collections.commands.ZoteroWriter")
+    @patch("zotero_cli.cli.zotero.collection.ZoteroWriter")
     def test_collection_move_json_success_envelope(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
@@ -174,7 +174,7 @@ class TestCollectionJsonOutput:
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["--json", "collection", "move", "ITEM1", "DESTCOL", "--from", "SRCCOL"],
+            ["--json", "zotero", "collection", "move", "ITEM1", "DESTCOL", "--from", "SRCCOL"],
             env=WRITE_ENV,
         )
 
@@ -191,13 +191,13 @@ class TestCollectionJsonOutput:
         assert SYNC_REMINDER not in result.output
         mock_writer.move_to_collection.assert_called_once_with("ITEM1", "DESTCOL", source_collection_key="SRCCOL")
 
-    @patch("zotero_cli.commands.collections.commands.ZoteroWriter")
+    @patch("zotero_cli.cli.zotero.collection.ZoteroWriter")
     def test_collection_delete_json_success_envelope(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
 
         runner = CliRunner()
-        result = runner.invoke(main, ["--json", "collection", "delete", "COL1", "--yes"], env=WRITE_ENV)
+        result = runner.invoke(main, ["--json", "zotero", "collection", "delete", "COL1", "--yes"], env=WRITE_ENV)
 
         assert result.exit_code == 0
         env = _parse_json_output(result.stdout)
@@ -212,13 +212,13 @@ class TestCollectionJsonOutput:
         assert SYNC_REMINDER not in result.output
         mock_writer.delete_collection.assert_called_once_with("COL1")
 
-    @patch("zotero_cli.commands.collections.commands.ZoteroWriter")
+    @patch("zotero_cli.cli.zotero.collection.ZoteroWriter")
     def test_collection_rename_json_success_envelope(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
 
         runner = CliRunner()
-        result = runner.invoke(main, ["--json", "collection", "rename", "COL1", "New Name"], env=WRITE_ENV)
+        result = runner.invoke(main, ["--json", "zotero", "collection", "rename", "COL1", "New Name"], env=WRITE_ENV)
 
         assert result.exit_code == 0
         env = _parse_json_output(result.output)
@@ -227,7 +227,7 @@ class TestCollectionJsonOutput:
         assert SYNC_REMINDER not in result.output
         mock_writer.rename_collection.assert_called_once_with("COL1", "New Name")
 
-    @patch("zotero_cli.commands.collections.reorganize.ZoteroWriter")
+    @patch("zotero_cli.cli.zotero.collection_reorganize.ZoteroWriter")
     def test_collection_reorganize_json_success_envelope(self, mock_writer_cls, tmp_path):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
@@ -242,7 +242,7 @@ class TestCollectionJsonOutput:
         plan_file.write_text(json.dumps(plan))
 
         runner = CliRunner()
-        result = runner.invoke(main, ["--json", "collection", "reorganize", str(plan_file)], env=WRITE_ENV)
+        result = runner.invoke(main, ["--json", "zotero", "collection", "reorganize", str(plan_file)], env=WRITE_ENV)
 
         assert result.exit_code == 0
         env = _parse_json_output(result.output)
@@ -299,7 +299,7 @@ class TestCompletions:
 
 class TestOffset:
     def test_search_with_offset(self, test_db_path):
-        from zotero_cli.core.zotero.reader import ZoteroReader
+        from zotero_cli.zotero.reader import ZoteroReader
 
         reader = ZoteroReader(test_db_path)
         all_results = reader.search("", limit=100)
@@ -308,7 +308,7 @@ class TestOffset:
         assert len(offset_results.items) == len(all_results.items) - 1
 
     def test_search_offset_beyond_total(self, test_db_path):
-        from zotero_cli.core.zotero.reader import ZoteroReader
+        from zotero_cli.zotero.reader import ZoteroReader
 
         reader = ZoteroReader(test_db_path)
         result = reader.search("", limit=100, offset=99999)
@@ -394,7 +394,7 @@ class TestOffset:
 
 
 class TestBatchDelete:
-    @patch("zotero_cli.commands.items.delete.ZoteroWriter")
+    @patch("zotero_cli.cli.zotero.delete.ZoteroWriter")
     def test_delete_multiple_keys(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
@@ -402,7 +402,7 @@ class TestBatchDelete:
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["delete", "K1", "K2", "K3", "--yes"],
+            ["zotero", "delete", "K1", "K2", "K3", "--yes"],
             env=WRITE_ENV,
         )
         assert result.exit_code == 0
@@ -413,13 +413,13 @@ class TestBatchDelete:
 
     def test_delete_multiple_dry_run(self):
         runner = CliRunner()
-        result = runner.invoke(main, ["delete", "K1", "K2", "--dry-run"])
+        result = runner.invoke(main, ["zotero", "delete", "K1", "K2", "--dry-run"])
         assert result.exit_code == 0
         assert "[dry-run]" in result.output
         assert "K1" in result.output
         assert "K2" in result.output
 
-    @patch("zotero_cli.commands.items.delete.ZoteroWriter")
+    @patch("zotero_cli.cli.zotero.delete.ZoteroWriter")
     def test_delete_partial_failure(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
@@ -428,7 +428,7 @@ class TestBatchDelete:
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["delete", "K1", "K2", "K3", "--yes"],
+            ["zotero", "delete", "K1", "K2", "K3", "--yes"],
             env=WRITE_ENV,
         )
         assert result.exit_code != 0
@@ -440,7 +440,7 @@ class TestBatchDelete:
 
 
 class TestBatchTag:
-    @patch("zotero_cli.commands.items.tag.ZoteroWriter")
+    @patch("zotero_cli.cli.zotero.tag.ZoteroWriter")
     def test_tag_add_multiple_keys(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
@@ -448,7 +448,7 @@ class TestBatchTag:
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["tag", "K1", "K2", "K3", "--add", "newtag"],
+            ["zotero", "tag", "K1", "K2", "K3", "--add", "newtag"],
             env=WRITE_ENV,
         )
         assert result.exit_code == 0
@@ -457,7 +457,7 @@ class TestBatchTag:
         assert "K2" in result.output
         assert "K3" in result.output
 
-    @patch("zotero_cli.commands.items.tag.ZoteroWriter")
+    @patch("zotero_cli.cli.zotero.tag.ZoteroWriter")
     def test_tag_remove_multiple_keys(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
@@ -465,7 +465,7 @@ class TestBatchTag:
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["tag", "K1", "K2", "--remove", "oldtag"],
+            ["zotero", "tag", "K1", "K2", "--remove", "oldtag"],
             env=WRITE_ENV,
         )
         assert result.exit_code == 0
@@ -475,7 +475,7 @@ class TestBatchTag:
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["tag", "K1", "K2", "--add", "t", "--dry-run"],
+            ["zotero", "tag", "K1", "K2", "--add", "t", "--dry-run"],
         )
         assert result.exit_code == 0
         assert result.output.count("[dry-run]") == 2
@@ -484,7 +484,7 @@ class TestBatchTag:
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["tag", "ATTN001", "BERT002"],
+            ["zotero", "tag", "ATTN001", "BERT002"],
             env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"},
         )
         assert result.exit_code == 0
@@ -495,7 +495,7 @@ class TestBatchTag:
         runner = CliRunner()
         result = runner.invoke(
             main,
-            ["--json", "tag", "ATTN001"],
+            ["--json", "zotero", "tag", "ATTN001"],
             env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"},
         )
         assert result.exit_code == 0
@@ -539,57 +539,57 @@ class TestTimeout:
 
 
 class TestWriteErrorInCommands:
-    @patch("zotero_cli.commands.items.add.ZoteroWriter")
+    @patch("zotero_cli.cli.zotero.add.ZoteroWriter")
     def test_add_write_error(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
         mock_writer.add_item.side_effect = ZoteroWriteError("API error: Bad request")
 
         runner = CliRunner()
-        result = runner.invoke(main, ["add", "--doi", "10.1234/test", "--no-resolve"], env=WRITE_ENV)
+        result = runner.invoke(main, ["zotero", "add", "--doi", "10.1234/test", "--no-resolve"], env=WRITE_ENV)
         assert result.exit_code != 0
         assert "Bad request" in result.output
 
-    @patch("zotero_cli.commands.items.delete.ZoteroWriter")
+    @patch("zotero_cli.cli.zotero.delete.ZoteroWriter")
     def test_delete_write_error(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
         mock_writer.delete_item.side_effect = ZoteroWriteError("Item 'K1' not found")
 
         runner = CliRunner()
-        result = runner.invoke(main, ["delete", "K1", "--yes"], env=WRITE_ENV)
+        result = runner.invoke(main, ["zotero", "delete", "K1", "--yes"], env=WRITE_ENV)
         assert result.exit_code != 0
         assert "not found" in result.output
 
-    @patch("zotero_cli.commands.items.tag.ZoteroWriter")
+    @patch("zotero_cli.cli.zotero.tag.ZoteroWriter")
     def test_tag_add_write_error(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
         mock_writer.add_tags.side_effect = ZoteroWriteError("Item 'K1' not found")
 
         runner = CliRunner()
-        result = runner.invoke(main, ["tag", "K1", "--add", "t"], env=WRITE_ENV)
+        result = runner.invoke(main, ["zotero", "tag", "K1", "--add", "t"], env=WRITE_ENV)
         assert result.exit_code != 0
         assert "not found" in result.output
 
-    @patch("zotero_cli.commands.notes.note.ZoteroWriter")
+    @patch("zotero_cli.cli.zotero.notes.ZoteroWriter")
     def test_note_write_error(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
         mock_writer.add_note.side_effect = ZoteroWriteError("Network error: timeout")
 
         runner = CliRunner()
-        result = runner.invoke(main, ["note", "K1", "--add", "text"], env=WRITE_ENV)
+        result = runner.invoke(main, ["zotero", "note", "K1", "--add", "text"], env=WRITE_ENV)
         assert result.exit_code != 0
         assert "timeout" in result.output
 
-    @patch("zotero_cli.commands.collections.commands.ZoteroWriter")
+    @patch("zotero_cli.cli.zotero.collection.ZoteroWriter")
     def test_collection_create_write_error(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
         mock_writer.create_collection.side_effect = ZoteroWriteError("Network error")
 
         runner = CliRunner()
-        result = runner.invoke(main, ["collection", "create", "Test"], env=WRITE_ENV)
+        result = runner.invoke(main, ["zotero", "collection", "create", "Test"], env=WRITE_ENV)
         assert result.exit_code != 0
         assert "Network error" in result.output

@@ -9,6 +9,7 @@ import json
 from typing import Any, NoReturn
 
 import click
+from typer.core import TyperArgument
 
 from zotero_cli import __version__
 from zotero_cli.output.envelope import SCHEMA_VERSION, envelope_error, envelope_ok
@@ -35,11 +36,11 @@ def _param_type_name(param: click.Parameter) -> str:
 def _param_to_dict(param: click.Parameter) -> dict:
     d: dict[str, Any] = {
         "name": param.name,
-        "kind": "argument" if isinstance(param, click.Argument) else "option",
+        "kind": "argument" if isinstance(param, (click.Argument, TyperArgument)) else "option",
         "type": _param_type_name(param),
         "required": bool(param.required),
     }
-    if isinstance(param, click.Option):
+    if hasattr(param, "opts"):
         d["flags"] = list(param.opts) + list(param.secondary_opts)
         d["is_flag"] = bool(getattr(param, "is_flag", False))
         if param.help:
@@ -79,7 +80,7 @@ def _command_to_dict(cmd: click.Command, path: list[str]) -> dict:
     }
     params = [p for p in cmd.params if not (isinstance(p, click.Option) and p.name == "help")]
     data["params"] = [_param_to_dict(p) for p in params]
-    if isinstance(cmd, click.Group):
+    if hasattr(cmd, "commands"):
         subs = {}
         for sub_name, sub_cmd in sorted(cmd.commands.items()):
             subs[sub_name] = _command_to_dict(sub_cmd, path + [sub_name])
@@ -90,9 +91,10 @@ def _command_to_dict(cmd: click.Command, path: list[str]) -> dict:
 def _resolve_command(root: click.Command, path: list[str]) -> click.Command | None:
     current: click.Command = root
     for part in path:
-        if not isinstance(current, click.Group):
+        commands = getattr(current, "commands", None)
+        if not isinstance(commands, dict):
             return None
-        nxt = current.commands.get(part)
+        nxt = commands.get(part)
         if nxt is None:
             return None
         current = nxt

@@ -23,7 +23,7 @@ from zotero_cli import config
 from zotero_cli.core.zotero import idempotency
 
 WRITE_ENV = {"ZOT_LIBRARY_ID": "123", "ZOT_API_KEY": "fake-test-key"}
-NOTE_ARGS = ["note", "ATTN001", "--add", "A finding", "--idempotency-key", "same-request"]
+NOTE_ARGS = ["zotero", "note", "ATTN001", "--add", "A finding", "--idempotency-key", "same-request"]
 
 
 class NoteService:

@@ -50,7 +50,7 @@ def test_relate(test_db_path):
     runner = CliRunner()
     result = runner.invoke(
         main,
-        ["relate", "ATTN001"],
+        ["zotero", "relate", "ATTN001"],
         env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"},
     )
     assert result.exit_code == 0
@@ -61,7 +61,7 @@ def test_relate_missing_item_is_not_found(test_db_path):
     runner = CliRunner()
     result = runner.invoke(
         main,
-        ["--json", "relate", "MISSINGKEY"],
+        ["--json", "zotero", "relate", "MISSINGKEY"],
         env={"ZOT_DATA_DIR": str(test_db_path.parent), "ZOT_FORMAT": "table"},
     )
     assert result.exit_code == 4

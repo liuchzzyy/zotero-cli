@@ -6,7 +6,7 @@ import importlib.util
 import sqlite3
 from pathlib import Path
 
-from zotero_cli.core.zotero.reader import ZoteroReader
+from zotero_cli.zotero.reader import ZoteroReader
 
 FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures"
 GENERATOR_PATH = FIXTURES_DIR / "create_test_db.py"

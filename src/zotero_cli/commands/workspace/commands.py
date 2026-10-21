@@ -34,10 +34,10 @@ from zotero_cli.core.workspace_store import (
     validate_name,
     workspace_file_path,
 )
-from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.models import Collection, Item
 from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.output.renderers import format_items, format_workspace_list
+from zotero_cli.zotero.reader import ZoteroReader
 
 _ADD_HINT = "Use 'zot workspace new' to create it first"
 
@@ -425,7 +425,7 @@ def workspace_import_cmd(
                     "not_found",
                     f"Collection '{collection}' not found",
                     output_json=json_out,
-                    hint="Use 'zot collection list' to list available collections",
+                    hint="Use 'zot zotero collection list' to list available collections",
                     context="workspace import",
                 )
             collection_items = reader.get_collection_items(col_key)

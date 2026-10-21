@@ -26,9 +26,9 @@ idea/TODO/
 .env
 .env.local
 .env.*
-.zot/config.toml
-.zot/config.toml.*
-.zot/state/
+# 本地 Zotero 凭据、缓存、索引和导出产物不提交
+.zot/*
+!.zot/config.example.toml
 .workspace/
 # 本地运行配置、缓存与产物；仅保留说明和模板
 config/*

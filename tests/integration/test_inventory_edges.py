@@ -28,7 +28,7 @@ from zotero_cli.core.workspace_store import (
     workspace_file_path,
     workspace_index_path,
 )
-from zotero_cli.core.zotero.reader import ZoteroReader
+from zotero_cli.zotero.reader import ZoteroReader
 
 
 @dataclass

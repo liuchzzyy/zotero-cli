@@ -4,27 +4,23 @@ from __future__ import annotations
 
 import json
 
-import click
+import typer
 
+from zotero_cli.cli.zotero.reading import app
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id
-from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import EXIT_CONFLICT
 from zotero_cli.output.renderers import format_duplicates
+from zotero_cli.zotero.reader import ZoteroReader
 
 
-@click.command("duplicates")
-@click.option(
-    "--by",
-    "strategy",
-    default="both",
-    type=click.Choice(["doi", "title", "both"]),
-    help="Detection strategy (default: both)",
-)
-@click.option("--threshold", default=0.85, type=float, help="Title similarity threshold (default: 0.85)")
-@click.option("--limit", default=None, type=int, help="Limit results (overrides global --limit)")
-@click.pass_context
-def duplicates_cmd(ctx: click.Context, strategy: str, threshold: float, limit: int | None) -> None:
+@app.command(name="duplicates")
+def duplicates(
+    ctx: typer.Context,
+    strategy: str = typer.Option("both", "--by", help="检测策略：doi、title 或 both。"),
+    threshold: float = typer.Option(0.85, help="标题相似度阈值。"),
+    limit: int | None = typer.Option(None, help="覆盖全局结果上限。"),
+) -> None:
     """Find potential duplicate items in the library.
 
     \b
@@ -34,6 +30,8 @@ def duplicates_cmd(ctx: click.Context, strategy: str, threshold: float, limit: i
       zot duplicates --by title --threshold 0.9
       zot --json duplicates
     """
+    if strategy not in {"doi", "title", "both"}:
+        raise typer.BadParameter("by 必须是 doi、title 或 both")
     cfg = load_config(profile=ctx.obj.get("profile"))
     data_dir = get_data_dir(cfg)
     db_path = data_dir / "zotero.sqlite"
@@ -44,11 +42,11 @@ def duplicates_cmd(ctx: click.Context, strategy: str, threshold: float, limit: i
         groups = reader.find_duplicates(strategy=strategy, threshold=threshold, limit=limit)
         if not groups:
             if ctx.obj.get("json"):
-                click.echo(json.dumps(envelope_ok([], meta={"count": 0}), indent=2, ensure_ascii=False))
+                typer.echo(json.dumps(envelope_ok([], meta={"count": 0}), indent=2, ensure_ascii=False))
             else:
-                click.echo("No duplicates found.")
+                typer.echo("No duplicates found.")
             return
-        click.echo(format_duplicates(groups, output_json=ctx.obj.get("json", False)))
+        typer.echo(format_duplicates(groups, output_json=ctx.obj.get("json", False)))
     finally:
         reader.close()
     # Signal "duplicates detected" via typed exit code so agents/scripts can

@@ -9,13 +9,13 @@ import click
 
 from zotero_cli.config import get_data_dir, get_prefs_js_path, load_config, load_pdf_config, resolve_library_id
 from zotero_cli.core.mineru import MinerUError, MinerUParseCache
-from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error, emit_exception
 from zotero_cli.output.renderers import format_pdf_text
+from zotero_cli.zotero.reader import ZoteroReader
 
-_NO_PDF_HINT = "Check item details with: zot read KEY"
-_USAGE_HINT = 'Find item keys with: zot search "<query>"'
+_NO_PDF_HINT = "Check item details with: zot zotero read KEY"
+_USAGE_HINT = 'Find item keys with: zot zotero search "<query>"'
 _CACHE_STATE_HINT = "The local MinerU cache appears corrupt; remove the affected package directory and retry"
 
 

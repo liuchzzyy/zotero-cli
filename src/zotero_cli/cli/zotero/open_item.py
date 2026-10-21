@@ -8,13 +8,14 @@ import re
 import subprocess
 import sys
 
-import click
+import typer
 
+from zotero_cli.cli.zotero.reading import app
 from zotero_cli.config import get_data_dir, get_prefs_js_path, load_config, resolve_library_id
-from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.output.renderers import sanitize_text
+from zotero_cli.zotero.reader import ZoteroReader
 
 _HTTP_URL_RE = re.compile(r"^https?://", re.IGNORECASE)
 _ANY_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
@@ -40,22 +41,18 @@ def _open_path(path: str) -> None:
 def _emit_and_open(target: str, *, kind: str, output_json: bool) -> None:
     """Report the target (envelope or human line) and launch the default app."""
     if output_json:
-        click.echo(json.dumps(envelope_ok({"target": target, "kind": kind, "gui": True}), indent=2, ensure_ascii=False))
+        typer.echo(json.dumps(envelope_ok({"target": target, "kind": kind, "gui": True}), indent=2, ensure_ascii=False))
     else:
-        click.echo(f"Opening {sanitize_text(target)}")
+        typer.echo(f"Opening {sanitize_text(target)}")
     _open_path(target)
 
 
-@click.command("open")
-@click.argument("key")
-@click.option(
-    "--url",
-    "open_url",
-    is_flag=True,
-    help="Open the item URL (or a web URL passed as KEY) in the browser instead of the PDF",
-)
-@click.pass_context
-def open_cmd(ctx: click.Context, key: str, open_url: bool) -> None:
+@app.command(name="open")
+def open_item(
+    ctx: typer.Context,
+    key: str = typer.Argument(help="Zotero 条目键或 http(s) URL。"),
+    open_url: bool = typer.Option(False, "--url", help="在浏览器中打开条目或指定的 URL。"),
+) -> None:
     """Open the PDF or URL of a Zotero item in the default app.
 
     KEY may also be an http(s) URL, which is opened directly
@@ -101,7 +98,7 @@ def open_cmd(ctx: click.Context, key: str, open_url: bool) -> None:
                 "not_found",
                 f"Item '{key}' not found",
                 output_json=json_out,
-                hint="Run 'zot search' to find valid item keys",
+                hint="Run 'zot zotero search' to find valid item keys",
                 context="open",
             )
 

@@ -1,181 +1,38 @@
-"""zot update: update item metadata fields through the Web API."""
+"""通过 Web API 更新条目元数据。"""
 
 from __future__ import annotations
 
 import json
 import sqlite3
 from pathlib import Path
-from typing import TypedDict
 
-import click
+import typer
 
+from zotero_cli.cli.zotero.reading import app
 from zotero_cli.config import load_config, resolve_write_credentials
 from zotero_cli.core.zotero.writer import SYNC_REMINDER, ZoteroWriter
 from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
 from zotero_cli.output.envelope import envelope_ok, envelope_partial
 from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.output.streaming import emit_progress
+from zotero_cli.zotero.item_updates import _load_updates_from_jsonl, _parse_inline_fields
 
 
-class BatchUpdateRow(TypedDict):
-    line: int
-    key: str
-    fields: dict[str, str]
-
-
-def _parse_inline_fields(
-    *,
-    title: str | None,
-    date: str | None,
-    field: tuple[str, ...],
-    json_out: bool,
-) -> dict[str, str]:
-    fields: dict[str, str] = {}
-    if title:
-        fields["title"] = title
-    if date:
-        fields["date"] = date
-    for f in field:
-        if "=" not in f:
-            emit_error(
-                "validation_error",
-                f"Invalid field format: '{f}'",
-                output_json=json_out,
-                hint="Use key=value format",
-                context="update",
-            )
-        k, v = f.split("=", 1)
-        fields[k] = v
-    return fields
-
-
-def _load_updates_from_jsonl(file_path: Path, *, json_out: bool) -> list[BatchUpdateRow]:
-    try:
-        raw_lines = file_path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError) as e:
-        emit_error(
-            "validation_error",
-            f"Could not read JSONL file '{file_path}': {e}",
-            output_json=json_out,
-            hint="Provide a UTF-8 JSONL file with one update object per line",
-            context="update",
-        )
-
-    updates: list[BatchUpdateRow] = []
-    for line_no, raw_line in enumerate(raw_lines, 1):
-        line = raw_line.strip()
-        if not line:
-            continue
-        try:
-            payload = json.loads(line)
-        except json.JSONDecodeError as e:
-            emit_error(
-                "validation_error",
-                f"Invalid JSON on line {line_no} of '{file_path}': {e.msg}",
-                output_json=json_out,
-                hint='Expected JSONL rows like {"key":"ABC123","fields":{"title":"New title"}}',
-                context="update",
-            )
-        if not isinstance(payload, dict):
-            emit_error(
-                "validation_error",
-                f"Line {line_no} of '{file_path}' must be a JSON object",
-                output_json=json_out,
-                hint='Expected JSONL rows like {"key":"ABC123","fields":{"title":"New title"}}',
-                context="update",
-            )
-
-        key = payload.get("key")
-        fields = payload.get("fields")
-        if not isinstance(key, str) or not key.strip():
-            emit_error(
-                "validation_error",
-                f"Line {line_no} of '{file_path}' is missing a non-empty string 'key'",
-                output_json=json_out,
-                hint='Expected JSONL rows like {"key":"ABC123","fields":{"title":"New title"}}',
-                context="update",
-            )
-        if not isinstance(fields, dict) or not fields:
-            emit_error(
-                "validation_error",
-                f"Line {line_no} of '{file_path}' must contain a non-empty object 'fields'",
-                output_json=json_out,
-                hint='Expected JSONL rows like {"key":"ABC123","fields":{"title":"New title"}}',
-                context="update",
-            )
-
-        clean_fields: dict[str, str] = {}
-        for field_name, field_value in fields.items():
-            if not isinstance(field_name, str) or not field_name.strip():
-                emit_error(
-                    "validation_error",
-                    f"Line {line_no} of '{file_path}' contains an invalid field name",
-                    output_json=json_out,
-                    hint="Each field name must be a non-empty string",
-                    context="update",
-                )
-            if not isinstance(field_value, str):
-                emit_error(
-                    "validation_error",
-                    f"Line {line_no} of '{file_path}' field '{field_name}' must be a string in batch mode",
-                    output_json=json_out,
-                    hint="Batch metadata cleanup currently supports string field values only",
-                    context="update",
-                )
-            clean_fields[field_name] = field_value
-
-        updates.append({"line": line_no, "key": key, "fields": clean_fields})
-
-    if not updates:
-        emit_error(
-            "validation_error",
-            f"JSONL file '{file_path}' is empty or has no valid update rows",
-            output_json=json_out,
-            hint='Expected JSONL rows like {"key":"ABC123","fields":{"title":"New title"}}',
-            context="update",
-        )
-
-    return updates
-
-
-@click.command("update")
-@click.argument("key", required=False)
-@click.option("--title", default=None, help="New title")
-@click.option("--date", default=None, help="New date (e.g. 2025-01-01)")
-@click.option("--field", multiple=True, help="Set field as key=value (repeatable)")
-@click.option(
-    "--from-jsonl",
-    "from_jsonl",
-    default=None,
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help='Batch update from JSONL rows like {"key":"ABC123","fields":{"title":"New title"}}',
-)
-@click.option("--add-tag", "add_tags", multiple=True, help="Add tag(s) after a successful update (repeatable)")
-@click.option("--dry-run", is_flag=True, help="Preview the update without executing")
-@click.option("--idempotency-key", default=None, help="Key so retries are safe; same key returns the original result")
-@click.pass_context
+@app.command(name="update")
 def update_cmd(
-    ctx: click.Context,
-    key: str | None,
-    title: str | None,
-    date: str | None,
-    field: tuple[str, ...],
-    from_jsonl: Path | None,
-    add_tags: tuple[str, ...],
-    dry_run: bool,
-    idempotency_key: str | None,
+    ctx: typer.Context,
+    key: str | None = typer.Argument(None, help="条目键；批量更新时不传。"),
+    title: str | None = typer.Option(None, help="新标题。"),
+    date: str | None = typer.Option(None, help="新日期。"),
+    field: list[str] = typer.Option([], help="以 key=value 格式设置字段，可重复。"),
+    from_jsonl: Path | None = typer.Option(
+        None, "--from-jsonl", exists=True, dir_okay=False, help="从 JSONL 文件批量更新。"
+    ),
+    add_tags: list[str] = typer.Option([], "--add-tag", help="成功更新后添加标签，可重复。"),
+    dry_run: bool = typer.Option(False, help="只预览，不执行更新。"),
+    idempotency_key: str | None = typer.Option(None, help="单条写入的幂等键。"),
 ) -> None:
-    """Update item metadata fields via the Zotero API. MUTATES LIBRARY.
-
-    \b
-    Examples:
-      zot update ABC123 --title "New Title"
-      zot update ABC123 --date "2025-01-01"
-      zot update ABC123 --field volume=42 --field pages=1-10
-      zot update ABC123 --title "Title" --field abstractNote="New abstract"
-      zot update ABC123 --title "New" --dry-run
-      zot update --from-jsonl updates.jsonl --add-tag update/metadata
-    """
+    """通过 Zotero Web API 更新条目元数据。"""
     cfg = load_config(profile=ctx.obj.get("profile"))
     json_out = ctx.obj.get("json", False)
     fields = _parse_inline_fields(title=title, date=date, field=field, json_out=json_out)
@@ -187,7 +44,7 @@ def update_cmd(
                 "validation_error",
                 "Do not provide ITEMKEY when using --from-jsonl",
                 output_json=json_out,
-                hint="Use either 'zot update KEY ...' or 'zot update --from-jsonl updates.jsonl'",
+                hint="Use either 'zot zotero update KEY ...' or 'zot zotero update --from-jsonl updates.jsonl'",
                 context="update",
             )
         if has_inline_fields:
@@ -219,9 +76,9 @@ def update_cmd(
                 }
             }
             if json_out:
-                click.echo(json.dumps(envelope_ok(data, dry_run=True), indent=2, ensure_ascii=False))
+                typer.echo(json.dumps(envelope_ok(data, dry_run=True), indent=2, ensure_ascii=False))
             else:
-                click.echo(f"[dry-run] Would update {len(updates)} item(s) from {from_jsonl}")
+                typer.echo(f"[dry-run] Would update {len(updates)} item(s) from {from_jsonl}")
             return
 
         library_type = ctx.obj.get("library_type", "user")
@@ -251,7 +108,7 @@ def update_cmd(
                     writer.add_tags(row_key, list(add_tags))
                 succeeded.append({"line": row_line, "key": row_key, "fields": row_fields, "tags_added": list(add_tags)})
                 if not json_out:
-                    click.echo(f"  [{index}/{len(updates)}] Updated: {row_key}", err=True)
+                    typer.echo(f"  [{index}/{len(updates)}] Updated: {row_key}", err=True)
             except ZoteroWriteError as e:
                 failed.append(
                     {
@@ -262,7 +119,7 @@ def update_cmd(
                     }
                 )
                 if not json_out:
-                    click.echo(f"  [{index}/{len(updates)}] Failed: {row_key} ({e})", err=True)
+                    typer.echo(f"  [{index}/{len(updates)}] Failed: {row_key} ({e})", err=True)
 
         emit_progress(
             "complete",
@@ -277,11 +134,11 @@ def update_cmd(
             if not failed:
                 env["ok"] = True
                 env["data"] = {"succeeded": succeeded, "failed": [], "tags_added": list(add_tags)}
-            click.echo(json.dumps(env, indent=2, ensure_ascii=False))
+            typer.echo(json.dumps(env, indent=2, ensure_ascii=False))
         else:
-            click.echo(f"\nDone: {len(succeeded)} updated, {len(failed)} failed", err=True)
+            typer.echo(f"\nDone: {len(succeeded)} updated, {len(failed)} failed", err=True)
             if succeeded:
-                click.echo(SYNC_REMINDER, err=True)
+                typer.echo(SYNC_REMINDER, err=True)
         return
 
     if key is None:
@@ -289,7 +146,7 @@ def update_cmd(
             "validation_error",
             "Missing item key",
             output_json=json_out,
-            hint="Use 'zot update KEY --title ...' or 'zot update --from-jsonl updates.jsonl'",
+            hint="Use 'zot zotero update KEY --title ...' or 'zot zotero update --from-jsonl updates.jsonl'",
             context="update",
         )
 
@@ -305,9 +162,9 @@ def update_cmd(
     if dry_run:
         data = {"would": {"key": key, "fields": fields, "field_count": len(fields), "tags_to_add": list(add_tags)}}
         if json_out:
-            click.echo(json.dumps(envelope_ok(data, dry_run=True), indent=2, ensure_ascii=False))
+            typer.echo(json.dumps(envelope_ok(data, dry_run=True), indent=2, ensure_ascii=False))
         else:
-            click.echo(f"[dry-run] Would update '{key}' with {len(fields)} field(s): {list(fields.keys())}")
+            typer.echo(f"[dry-run] Would update '{key}' with {len(fields)} field(s): {list(fields.keys())}")
         return
 
     library_type = ctx.obj.get("library_type", "user")
@@ -322,8 +179,7 @@ def update_cmd(
             context="update",
         )
 
-    # Idempotency: reserve before the write so a lost response cannot cause a
-    # blind duplicate update on retry.
+    # 写入前预留幂等键，防止响应丢失后盲目重试。
     from zotero_cli.core.zotero.idempotency import (
         PendingMutationError,
         begin_mutation,
@@ -358,7 +214,7 @@ def update_cmd(
                 context="update",
             )
         if cached is not None:
-            click.echo(json.dumps(cached, indent=2, ensure_ascii=False) if json_out else f"Updated '{key}' (cached).")
+            typer.echo(json.dumps(cached, indent=2, ensure_ascii=False) if json_out else f"Updated '{key}' (cached).")
             return
 
     writer = ZoteroWriter(library_id=library_id, api_key=api_key, library_type=library_type)
@@ -396,15 +252,15 @@ def update_cmd(
 
     env = envelope_ok(
         {"key": key, "fields": fields, "tags_added": list(add_tags), "sync_required": True},
-        next=[f"zot read {key}"],
+        next=[f"zot zotero read {key}"],
     )
     if idempotency_key:
         try:
             store_cached(cache_scope, idempotency_key, env)
         except (OSError, sqlite3.Error) as exc:
-            click.echo(f"Warning: item was updated but the retry result could not be cached: {exc}", err=True)
+            typer.echo(f"Warning: item was updated but the retry result could not be cached: {exc}", err=True)
     if json_out:
-        click.echo(json.dumps(env, indent=2, ensure_ascii=False))
+        typer.echo(json.dumps(env, indent=2, ensure_ascii=False))
     else:
-        click.echo(f"Updated {len(fields)} field(s) for '{key}'.")
-        click.echo(SYNC_REMINDER, err=True)
+        typer.echo(f"Updated {len(fields)} field(s) for '{key}'.")
+        typer.echo(SYNC_REMINDER, err=True)

@@ -15,7 +15,7 @@ class TestDryRunCoverage:
     WRITE_ENV = {"ZOT_LIBRARY_ID": "abc", "ZOT_API_KEY": "xyz"}
 
     def test_add_dry_run(self):
-        result = _run(["add", "--doi", "10.1/x", "--dry-run"], env=self.WRITE_ENV)
+        result = _run(["zotero", "add", "--doi", "10.1/x", "--dry-run"], env=self.WRITE_ENV)
         assert result.exit_code == EXIT_OK
         env = json.loads(result.output)
         assert env["ok"] is True
@@ -24,7 +24,7 @@ class TestDryRunCoverage:
 
     def test_update_dry_run(self):
         result = _run(
-            ["update", "ABC123", "--title", "New", "--dry-run"],
+            ["zotero", "update", "ABC123", "--title", "New", "--dry-run"],
             env=self.WRITE_ENV,
         )
         assert result.exit_code == EXIT_OK
@@ -35,7 +35,7 @@ class TestDryRunCoverage:
 
     def test_note_add_dry_run(self):
         result = _run(
-            ["note", "ABC123", "--add", "hello world", "--dry-run"],
+            ["zotero", "note", "ABC123", "--add", "hello world", "--dry-run"],
             env=self.WRITE_ENV,
         )
         assert result.exit_code == EXIT_OK
@@ -47,7 +47,7 @@ class TestDryRunCoverage:
         f = tmp_path / "x.pdf"
         f.write_bytes(b"fake")
         result = _run(
-            ["attach", "ABC123", "--file", str(f), "--dry-run"],
+            ["zotero", "attach", "ABC123", "--file", str(f), "--dry-run"],
             env=self.WRITE_ENV,
         )
         assert result.exit_code == EXIT_OK
@@ -57,14 +57,14 @@ class TestDryRunCoverage:
         assert env["data"]["would"]["size_bytes"] == 4
 
     def test_delete_dry_run(self):
-        result = _run(["delete", "A", "B", "--dry-run"], env=self.WRITE_ENV)
+        result = _run(["zotero", "delete", "A", "B", "--dry-run"], env=self.WRITE_ENV)
         env = json.loads(result.output)
         assert env["ok"] is True
         assert env.get("dry_run") is True
         assert env["data"]["would_delete"] == ["A", "B"]
 
     def test_trash_restore_dry_run(self):
-        result = _run(["trash", "restore", "X", "--dry-run"], env=self.WRITE_ENV)
+        result = _run(["zotero", "trash", "restore", "X", "--dry-run"], env=self.WRITE_ENV)
         env = json.loads(result.output)
         assert env["ok"] is True
         assert env.get("dry_run") is True
@@ -82,7 +82,7 @@ class TestMetaSlot:
         assert isinstance(env["meta"]["latency_ms"], int)
 
     def test_error_envelope_has_request_id(self):
-        result = _run(["read", "NOPE"])
+        result = _run(["zotero", "read", "NOPE"])
         env = json.loads(result.output)
         assert env["ok"] is False
         assert "request_id" in env["meta"]
@@ -97,11 +97,11 @@ class TestIdempotency:
     def setup_method(self, method):
         idempotency.clear()
 
-    @patch("zotero_cli.commands.items.update.ZoteroWriter")
+    @patch("zotero_cli.cli.zotero.update.ZoteroWriter")
     def test_update_idempotency_returns_cached_envelope(self, mock_writer_cls):
         mock_writer_cls.return_value.update_item.return_value = None
         env = {"ZOT_LIBRARY_ID": "abc", "ZOT_API_KEY": "xyz"}
-        args = ["update", "ABC", "--title", "T", "--idempotency-key", "k1"]
+        args = ["zotero", "update", "ABC", "--title", "T", "--idempotency-key", "k1"]
         first = _run(args, env=env)
         second = _run(args, env=env)
         # First call hits the writer; second call short-circuits.
@@ -112,26 +112,26 @@ class TestIdempotency:
         assert env_second["meta"]["request_id"] == env_first["meta"]["request_id"]
         assert env_second["data"]["key"] == "ABC"
 
-    @patch("zotero_cli.commands.items.update.ZoteroWriter")
+    @patch("zotero_cli.cli.zotero.update.ZoteroWriter")
     def test_update_without_idempotency_key_always_calls_writer(self, mock_writer_cls):
         mock_writer_cls.return_value.update_item.return_value = None
         env = {"ZOT_LIBRARY_ID": "abc", "ZOT_API_KEY": "xyz"}
-        args = ["update", "ABC", "--title", "T"]
+        args = ["zotero", "update", "ABC", "--title", "T"]
         _run(args, env=env)
         _run(args, env=env)
         assert mock_writer_cls.return_value.update_item.call_count == 2
 
 
 class TestNextHints:
-    @patch("zotero_cli.commands.items.update.ZoteroWriter")
+    @patch("zotero_cli.cli.zotero.update.ZoteroWriter")
     def test_update_success_has_next_hint(self, mock_writer_cls):
         idempotency.clear()
         mock_writer_cls.return_value.update_item.return_value = None
         env = {"ZOT_LIBRARY_ID": "abc", "ZOT_API_KEY": "xyz"}
-        result = _run(["update", "ABC", "--title", "X"], env=env)
+        result = _run(["zotero", "update", "ABC", "--title", "X"], env=env)
         data = json.loads(result.output)
         assert "next" in data
-        assert any("zot read ABC" in hint for hint in data["next"])
+        assert any("zot zotero read ABC" in hint for hint in data["next"])
 
 
 class TestHelpTiers:
@@ -145,26 +145,28 @@ class TestHelpTiers:
         assert read_idx >= 0
         assert write_idx > read_idx
         assert destructive_idx > write_idx
-        # Destructive names appear in the destructive section
+        # 根入口只列出已迁移功能的组；组内安全等级由同一映射生成。
         destructive_section = out[destructive_idx:]
-        assert "delete" in destructive_section
         assert "update-status" in destructive_section
-        read_section = out[read_idx:write_idx]
-        write_section = out[write_idx:destructive_idx]
+        nested = _run(["zotero", "--help"])
+        assert nested.exit_code == EXIT_OK
+        read_section, remainder = nested.output.split("Write commands", 1)
+        write_section, nested_destructive = remainder.split("Destructive commands", 1)
         assert "\n  tag " not in read_section
         assert "\n  tag " in write_section
+        assert "\n  delete " in nested_destructive
 
     def test_write_commands_marked_mutating(self):
         result = _run(["--help"])
         assert "MUTATES LIBRARY" in result.output
 
     def test_destructive_commands_help_carries_warning(self):
-        result = _run(["delete", "--help"])
-        assert "MUTATES LIBRARY" in result.output
+        result = _run(["zotero", "delete", "--help"])
+        assert "永久删除" in result.output
 
 
 class TestRetryableFlag:
-    @patch("zotero_cli.commands.items.update.ZoteroWriter")
+    @patch("zotero_cli.cli.zotero.update.ZoteroWriter")
     def test_network_error_flagged_retryable(self, mock_writer_cls):
         from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
 
@@ -172,13 +174,13 @@ class TestRetryableFlag:
             "Network error: boom", code="network_error", retryable=True
         )
         env = {"ZOT_LIBRARY_ID": "abc", "ZOT_API_KEY": "xyz"}
-        result = _run(["update", "ABC", "--title", "X"], env=env)
+        result = _run(["zotero", "update", "ABC", "--title", "X"], env=env)
         env_out = json.loads(result.output)
         assert env_out["ok"] is False
         assert env_out["error"]["code"] == "network_error"
         assert env_out["error"]["retryable"] is True
 
-    @patch("zotero_cli.commands.items.update.ZoteroWriter")
+    @patch("zotero_cli.cli.zotero.update.ZoteroWriter")
     def test_not_found_flagged_not_retryable(self, mock_writer_cls):
         from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
 
@@ -186,7 +188,7 @@ class TestRetryableFlag:
             "Item 'X' not found", code="not_found", retryable=False
         )
         env = {"ZOT_LIBRARY_ID": "abc", "ZOT_API_KEY": "xyz"}
-        result = _run(["update", "X", "--title", "Y"], env=env)
+        result = _run(["zotero", "update", "X", "--title", "Y"], env=env)
         env_out = json.loads(result.output)
         assert env_out["error"]["code"] == "not_found"
         assert env_out["error"]["retryable"] is False

@@ -15,7 +15,7 @@ Use the `zot` command from `/Users/liuchzzyy/CodeSpace/zotero-cli`. Run it as `u
 - `delete` is a **permanent** Web API deletion, not a move to the trash; its success JSON data carries `permanently_deleted` + `permanent: true` (dry-run `would_delete` + `permanent: true`). `trash list` reads only the local `deletedItems` (synced view); `trash restore` restores an item already in Zotero's trash via a raw `PATCH {"deleted": 0}` with `If-Unmodified-Since-Version` and typed failures (`not_found` 4 / `network_error` 5 / `configuration_error` 3 / `conflict` 6). There is no `trash empty` command — never advertise one.
 - Search/list results on userdata v130 set `fulltext_limited: true` in JSON `meta` when the bounded full-text scan hits its file/byte budget or falls back to metadata-only matching; treat it as a completeness warning, not an error.
 - JSON mode emits exactly one envelope on stdout per invocation; progress/warnings go to stderr. The only official top-level keys are `ok`, `data`/`error`, `meta`, plus optional `dry_run` and optional `next`. `ok` is tri-state: true, false, or `"partial"` (partial success carries `data`, no `error`, and exits non-zero for the failed part, e.g. `add --pdf` attachment failures). `next` is an optional non-empty list of safe follow-up commands on success/partial envelopes; it never promises immediate local visibility. Usage/parameter errors are enveloped as `validation_error` with exit 3 — no tracebacks leak (`--verbose`/`ZOT_DEBUG` prints them to stderr; both are read from parsed flags/env, never argv substrings). `completions --json` returns `{shell, script, fallback, warning}` (warnings on stderr) and `zot schema`'s root node is named `zot`.
-- JSON command semantics: `zot --json cite KEY` returns `{citation, style, copied:false}` and never writes the clipboard (human mode copies unless `--no-copy`); `zot --json open KEY` returns `{target, kind: pdf|url, gui:true}` and still launches the system app (`KEY` may be an http(s) URL or `doi:...`, or use `--url`; non-http schemes are `validation_error` exit 3). Both are documented side effects, not errors. Human output is sanitized (CR stripped) before printing.
+- JSON command semantics: `zot --json zotero cite KEY` returns `{citation, style, copied:false}` and never writes the clipboard (human mode copies unless `--no-copy`); `zot --json zotero open KEY` returns `{target, kind: pdf|url, gui:true}` and still launches the system app (`KEY` may be an http(s) URL or `doi:...`, or use `--url`; non-http schemes are `validation_error` exit 3). Both are documented side effects, not errors. Human output is sanitized (CR stripped) before printing.
 - Exit codes: 0 ok, 1 runtime/internal, 2 auth, 3 invalid params/config/confirmation, 4 not found, 5 network/rate, 6 conflict. **Exception: `duplicates` returns 6 as its "duplicate groups found" success signal** (the envelope stays `ok: true` with `data`/`meta.count`; no groups => 0). Script against that signal; do not treat it as a generic conflict.
 - Treat `zot schema [COMMAND ...]` as the authoritative command and safety interface.
 - A real write, delete, collection change, note/tag update, or metadata update requires the user's request. Use `--dry-run` when intent or scope is not concrete; every write/destructive command supports zero-side-effect preview.
@@ -39,21 +39,24 @@ Do not print API keys or service tokens. The actual config and `.zot/state/` are
 
 | Intent | Command |
 | --- | --- |
-| Search metadata/full text | `zot --json search "query"` (works on userdata v130; bounded ft-cache fallback) |
-| List or read items | `zot --json list`; `zot --json read ITEMKEY` |
-| Recent items or statistics | `zot --json recent`; `zot --json stats` |
-| Export citation data | `zot export ITEMKEY --format bibtex` |
-| Format a citation | `zot cite ITEMKEY --style apa`; `--json cite` returns `{citation, style, copied:false}` and never writes the clipboard |
-| Open PDF/URL (GUI side effect) | `zot open ITEMKEY`; `zot open --url https://example.com`; JSON returns `{target, kind, gui:true}` |
+| Search metadata/full text | `zot --json zotero search "query"` (works on userdata v130; bounded ft-cache fallback) |
+| List or read items | `zot --json zotero list`; `zot --json zotero read ITEMKEY` |
+| Recent items or statistics | `zot --json zotero recent`; `zot --json zotero stats` |
+| Export citation data | `zot zotero export ITEMKEY --format bibtex` |
+| Format a citation | `zot zotero cite ITEMKEY --style apa`; `--json zotero cite` returns `{citation, style, copied:false}` and never writes the clipboard |
+| Open PDF/URL (GUI side effect) | `zot zotero open ITEMKEY`; `zot zotero open --url https://example.com`; JSON returns `{target, kind, gui:true}` |
+| List or locate local parent PDFs | `zot --json zotero pdf list ITEMKEY`; `zot --json zotero pdf path ITEMKEY --attachment ATTACHMENTKEY` |
+| Export one local parent PDF | `zot --json zotero pdf export ITEMKEY DEST --attachment ATTACHMENTKEY`; never overwrites an existing file or symlink |
+| Upload one PDF to a parent item | `zot --json zotero pdf upload ITEMKEY --file paper.pdf --idempotency-key KEY`; writes through the Zotero Web API |
 | Enumerate PDFs under one parent item | `zot --json pdf ITEMKEY --list-attachments` (keys, names, availability; no cloud parse) |
 | Read one selected PDF | `zot --json pdf ITEMKEY --attachment ATTACHMENTKEY` (MinerU cloud or cache) |
 | Read MinerU structured JSON | `zot --json pdf ITEMKEY --attachment ATTACHMENTKEY --structured` |
 | Inspect PDF structure | `zot --json pdf ITEMKEY --attachment ATTACHMENTKEY --outline` |
 | Read one PDF section | `zot --json pdf ITEMKEY --attachment ATTACHMENTKEY --section N` |
-| Find duplicates | `zot --json duplicates --by doi` / `--by title|both`, `--threshold 0.85`, `--limit` (read-tier; exit 6 + `ok:true` envelope with `data`/`meta.count` when groups are found; exit 0 with empty data when none) |
-| Inspect trash (local synced view) | `zot --json trash list` |
-| Delete item (PERMANENT, not trash) | `zot --json delete ITEMKEY --dry-run` then `--yes` |
-| Restore an already-trashed item | `zot --json trash restore ITEMKEY --dry-run` then `zot trash restore ITEMKEY` |
+| Find duplicates | `zot --json zotero duplicates --by doi` / `--by title|both`, `--threshold 0.85`, `--limit` (read-tier; exit 6 + `ok:true` envelope with `data`/`meta.count` when groups are found; exit 0 with empty data when none) |
+| Inspect trash (local synced view) | `zot --json zotero trash list` |
+| Delete item (PERMANENT, not trash) | `zot --json zotero delete ITEMKEY --dry-run` then `--yes` |
+| Restore an already-trashed item | `zot --json zotero trash restore ITEMKEY --dry-run` then `zot zotero trash restore ITEMKEY` |
 | Preview a write | `zot ... --dry-run` |
 | Inspect command contract | `zot schema COMMAND ...`; `zot schema --diff prev.json` for a structural diff (invalid cache => `validation_error`) |
 | Inspect/configure runtime | `zot config show`; `zot config profile list`; `zot config cache stats` |
@@ -61,14 +64,14 @@ Do not print API keys or service tokens. The actual config and `.zot/state/` are
 ## Writes
 
 ```bash
-zot add --doi "10.1038/example" --dry-run
-zot update ITEMKEY --field volume=42 --dry-run
-zot attach ITEMKEY --file paper.pdf --dry-run
-zot note ITEMKEY --add "Key finding" --dry-run
-zot tag ITEMKEY --add important --dry-run
-zot delete ITEMKEY --dry-run
+zot zotero add --doi "10.1038/example" --dry-run
+zot zotero update ITEMKEY --field volume=42 --dry-run
+zot zotero attach ITEMKEY --file paper.pdf --dry-run
+zot zotero note ITEMKEY --add "Key finding" --dry-run
+zot zotero tag ITEMKEY --add important --dry-run
+zot zotero delete ITEMKEY --dry-run
 zot workspace delete topic --dry-run
-zot collection create "New folder" --dry-run
+zot zotero collection create "New folder" --dry-run
 zot config cache clear --dry-run
 zot ai_analyze ITEMKEY --dry-run
 ```
@@ -138,7 +141,7 @@ idempotency reservations are released correctly.
 A finished run reports `note_key`, `sections` and `short_note`, but those are
 self-reported. Re-read the item from the Web API, because `ai_analyze` writes
 there and the local SQLite view stays stale until Zotero Desktop syncs — right
-after a successful run `zot --json read ITEMKEY` still prints `tags: []` and
+after a successful run `zot --json zotero read ITEMKEY` still prints `tags: []` and
 `notes: []`, which looks exactly like a silent no-op. Confirm through pyzotero:
 
 ```python
@@ -202,7 +205,7 @@ encode the old format — are in `references/note-text-formatting.md`.
 
 ## Automated DOI intake into a collection
 
-1. Inspect `zot schema add`, `zot schema collection move`, and `zot --json collection list` to identify the target by its current key and name. Preview the actual input with `--dry-run`; validate DOI and selection fields before the first write. If the user wants this as a Zotero tool, put the implementation and tests in the Zotero repository's `tools/` tree, keep the producer's job separate, and point the downstream scheduler wrapper at the moved script. Check Git status in both repositories before committing; preserve unrelated edits.
+1. Inspect `zot schema add`, `zot schema collection move`, and `zot --json zotero collection list` to identify the target by its current key and name. Preview the actual input with `--dry-run`; validate DOI and selection fields before the first write. If the user wants this as a Zotero tool, put the implementation and tests in the Zotero repository's `tools/` tree, keep the producer's job separate, and point the downstream scheduler wrapper at the moved script. Check Git status in both repositories before committing; preserve unrelated edits.
    The producer is `/Users/liuchzzyy/CodeSpace/PaperCrossref`: `/Users/liuchzzyy/CodeSpace/PaperCrossref/fetch_crossref_updates.py` writes the CSV including the Crossref `abstract`, then `/Users/liuchzzyy/CodeSpace/PaperCrossref/semantic_enrichment.py` adds `title_zh`, `abstract_zh` and the two flags. That repository has **no git remote** — commit locally, do not look for a push target. Its tests are `python -m unittest test_*`, not pytest.
 2. Use the Zotero Web API for DOI writes and include resolved metadata; do not silently create bare records when resolution fails. When direct import without deduplication is requested, create each selected row even if the DOI already exists elsewhere. If the upstream CSV already contains a Chinese translation, reuse its `title_zh` rather than calling a model again; reject a selected row with a missing or multiline translation before any write. Put a single `translated-title: <中文标题>` line into the new item's Zotero `extra` field at creation, preserving any other Extra lines, while keeping the original English `title` and DOI unchanged. Specify the destination collection on creation where supported. Read back each returned item key and verify the exact DOI, collection, and Extra line before recording success; Zotero Desktop's local SQLite view can lag until sync.
    The same row also carries `abstract_zh`, which replaces Crossref's English abstract in `abstractNote`. Require it whenever the row's `abstract` is non-empty and reject a non-empty `abstract_zh` when `abstract` is empty — otherwise an invented summary would be indistinguishable from a translation. `tools/paper2zotero/zh_text.py` then flattens super/subscripts (Unicode, `<sup>/<sub>`, LaTeX) and pads every CJK↔Latin boundary for both fields; read back `abstractNote` as well, because a dropped field looks exactly like a successful import.
@@ -210,7 +213,7 @@ encode the old format — are in `references/note-text-formatting.md`.
 
 ## Full-library translated-title backfill
 
-1. **Inventory before writing.** Read the *remote* user library with the Web API (e.g. the configured `ZoteroWriter(...)._zot.everything(_zot.top(limit=100))`), not just a local `zot list` page. Count items whose nonempty title has no case-insensitive `translated-title:` line in `data.extra`, broken down by item type; skip untitled notes. Report the scope and keep existing translations untouched. Zotero Desktop's SQLite view can lag behind Web API writes, so it cannot establish the complete live missing set.
+1. **Inventory before writing.** Read the *remote* user library with the Web API (e.g. the configured `ZoteroWriter(...)._zot.everything(_zot.top(limit=100))`), not just a local `zot zotero list` page. Count items whose nonempty title has no case-insensitive `translated-title:` line in `data.extra`, broken down by item type; skip untitled notes. Report the scope and keep existing translations untouched. Zotero Desktop's SQLite view can lag behind Web API writes, so it cannot establish the complete live missing set.
 2. **Stage translations separately.** Batch only missing `key`/`title` pairs into a JSON-only model call; match every response back by exact key and original title, require a nonempty Chinese translation, and retry malformed batches only a bounded number of times. For Zotero titles containing JATS markup or embedded newlines, prepare a readable model input while retaining the exact original Zotero title for identity and write verification; do not turn a subscript such as `MoSe<sub>2</sub>` into a misleading formula. Persist a complete, validated translation plan before the first library mutation (checkpoint: `.zot/state/paper2zotero/backfill_titles_state.json`; the old file in `tools/paper2zotero/` is not auto-migrated). A successful first batch is not proof that the full inventory has been staged.
 3. **Apply conservatively.** Re-read each target key immediately before updating. If an existing `translated-title:` appeared meanwhile, leave it alone; otherwise append one `translated-title: <中文标题>` line to its current Extra, preserving unrelated lines and the original title/DOI. Use the Zotero Web API writer, then read back that exact key and compare title, DOI (when present), and the Extra line. Checkpoint verified successes per key so a partial failure can resume without replacing existing translations. Do not treat an uncertain write response as permission to issue the same write blindly.
 4. **Verify completion.** Compare the preflight missing-key manifest against verified keys and a fresh remote inventory; report updated, newly-already-translated, unresolved, and untitled counts separately. If a background run is still active or stopped partway, report only confirmed progress and retain its checkpoint; never claim that all titles were translated based on a launch or a small probe.
@@ -284,7 +287,7 @@ For logged MacBook workflows, use `tools/paperrag/run-rag-workspace.zsh` and `to
 
 ### Collection renames in repository workflows
 
-1. Run `uv run zot --json collection list` to establish the current name and key from the local library. Identify the renamed collection by its stable key when known; do not infer its new name from an old workspace label. Avoid opening the full `.zot/config.toml` just to discover collections, because it contains credentials.
+1. Run `uv run zot --json zotero collection list` to establish the current name and key from the local library. Identify the renamed collection by its stable key when known; do not infer its new name from an old workspace label. Avoid opening the full `.zot/config.toml` just to discover collections, because it contains credentials.
 2. Search repository defaults and usage examples for the old collection name. Change the source-collection default and matching examples, quoting names containing spaces or shell metacharacters. Keep an existing local workspace name and its `.workspace/` state unchanged unless the user also requests a workspace migration; a workspace label is not a Zotero collection name.
 3. For a script-default change, first run a failing integration test against an isolated copy of the test SQLite fixture with the collection renamed; invoke the script in `--dry-run` mode without `--collections`, and assert that the inventory names and nonzero item count match the renamed collection. Then update the default, rerun the focused test, check script syntax and run the full test suite. Never edit the live Zotero SQLite database for this verification.
 

@@ -247,8 +247,8 @@ def main() -> int:
     )
     from zotero_cli.core.notes.client import AiClient
     from zotero_cli.core.notes.pipeline import analyze_item
-    from zotero_cli.core.zotero.reader import ZoteroReader
     from zotero_cli.core.zotero.writer import ZoteroWriter
+    from zotero_cli.zotero.reader import ZoteroReader
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     with (args.output_dir / f"{args.collection}.lock").open("a") as lock:

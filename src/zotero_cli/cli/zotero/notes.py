@@ -1,47 +1,31 @@
-"""zot note: view or add notes on an item."""
+"""读取及添加 Zotero 条目笔记。"""
 
 from __future__ import annotations
 
 import json
 import sqlite3
 
-import click
+import typer
 
+from zotero_cli.cli.zotero.reading import app
 from zotero_cli.config import get_data_dir, load_config, resolve_library_id, resolve_write_credentials
-from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.core.zotero.writer import SYNC_REMINDER, ZoteroWriter
 from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
 from zotero_cli.output.renderers import format_notes
+from zotero_cli.zotero.reader import ZoteroReader
 
 
-@click.command("note")
-@click.argument("key")
-@click.option("--add", "content", default=None, help="Add a new note")
-@click.option("--dry-run", is_flag=True, help="Preview the note addition without executing (only with --add)")
-@click.option(
-    "--idempotency-key",
-    default=None,
-    help="Replay confirmed success; in-flight or unknown outcomes require reconciliation",
-)
-@click.pass_context
-def note_cmd(
-    ctx: click.Context,
-    key: str,
-    content: str | None,
-    dry_run: bool,
-    idempotency_key: str | None,
+@app.command(name="note")
+def note(
+    ctx: typer.Context,
+    key: str = typer.Argument(help="父条目的 Zotero 键。"),
+    content: str | None = typer.Option(None, "--add", help="新增笔记内容；省略则读取笔记。"),
+    dry_run: bool = typer.Option(False, help="仅预览笔记新增，不调用 Web API。"),
+    idempotency_key: str | None = typer.Option(None, help="重复请求复用已确认的结果；未知写入需先核对。"),
 ) -> None:
-    """View or add notes for an item. `--add` MUTATES LIBRARY.
-
-    \b
-    Examples:
-      zot note ABC123                            View notes
-      zot note ABC123 --add "Key finding: ..."   Add a note
-      zot note ABC123 --add "..." --dry-run      Preview addition
-      zot --json note ABC123                     JSON output
-    """
+    """读取或新增条目笔记；新增操作会写入 Zotero 库。"""
     cfg = load_config(profile=ctx.obj.get("profile"))
     json_out = ctx.obj.get("json", False)
 
@@ -57,9 +41,9 @@ def note_cmd(
         if dry_run:
             data = {"would": {"parent": key, "content_preview": content[:200]}}
             if json_out:
-                click.echo(json.dumps(envelope_ok(data, dry_run=True), indent=2, ensure_ascii=False))
+                typer.echo(json.dumps(envelope_ok(data, dry_run=True), indent=2, ensure_ascii=False))
             else:
-                click.echo(f"[dry-run] Would add note to '{key}': {content[:80]}...")
+                typer.echo(f"[dry-run] Would add note to '{key}': {content[:80]}...")
             return
 
         library_type = ctx.obj.get("library_type", "user")
@@ -107,9 +91,9 @@ def note_cmd(
                 )
             if cached is not None:
                 if json_out:
-                    click.echo(json.dumps(cached, indent=2, ensure_ascii=False))
+                    typer.echo(json.dumps(cached, indent=2, ensure_ascii=False))
                 else:
-                    click.echo(f"Note added: {cached.get('data', {}).get('note_key', '?')} (cached).")
+                    typer.echo(f"Note added: {cached.get('data', {}).get('note_key', '?')} (cached).")
                 return
 
         writer = None
@@ -117,16 +101,14 @@ def note_cmd(
             writer = ZoteroWriter(library_id=str(write_library_id), api_key=api_key, library_type=library_type)
             note_key = writer.add_note(key, content)
         except Exception as exc:
-            # pyzotero may fail while parsing even an explicit HTTP rejection.
-            # Other parse/local errors after HTTP are unknown, not proof that
-            # nothing committed. Avoid exposing arbitrary exception messages.
+            # pyzotero 解析明确的 HTTP 拒绝时也可能失败；其他解析或本地错误
+            # 不能证明远端未提交，因此不暴露任意异常消息。
             write_error = (
                 exc
                 if isinstance(exc, ZoteroWriteError)
                 else ZoteroWriteError("Note creation did not return a usable result")
             )
-            # pyzotero 1.16/httpx2 keeps the last response on the client; the
-            # writer's typed error carries committed/code evidence as a fallback.
+            # 优先检查客户端保留的响应；无响应时以写入异常的提交状态作依据。
             response = getattr(getattr(writer, "_zot", None), "request", None) if writer is not None else None
             rejected = failure_definitely_rejected(
                 response=response,
@@ -138,7 +120,7 @@ def note_cmd(
                 try:
                     release_rejected_mutation(cache_scope, idempotency_key)
                 except (OSError, sqlite3.Error):
-                    rejected = False  # Preserve the reservation if its durable release failed.
+                    rejected = False  # 持久化解除失败时保留写入预约。
             outcome_unknown = not rejected
             emit_error(
                 write_error.code,
@@ -155,7 +137,7 @@ def note_cmd(
 
         env = envelope_ok(
             {"note_key": note_key, "parent_key": key, "sync_required": True},
-            next=[f"zot note {key}"],
+            next=[f"zot zotero note {key}"],
         )
         if idempotency_key:
             try:
@@ -170,10 +152,10 @@ def note_cmd(
                     context="note",
                 )
         if json_out:
-            click.echo(json.dumps(env, indent=2, ensure_ascii=False))
+            typer.echo(json.dumps(env, indent=2, ensure_ascii=False))
         else:
-            click.echo(f"Note added: {note_key}")
-            click.echo(SYNC_REMINDER, err=True)
+            typer.echo(f"Note added: {note_key}")
+            typer.echo(SYNC_REMINDER, err=True)
     else:
         data_dir = get_data_dir(cfg)
         db_path = data_dir / "zotero.sqlite"
@@ -187,16 +169,16 @@ def note_cmd(
                         "not_found",
                         f"Item '{key}' not found",
                         output_json=json_out,
-                        hint="Check the item key (zot search / zot recent)",
+                        hint="Check the item key (zot zotero search / zot zotero recent)",
                         context="note",
                     )
                 emit_error(
                     "not_found",
                     f"No notes found for '{key}'",
                     output_json=json_out,
-                    hint="Add one with: zot note KEY --add 'content'",
+                    hint="Add one with: zot zotero note KEY --add 'content'",
                     context="note",
                 )
-            click.echo(format_notes(notes, output_json=json_out))
+            typer.echo(format_notes(notes, output_json=json_out))
         finally:
             reader.close()

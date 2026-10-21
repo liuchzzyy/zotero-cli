@@ -34,14 +34,14 @@ def test_unknown_profile_blocks_cli_writer_even_with_legacy_credentials(
     )
     writer = Mock()
     writer.return_value.add_item.return_value = "ITEM001"
-    monkeypatch.setattr("zotero_cli.commands.items.add.ZoteroWriter", writer)
+    monkeypatch.setattr("zotero_cli.cli.zotero.add.ZoteroWriter", writer)
     args = ["--json" if json_output else "--no-json"]
     env = WRITE_ENV.copy()
     if selector == "flag":
         args += ["--profile", "typo"]
     else:
         env["ZOT_PROFILE"] = "typo"
-    args += ["add", "--doi", "10.1000/offline", "--no-resolve"]
+    args += ["zotero", "add", "--doi", "10.1000/offline", "--no-resolve"]
 
     result = CliRunner().invoke(main, args, env=env)
 
@@ -73,12 +73,12 @@ def test_add_unsupported_idempotency_combination_fails_before_services(
     parser = Mock()
     cache_read = Mock()
     cache_write = Mock()
-    monkeypatch.setattr("zotero_cli.commands.items.add.ZoteroWriter", writer)
-    monkeypatch.setattr("zotero_cli.commands.items.add.resolve_doi", resolver)
+    monkeypatch.setattr("zotero_cli.cli.zotero.add.ZoteroWriter", writer)
+    monkeypatch.setattr("zotero_cli.cli.zotero.add.resolve_doi", resolver)
     monkeypatch.setattr("zotero_cli.core.mineru.MinerUParseCache", parser)
     monkeypatch.setattr(idempotency, "get_cached", cache_read)
     monkeypatch.setattr(idempotency, "store_cached", cache_write)
-    args = ["--json" if json_output else "--no-json", "add", source, str(path), "--idempotency-key", "retry"]
+    args = ["--json" if json_output else "--no-json", "zotero", "add", source, str(path), "--idempotency-key", "retry"]
     if source == "--pdf":
         args += ["--doi", "10.1000/offline"]
     if dry_run:
@@ -111,9 +111,9 @@ def test_add_single_input_idempotent_retries_remain_supported(
 ) -> None:
     writer = Mock()
     writer.return_value.add_item.return_value = "ITEM001"
-    monkeypatch.setattr("zotero_cli.commands.items.add.ZoteroWriter", writer)
+    monkeypatch.setattr("zotero_cli.cli.zotero.add.ZoteroWriter", writer)
     value = "10.1000/offline" if source == "--doi" else "https://example.invalid/paper"
-    args = ["--json", "add", source, value, "--no-resolve", "--idempotency-key", "retry"]
+    args = ["--json", "zotero", "add", source, value, "--no-resolve", "--idempotency-key", "retry"]
     runner = CliRunner()
 
     first = runner.invoke(main, args, env=WRITE_ENV)
@@ -141,8 +141,8 @@ def test_reorganize_invalid_second_row_is_rejected_before_first_write(
     )
     writer = Mock()
     writer.return_value.create_collection.return_value = "COL1"
-    monkeypatch.setattr("zotero_cli.commands.collections.reorganize.ZoteroWriter", writer)
-    args = ["--json", "collection", "reorganize", str(plan)]
+    monkeypatch.setattr("zotero_cli.cli.zotero.collection_reorganize.ZoteroWriter", writer)
+    args = ["--json", "zotero", "collection", "reorganize", str(plan)]
     if dry_run:
         args.append("--dry-run")
 
@@ -189,8 +189,8 @@ def test_reorganize_invalid_json_types_fail_closed(
     plan.write_text(json.dumps(plan_value))
     writer = Mock()
     writer.return_value.create_collection.return_value = "COL1"
-    monkeypatch.setattr("zotero_cli.commands.collections.reorganize.ZoteroWriter", writer)
-    args = ["--json", "collection", "reorganize", str(plan)]
+    monkeypatch.setattr("zotero_cli.cli.zotero.collection_reorganize.ZoteroWriter", writer)
+    args = ["--json", "zotero", "collection", "reorganize", str(plan)]
     if dry_run:
         args.append("--dry-run")
 
@@ -246,8 +246,8 @@ def test_reorganize_invalid_item_moves_fail_before_any_write(
     )
     writer = Mock()
     writer.return_value.create_collection.return_value = "COL1"
-    monkeypatch.setattr("zotero_cli.commands.collections.reorganize.ZoteroWriter", writer)
-    args = ["--json", "collection", "reorganize", str(plan)]
+    monkeypatch.setattr("zotero_cli.cli.zotero.collection_reorganize.ZoteroWriter", writer)
+    args = ["--json", "zotero", "collection", "reorganize", str(plan)]
     if dry_run:
         args.append("--dry-run")
 
@@ -299,8 +299,8 @@ def test_reorganize_invalid_hierarchy_is_rejected_before_any_write(
     plan.write_text(json.dumps({"collections": collections}))
     writer = Mock()
     writer.return_value.create_collection.return_value = "COL1"
-    monkeypatch.setattr("zotero_cli.commands.collections.reorganize.ZoteroWriter", writer)
-    args = ["--json", "collection", "reorganize", str(plan)]
+    monkeypatch.setattr("zotero_cli.cli.zotero.collection_reorganize.ZoteroWriter", writer)
+    args = ["--json", "zotero", "collection", "reorganize", str(plan)]
     if dry_run:
         args.append("--dry-run")
 
@@ -317,11 +317,12 @@ def test_add_pdf_idempotency_preview_is_side_effect_free(tmp_path: Path, monkeyp
     path = tmp_path / "paper.pdf"
     path.write_bytes(b"%PDF-1.4 offline")
     writer = Mock()
-    monkeypatch.setattr("zotero_cli.commands.items.add.ZoteroWriter", writer)
+    monkeypatch.setattr("zotero_cli.cli.zotero.add.ZoteroWriter", writer)
     result = CliRunner().invoke(
         main,
         [
             "--json",
+            "zotero",
             "add",
             "--pdf",
             str(path),
@@ -345,11 +346,11 @@ def test_add_pdf_idempotency_replays_cached_envelope(tmp_path: Path, monkeypatch
     path.write_bytes(b"%PDF-1.4 offline")
     writer = Mock()
     cached = {"ok": True, "data": {"key": "CACHED1"}, "meta": {}}
-    monkeypatch.setattr("zotero_cli.commands.items.add.ZoteroWriter", writer)
+    monkeypatch.setattr("zotero_cli.cli.zotero.add.ZoteroWriter", writer)
     monkeypatch.setattr(idempotency, "begin_mutation", Mock(return_value=cached))
     result = CliRunner().invoke(
         main,
-        ["--json", "add", "--pdf", str(path), "--doi", "10.1000/offline", "--idempotency-key", "retry"],
+        ["--json", "zotero", "add", "--pdf", str(path), "--doi", "10.1000/offline", "--idempotency-key", "retry"],
         env=WRITE_ENV,
     )
     assert result.exit_code == 0, result.output
@@ -366,9 +367,9 @@ def test_reorganize_forward_parent_reference_does_not_become_root(
     )
     writer = Mock()
     writer.return_value.create_collection.side_effect = ["ROOTKEY", "CHILDKEY"]
-    monkeypatch.setattr("zotero_cli.commands.collections.reorganize.ZoteroWriter", writer)
+    monkeypatch.setattr("zotero_cli.cli.zotero.collection_reorganize.ZoteroWriter", writer)
 
-    result = CliRunner().invoke(main, ["--json", "collection", "reorganize", str(plan)], env=WRITE_ENV)
+    result = CliRunner().invoke(main, ["--json", "zotero", "collection", "reorganize", str(plan)], env=WRITE_ENV)
 
     assert result.exit_code == 0, result.output
     assert writer.return_value.create_collection.call_args_list == [
@@ -399,10 +400,10 @@ def test_reorganize_failed_parent_never_creates_or_moves_orphaned_descendants(
     )
     writer = Mock()
     writer.return_value.create_collection.side_effect = [ZoteroWriteError("parent failed"), "OTHERKEY"]
-    monkeypatch.setattr("zotero_cli.commands.collections.reorganize.ZoteroWriter", writer)
+    monkeypatch.setattr("zotero_cli.cli.zotero.collection_reorganize.ZoteroWriter", writer)
 
     result = CliRunner().invoke(
-        main, ["--json" if json_output else "--no-json", "collection", "reorganize", str(plan)], env=WRITE_ENV
+        main, ["--json" if json_output else "--no-json", "zotero", "collection", "reorganize", str(plan)], env=WRITE_ENV
     )
 
     assert result.exit_code != 0
@@ -445,8 +446,8 @@ def test_reorganize_legacy_valid_plan_preserves_names_and_parent_links(
     )
     writer = Mock()
     writer.return_value.create_collection.side_effect = ["COLA", "COLB", "COLC"]
-    monkeypatch.setattr("zotero_cli.commands.collections.reorganize.ZoteroWriter", writer)
-    args = ["--json" if json_output else "--no-json", "collection", "reorganize", str(plan)]
+    monkeypatch.setattr("zotero_cli.cli.zotero.collection_reorganize.ZoteroWriter", writer)
+    args = ["--json" if json_output else "--no-json", "zotero", "collection", "reorganize", str(plan)]
     if dry_run:
         args.append("--dry-run")
 
@@ -492,8 +493,8 @@ def test_reorganize_empty_plan_remains_a_noop(
     plan = tmp_path / "plan.json"
     plan.write_text(json.dumps(plan_value))
     writer = Mock()
-    monkeypatch.setattr("zotero_cli.commands.collections.reorganize.ZoteroWriter", writer)
-    args = ["--json", "collection", "reorganize", str(plan)]
+    monkeypatch.setattr("zotero_cli.cli.zotero.collection_reorganize.ZoteroWriter", writer)
+    args = ["--json", "zotero", "collection", "reorganize", str(plan)]
     if dry_run:
         args.append("--dry-run")
 
@@ -512,8 +513,8 @@ def test_reorganize_malformed_json_is_a_validation_error(
     plan = tmp_path / "plan.json"
     plan.write_text(contents)
     writer = Mock()
-    monkeypatch.setattr("zotero_cli.commands.collections.reorganize.ZoteroWriter", writer)
-    args = ["--json", "collection", "reorganize", str(plan)]
+    monkeypatch.setattr("zotero_cli.cli.zotero.collection_reorganize.ZoteroWriter", writer)
+    args = ["--json", "zotero", "collection", "reorganize", str(plan)]
     if dry_run:
         args.append("--dry-run")
 

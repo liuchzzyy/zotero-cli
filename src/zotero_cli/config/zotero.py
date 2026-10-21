@@ -117,7 +117,7 @@ def resolve_library_id(db_path: Path, ctx_obj: dict) -> int:
     """Resolve the library_id from ctx.obj, defaulting to 1 (user library)."""
     if ctx_obj.get("library_type") != "group" or not ctx_obj.get("group_id"):
         return 1
-    from zotero_cli.core.zotero.reader import ZoteroReader
+    from zotero_cli.zotero.reader import ZoteroReader
 
     reader = ZoteroReader(db_path)
     try:

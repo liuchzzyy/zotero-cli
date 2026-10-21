@@ -20,12 +20,12 @@ from zotero_cli.core.zotero.publication_status import (
     SemanticScholarError,
     extract_preprint_info,
 )
-from zotero_cli.core.zotero.reader import ZoteroReader
 from zotero_cli.core.zotero.writer import SYNC_REMINDER, ZoteroWriter
 from zotero_cli.core.zotero.writer_errors import ZoteroWriteError
 from zotero_cli.output.envelope import envelope_ok, envelope_partial_data
 from zotero_cli.output.exit_codes import EXIT_NETWORK, EXIT_RUNTIME, emit_error
 from zotero_cli.output.renderers import sanitize_text
+from zotero_cli.zotero.reader import ZoteroReader
 
 _NETWORK_FAMILY_CODES = frozenset({"network_error", "rate_limited"})
 
@@ -112,7 +112,7 @@ def update_status_cmd(
                     "not_found",
                     f"Item '{key}' not found.",
                     output_json=json_out,
-                    hint="Run 'zot search' to find valid item keys",
+                    hint="Run 'zot zotero search' to find valid item keys",
                     context="update-status",
                 )
             items = [item]
@@ -124,7 +124,7 @@ def update_status_cmd(
                     "not_found",
                     str(e),
                     output_json=json_out,
-                    hint="Run 'zot collection list' to find valid collection keys",
+                    hint="Run 'zot zotero collection list' to find valid collection keys",
                     context="update-status",
                 )
     finally:

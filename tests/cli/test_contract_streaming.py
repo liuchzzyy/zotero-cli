@@ -17,7 +17,7 @@ def _parse_ndjson(s: str) -> list[dict]:
 
 class TestNDJSONStream:
     def test_search_stream_emits_ndjson(self):
-        result = _run(["search", "attention", "--stream"])
+        result = _run(["zotero", "search", "attention", "--stream"])
         assert result.exit_code == EXIT_OK
         lines = _parse_ndjson(result.output)
         assert len(lines) >= 1
@@ -28,7 +28,7 @@ class TestNDJSONStream:
         assert last["summary"]["count"] == len(lines) - 1
 
     def test_list_stream_emits_ndjson(self):
-        result = _run(["list", "--stream"])
+        result = _run(["zotero", "list", "--stream"])
         assert result.exit_code == EXIT_OK
         lines = _parse_ndjson(result.output)
         last = lines[-1]
@@ -38,7 +38,7 @@ class TestNDJSONStream:
             assert "data" in line
 
     def test_stream_summary_has_meta(self):
-        result = _run(["list", "--stream", "--limit", "2"])
+        result = _run(["zotero", "list", "--stream", "--limit", "2"])
         lines = _parse_ndjson(result.output)
         last = lines[-1]
         assert "meta" in last
@@ -46,14 +46,14 @@ class TestNDJSONStream:
 
     def test_stream_ignores_no_json_flag(self):
         # --stream requests the NDJSON machine contract and takes precedence over --no-json.
-        result = _run(["--no-json", "list", "--stream", "--limit", "2"])
+        result = _run(["--no-json", "zotero", "list", "--stream", "--limit", "2"])
         assert result.exit_code == EXIT_OK
         lines = _parse_ndjson(result.output)
         assert len(lines) >= 2
         assert "summary" in lines[-1]
 
     def test_recent_stream_reports_has_more(self):
-        result = _run(["recent", "--days", "9999", "--limit", "2", "--stream"])
+        result = _run(["zotero", "recent", "--days", "9999", "--limit", "2", "--stream"])
         assert result.exit_code == EXIT_OK
         lines = _parse_ndjson(result.output)
         summary = lines[-1]["summary"]
@@ -63,35 +63,35 @@ class TestNDJSONStream:
 
 class TestSchemaMetadata:
     def test_schema_has_safety_tier(self):
-        env = json.loads(_run(["schema", "delete"]).output)
+        env = json.loads(_run(["schema", "zotero", "delete"]).output)
         assert env["data"]["safety_tier"] == "destructive"
 
     def test_schema_read_cmd_tier(self):
-        env = json.loads(_run(["schema", "search"]).output)
+        env = json.loads(_run(["schema", "zotero", "search"]).output)
         assert env["data"]["safety_tier"] == "read"
 
     def test_schema_write_cmd_tier(self):
-        env = json.loads(_run(["schema", "add"]).output)
+        env = json.loads(_run(["schema", "zotero", "add"]).output)
         assert env["data"]["safety_tier"] == "write"
 
     def test_schema_tag_cmd_tier_is_write(self):
-        env = json.loads(_run(["schema", "tag"]).output)
+        env = json.loads(_run(["schema", "zotero", "tag"]).output)
         assert env["data"]["safety_tier"] == "write"
 
     def test_schema_nested_collection_create_is_write(self):
-        env = json.loads(_run(["schema", "collection", "create"]).output)
+        env = json.loads(_run(["schema", "zotero", "collection", "create"]).output)
         assert env["data"]["safety_tier"] == "write"
 
     def test_schema_nested_collection_delete_is_destructive(self):
-        env = json.loads(_run(["schema", "collection", "delete"]).output)
+        env = json.loads(_run(["schema", "zotero", "collection", "delete"]).output)
         assert env["data"]["safety_tier"] == "destructive"
 
     def test_schema_nested_trash_restore_is_write(self):
-        env = json.loads(_run(["schema", "trash", "restore"]).output)
+        env = json.loads(_run(["schema", "zotero", "trash", "restore"]).output)
         assert env["data"]["safety_tier"] == "write"
 
     def test_schema_nested_collection_list_stays_read(self):
-        env = json.loads(_run(["schema", "collection", "list"]).output)
+        env = json.loads(_run(["schema", "zotero", "collection", "list"]).output)
         assert env["data"]["safety_tier"] == "read"
 
     # H-03: local-state-mutating nested config/workspace commands are classified.
@@ -122,12 +122,12 @@ class TestSchemaMetadata:
             assert env["data"]["safety_tier"] == "read", subcommand
 
     def test_schema_collection_move_has_source_option(self):
-        env = json.loads(_run(["schema", "collection", "move"]).output)
+        env = json.loads(_run(["schema", "zotero", "collection", "move"]).output)
         flags = {flag for param in env["data"]["params"] for flag in param.get("flags", [])}
         assert "--from" in flags
 
     def test_schema_since_and_deprecated_fields(self):
-        env = json.loads(_run(["schema", "search"]).output)
+        env = json.loads(_run(["schema", "zotero", "search"]).output)
         assert "since" in env["data"]
         assert "deprecated" in env["data"]
         assert env["data"]["deprecated"] is False
@@ -169,18 +169,18 @@ class TestFulltextLimitedMeta:
 
     def test_list_json_meta_reports_fulltext_limited(self):
         fake = SimpleNamespace(items=[], total=0, fulltext_limited=True)
-        with patch("zotero_cli.commands.items.listing.ZoteroReader") as reader_cls:
+        with patch("zotero_cli.cli.zotero.reading.ZoteroReader") as reader_cls:
             reader_cls.return_value.search.return_value = fake
-            result = _run(["--json", "list"])
+            result = _run(["--json", "zotero", "list"])
         assert result.exit_code == EXIT_OK, result.output
         env = json.loads(result.output)
         assert env["meta"]["fulltext_limited"] is True
 
     def test_list_stream_summary_reports_fulltext_limited(self):
         fake = SimpleNamespace(items=[], total=0, fulltext_limited=True)
-        with patch("zotero_cli.commands.items.listing.ZoteroReader") as reader_cls:
+        with patch("zotero_cli.cli.zotero.reading.ZoteroReader") as reader_cls:
             reader_cls.return_value.search.return_value = fake
-            result = _run(["list", "--stream"])
+            result = _run(["zotero", "list", "--stream"])
         assert result.exit_code == EXIT_OK, result.output
         summary = _parse_ndjson(result.output)[-1]
         assert summary["meta"]["fulltext_limited"] is True

@@ -1,8 +1,4 @@
-"""The `zot` Click root group: global options, request scope, update notice.
-
-The console-script entry point is `zotero_cli.cli:main`; `main` is the group
-defined here after the command registry has populated it.
-"""
+"""`zot` Typer 根入口：全局选项、请求作用域与更新提示。"""
 
 from __future__ import annotations
 
@@ -10,117 +6,91 @@ import os
 import sys
 
 import click
+import typer
+from typer.main import get_command
 
 from zotero_cli import __version__
 from zotero_cli.cli.registry import register_commands
 from zotero_cli.cli.tiered_group import TieredGroup
+from zotero_cli.cli.zotero.reading import app as zotero_reading_app
 from zotero_cli.output.envelope import request_scope
 from zotero_cli.output.exit_codes import set_verbose
 
+app = typer.Typer(
+    cls=TieredGroup,
+    add_completion=False,
+    help="zot — Zotero CLI for AI agents。",
+    no_args_is_help=False,
+    context_settings={"help_option_names": ["--help"]},
+    rich_markup_mode=None,
+)
+app.add_typer(zotero_reading_app, name="zotero", help="管理和读取 Zotero 基础数据。")
 
-@click.group(cls=TieredGroup, invoke_without_command=True, no_args_is_help=False)
-@click.version_option(version=__version__, prog_name="zot")
-@click.option(
-    "--json",
-    "output_json",
-    is_flag=True,
-    default=None,
-    help="Output as JSON (auto-enabled when stdout is not a TTY)",
-)
-@click.option(
-    "--no-json",
-    "output_no_json",
-    is_flag=True,
-    default=False,
-    help="Force human-readable output even when stdout is not a TTY",
-)
-@click.option("--limit", default=50, help="Limit results")
-@click.option(
-    "--detail", type=click.Choice(["minimal", "standard", "full"]), default="standard", help="Output detail level"
-)
-@click.option("--no-interaction", is_flag=True, help="Suppress interactive prompts for automation")
-@click.option(
-    "--verbose",
-    is_flag=True,
-    help="Print tracebacks for unexpected errors (also enabled by ZOT_DEBUG)",
-)
-@click.option("--profile", default=None, help="Config profile name")
-@click.option("--library", default="user", help="Library: 'user' (default) or 'group:<id>'")
-@click.pass_context
-def main(
-    ctx: click.Context,
-    output_json: bool | None,
-    output_no_json: bool,
-    limit: int,
-    detail: str,
-    no_interaction: bool,
-    verbose: bool,
-    profile: str | None,
-    library: str,
+
+def _version_callback(ctx: click.Context, _param: click.Parameter, value: bool) -> None:
+    """在执行常规参数解析前输出版本。"""
+    if value and not ctx.resilient_parsing:
+        typer.echo(f"zot, version {__version__}")
+        ctx.exit()
+
+
+@app.callback(invoke_without_command=True)
+def root(
+    ctx: typer.Context,
+    output_json: bool | None = typer.Option(None, "--json", help="以 JSON 输出；非 TTY 时自动启用。"),
+    output_no_json: bool = typer.Option(False, "--no-json", help="即使非 TTY 也强制人类可读输出。"),
+    limit: int = typer.Option(50, help="结果上限。"),
+    detail: str = typer.Option("standard", help="输出详情：minimal、standard 或 full。"),
+    no_interaction: bool = typer.Option(False, help="自动化时禁用交互提示。"),
+    verbose: bool = typer.Option(False, help="意外错误时输出回溯。"),
+    profile: str | None = typer.Option(None, help="配置 profile 名称。"),
+    library: str = typer.Option("user", help="库：user 或 group:<id>。"),
+    version: bool = typer.Option(
+        False, "--version", is_eager=True, callback=_version_callback, help="显示版本并退出。"
+    ),
 ) -> None:
-    """zot — Zotero CLI for AI agents.
-
-    
-    Quick start:
-      zot search "attention mechanism"    Search papers
-      zot read ABC123                     View paper details
-      zot --json search "BERT"            JSON output for AI
-    """
-    # Bind a request_id + start time for the duration of this invocation so
-    # every envelope (success, error, partial) carries them automatically.
+    """运行 `zot zotero` 访问基础 Zotero 能力。"""
+    if detail not in {"minimal", "standard", "full"}:
+        raise typer.BadParameter("detail 必须是 minimal、standard 或 full")
     scope = request_scope()
-    rid = scope.__enter__()
+    request_id = scope.__enter__()
     ctx.call_on_close(lambda: scope.__exit__(None, None, None))
     ctx.ensure_object(dict)
-    ctx.obj["request_id"] = rid
-    # Record the parsed flag for the error boundary; never infer it from raw argv.
+    ctx.obj["request_id"] = request_id
     set_verbose(verbose)
-    # Mutual exclusion check: --json and --no-json cannot be used together
     if output_json is not None and output_no_json:
-        raise click.BadParameter("Cannot use both --json and --no-json")
-    # TTY auto-detect: when stdout is redirected/piped, default to JSON so agents
-    # never have to remember --json. Explicit --json, --no-json, or ZOT_FORMAT env var override.
+        raise typer.BadParameter("不能同时使用 --json 和 --no-json")
     if output_json is None:
-        env_fmt = os.environ.get("ZOT_FORMAT", "").lower()
-        if env_fmt == "json":
+        environment_format = os.environ.get("ZOT_FORMAT", "").lower()
+        if environment_format == "json":
             output_json = True
-        elif env_fmt in ("table", "text"):
+        elif environment_format in {"table", "text"}:
             output_json = False
         else:
             output_json = not sys.stdout.isatty()
-    # --no-json forces human-readable output regardless of auto-detect
     if output_no_json:
         output_json = False
-    ctx.obj["json"] = output_json
-    ctx.obj["limit"] = limit
-    ctx.obj["detail"] = detail
-    ctx.obj["no_interaction"] = no_interaction
-    ctx.obj["verbose"] = verbose
-    ctx.obj["profile"] = profile or os.environ.get("ZOT_PROFILE")
-
-    # Parse --library option
+    ctx.obj.update(
+        json=output_json,
+        limit=limit,
+        detail=detail,
+        no_interaction=no_interaction,
+        verbose=verbose,
+        profile=profile or os.environ.get("ZOT_PROFILE"),
+    )
     if library == "user":
-        ctx.obj["library_type"] = "user"
-        ctx.obj["group_id"] = None
-    elif library.startswith("group:"):
-        group_part = library[6:]
-        if not group_part.isdigit():
-            raise click.BadParameter(f"Invalid --library format: '{library}'. Use 'user' or 'group:<id>'")
-        ctx.obj["library_type"] = "group"
-        ctx.obj["group_id"] = group_part
+        ctx.obj.update(library_type="user", group_id=None)
+    elif library.startswith("group:") and library[6:].isdigit():
+        ctx.obj.update(library_type="group", group_id=library[6:])
     else:
-        raise click.BadParameter(f"Invalid --library format: '{library}'. Use 'user' or 'group:<id>'")
-
+        raise typer.BadParameter("library 必须是 user 或 group:<id>")
     if ctx.invoked_subcommand is None:
-        click.echo(ctx.get_help())
+        typer.echo(ctx.get_help())
 
 
-@main.result_callback()
-@click.pass_context
-def _after_command(ctx: click.Context, *_args: object, **_kwargs: object) -> None:
-    """Show update notice after command completes (interactive mode only)."""
-    obj = ctx.obj or {}
-    if obj.get("json") or obj.get("no_interaction") or not sys.stderr.isatty():
+def _after_command(_result: object, **options: object) -> None:
+    """仅在交互模式下显示更新提示。"""
+    if options.get("output_json") or options.get("no_interaction") or not sys.stderr.isatty():
         return
     from zotero_cli.core.version_check import check_for_update, update_check_disabled, upgrade_command
 
@@ -129,12 +99,10 @@ def _after_command(ctx: click.Context, *_args: object, **_kwargs: object) -> Non
     latest = check_for_update(__version__)
     if latest:
         click.echo(
-            click.style(
-                f"\n Update available: v{__version__} → v{latest}. Run: {upgrade_command()}",
-                fg="yellow",
-            ),
-            err=True,
+            click.style(f"\n 可更新：v{__version__} → v{latest}。运行：{upgrade_command()}", fg="yellow"), err=True
         )
 
 
+main = get_command(app)
+main._result_callback = _after_command
 register_commands(main)
