@@ -17,7 +17,7 @@ def _invoke(shell: str = "bash"):
     return CliRunner().invoke(main, ["completions", shell])
 
 
-@patch("zotero_cli.cli.completions.subprocess.run")
+@patch("zotero_cli.cli.commands.completions.subprocess.run")
 def test_success_prints_generated_script(mock_run):
     mock_run.return_value = SimpleNamespace(returncode=0, stdout="# generated completion\n")
     result = _invoke()
@@ -27,7 +27,7 @@ def test_success_prints_generated_script(mock_run):
     assert mock_run.call_args.kwargs["timeout"] == 10
 
 
-@patch("zotero_cli.cli.completions.subprocess.run")
+@patch("zotero_cli.cli.commands.completions.subprocess.run")
 def test_timeout_emits_deterministic_fallback(mock_run):
     mock_run.side_effect = subprocess.TimeoutExpired(cmd="zot", timeout=10)
     result = _invoke()
@@ -37,7 +37,7 @@ def test_timeout_emits_deterministic_fallback(mock_run):
     assert "static completion snippet" in result.stderr
 
 
-@patch("zotero_cli.cli.completions.subprocess.run")
+@patch("zotero_cli.cli.commands.completions.subprocess.run")
 def test_missing_executable_emits_deterministic_fallback(mock_run):
     mock_run.side_effect = FileNotFoundError(2, "No such file or directory", "zot")
     result = _invoke()
@@ -46,7 +46,7 @@ def test_missing_executable_emits_deterministic_fallback(mock_run):
     assert "could not execute 'zot' to generate completions" in result.stderr
 
 
-@patch("zotero_cli.cli.completions.subprocess.run")
+@patch("zotero_cli.cli.commands.completions.subprocess.run")
 def test_non_zero_exit_emits_fallback(mock_run):
     mock_run.return_value = SimpleNamespace(returncode=2, stdout="")
     result = _invoke()
@@ -55,7 +55,7 @@ def test_non_zero_exit_emits_fallback(mock_run):
     assert "exited with status 2" in result.stderr
 
 
-@patch("zotero_cli.cli.completions.subprocess.run")
+@patch("zotero_cli.cli.commands.completions.subprocess.run")
 def test_empty_script_emits_fallback(mock_run):
     mock_run.return_value = SimpleNamespace(returncode=0, stdout="")
     result = _invoke()
@@ -64,7 +64,7 @@ def test_empty_script_emits_fallback(mock_run):
     assert "produced no completion script" in result.stderr
 
 
-@patch("zotero_cli.cli.completions.subprocess.run")
+@patch("zotero_cli.cli.commands.completions.subprocess.run")
 def test_zsh_and_fish_fallbacks_are_shell_specific(mock_run):
     mock_run.side_effect = FileNotFoundError(2, "No such file or directory", "zot")
     zsh = _invoke("zsh")
@@ -79,7 +79,7 @@ def _invoke_json(shell: str = "bash"):
     return CliRunner().invoke(main, ["--json", "completions", shell])
 
 
-@patch("zotero_cli.cli.completions.subprocess.run")
+@patch("zotero_cli.cli.commands.completions.subprocess.run")
 def test_json_mode_returns_single_envelope_with_script(mock_run):
     import json
 
@@ -97,7 +97,7 @@ def test_json_mode_returns_single_envelope_with_script(mock_run):
     assert "Warning:" not in result.stderr
 
 
-@patch("zotero_cli.cli.completions.subprocess.run")
+@patch("zotero_cli.cli.commands.completions.subprocess.run")
 def test_json_fallback_envelope_reports_warning(mock_run):
     import json
 

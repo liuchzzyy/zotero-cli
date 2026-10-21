@@ -40,8 +40,8 @@ class TestAddPdfCLI:
             "ZOT_FORMAT": "",
         }
         with (
-            patch("zotero_cli.cli.zotero.add.resolve_doi", return_value={"title": "T"}),
-            patch("zotero_cli.cli.zotero.add.ZoteroWriter") as mock_writer_cls,
+            patch("zotero_cli.cli.commands.zotero.add.resolve_doi", return_value={"title": "T"}),
+            patch("zotero_cli.cli.commands.zotero.add.ZoteroWriter") as mock_writer_cls,
         ):
             mock_writer = MagicMock()
             mock_writer_cls.return_value = mock_writer
@@ -91,8 +91,8 @@ class TestAddPdfCLI:
         with (
             patch("zotero_cli.config.load_pdf_config", return_value=PdfConfig(mineru_token="token")),
             patch("zotero_cli.ai_pdf.MinerUParseCache") as cache_cls,
-            patch("zotero_cli.cli.zotero.add.resolve_doi", return_value={"title": "T"}),
-            patch("zotero_cli.cli.zotero.add.ZoteroWriter") as mock_writer_cls,
+            patch("zotero_cli.cli.commands.zotero.add.resolve_doi", return_value={"title": "T"}),
+            patch("zotero_cli.cli.commands.zotero.add.ZoteroWriter") as mock_writer_cls,
         ):
             cache = cache_cls.return_value
             cache.get.return_value = None

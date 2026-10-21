@@ -113,7 +113,7 @@ class TestTrashCLI:
 
 class TestTrashRestoreCLI:
     def test_restore_success_emits_one_ok_envelope(self):
-        with patch("zotero_cli.cli.zotero.trash.ZoteroWriter") as writer_cls:
+        with patch("zotero_cli.cli.commands.zotero.trash.ZoteroWriter") as writer_cls:
             result = _invoke(["zotero", "trash", "restore", "KEY1"], json_output=True, env=_WRITE_ENV)
         assert result.exit_code == 0, result.output
         payload = json.loads(result.output)
@@ -123,7 +123,7 @@ class TestTrashRestoreCLI:
         writer_cls.return_value.restore_from_trash.assert_called_once_with("KEY1")
 
     def test_restore_not_found_is_typed_and_nonzero(self):
-        with patch("zotero_cli.cli.zotero.trash.ZoteroWriter") as writer_cls:
+        with patch("zotero_cli.cli.commands.zotero.trash.ZoteroWriter") as writer_cls:
             writer_cls.return_value.restore_from_trash.side_effect = ZoteroWriteError(
                 "Item 'GONE' not found", code="not_found", retryable=False
             )
@@ -135,7 +135,7 @@ class TestTrashRestoreCLI:
         assert "permanent" in payload["error"]["hint"]
 
     def test_restore_mixed_results_are_partial_and_nonzero(self):
-        with patch("zotero_cli.cli.zotero.trash.ZoteroWriter") as writer_cls:
+        with patch("zotero_cli.cli.commands.zotero.trash.ZoteroWriter") as writer_cls:
             writer_cls.return_value.restore_from_trash.side_effect = [
                 None,
                 ZoteroWriteError("conflict", code="conflict", retryable=False),
@@ -149,7 +149,7 @@ class TestTrashRestoreCLI:
         assert payload["data"]["failed"][0]["code"] == "conflict"
 
     def test_restore_network_error_is_retryable_exit5(self):
-        with patch("zotero_cli.cli.zotero.trash.ZoteroWriter") as writer_cls:
+        with patch("zotero_cli.cli.commands.zotero.trash.ZoteroWriter") as writer_cls:
             writer_cls.return_value.restore_from_trash.side_effect = ZoteroWriteError(
                 "network", code="network_error", retryable=True, committed=True
             )
@@ -160,7 +160,7 @@ class TestTrashRestoreCLI:
         assert payload["error"]["committed"] is True
 
     def test_restore_dry_run_makes_no_write(self):
-        with patch("zotero_cli.cli.zotero.trash.ZoteroWriter") as writer_cls:
+        with patch("zotero_cli.cli.commands.zotero.trash.ZoteroWriter") as writer_cls:
             result = _invoke(["zotero", "trash", "restore", "KEY1", "--dry-run"], json_output=True, env=_WRITE_ENV)
         assert result.exit_code == 0, result.output
         payload = json.loads(result.output)

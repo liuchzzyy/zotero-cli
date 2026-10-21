@@ -14,7 +14,7 @@ def test_parent_lists_pdf_attachments_without_parsing():
     first = Attachment("MAIN001", "PARENT", "paper.pdf", "application/pdf", Path("/main/paper.pdf"))
     second = Attachment("SUPP001", "PARENT", "paper.pdf", "application/pdf", Path("/supp/paper.pdf"))
     with (
-        patch("zotero_cli.cli.zotero.pdf.ZoteroReader") as reader_cls,
+        patch("zotero_cli.cli.commands.zotero.pdf.ZoteroReader") as reader_cls,
         patch("zotero_cli.ai_pdf.MinerUParseCache") as cache_cls,
     ):
         reader_cls.return_value.get_pdf_attachments.return_value = [first, second]
@@ -34,8 +34,8 @@ def test_specific_child_pdf_is_selected_even_with_same_filename(tmp_path):
     first = Attachment("MAIN001", "PARENT", "paper.pdf", "application/pdf", first_path)
     second = Attachment("SUPP001", "PARENT", "paper.pdf", "application/pdf", second_path)
     with (
-        patch("zotero_cli.cli.ai_pdf.ZoteroReader") as reader_cls,
-        patch("zotero_cli.cli.ai_pdf.MinerUParseCache") as cache_cls,
+        patch("zotero_cli.cli.commands.ai_pdf.ZoteroReader") as reader_cls,
+        patch("zotero_cli.cli.commands.ai_pdf.MinerUParseCache") as cache_cls,
     ):
         reader_cls.return_value.get_pdf_attachments.return_value = [first, second]
         parsed = cache_cls.return_value.lookup.return_value[0]
@@ -54,7 +54,7 @@ def test_specific_child_pdf_is_selected_even_with_same_filename(tmp_path):
 def test_ambiguous_parent_pdf_does_not_pick_first():
     first = Attachment("MAIN001", "PARENT", "paper.pdf", "application/pdf", Path("/main/paper.pdf"))
     second = Attachment("SUPP001", "PARENT", "paper.pdf", "application/pdf", Path("/supp/paper.pdf"))
-    with patch("zotero_cli.cli.ai_pdf.ZoteroReader") as reader_cls:
+    with patch("zotero_cli.cli.commands.ai_pdf.ZoteroReader") as reader_cls:
         reader_cls.return_value.get_pdf_attachments.return_value = [first, second]
         result = CliRunner().invoke(main, ["--json", "ai-pdf", "PARENT"])
     assert result.exit_code == 3

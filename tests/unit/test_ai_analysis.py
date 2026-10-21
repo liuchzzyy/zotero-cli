@@ -693,7 +693,7 @@ class TestAiNoteCLI:
         # clean checkout has no key and `ai-note` exits 3 before these tests
         # reach the behavior under test. Stub the loader instead.
         with patch(
-            "zotero_cli.cli.ai_notes.load_ai_note_config",
+            "zotero_cli.cli.commands.ai_notes.load_ai_note_config",
             return_value=_make_ai_config(),
         ):
             return runner.invoke(main, args, env=base_env)
@@ -710,10 +710,10 @@ class TestAiNoteCLI:
             "prompt_preview": "preview",
         }
         with (
-            patch("zotero_cli.cli.ai_notes.analyze_item", return_value=result),
-            patch("zotero_cli.cli.ai_notes.ZoteroReader"),
-            patch("zotero_cli.cli.ai_notes.ZoteroWriter"),
-            patch("zotero_cli.cli.ai_notes.AiClient"),
+            patch("zotero_cli.cli.commands.ai_notes.analyze_item", return_value=result),
+            patch("zotero_cli.cli.commands.ai_notes.ZoteroReader"),
+            patch("zotero_cli.cli.commands.ai_notes.ZoteroWriter"),
+            patch("zotero_cli.cli.commands.ai_notes.AiClient"),
         ):
             res = self._run(["ai-note", "ABC123", "--dry-run"])
 
@@ -725,12 +725,12 @@ class TestAiNoteCLI:
     def test_not_found_error_exit_code(self):
         with (
             patch(
-                "zotero_cli.cli.ai_notes.analyze_item",
+                "zotero_cli.cli.commands.ai_notes.analyze_item",
                 side_effect=NoteAnalysisError("条目 'X' 不存在", code="not_found"),
             ),
-            patch("zotero_cli.cli.ai_notes.ZoteroReader"),
-            patch("zotero_cli.cli.ai_notes.ZoteroWriter"),
-            patch("zotero_cli.cli.ai_notes.AiClient"),
+            patch("zotero_cli.cli.commands.ai_notes.ZoteroReader"),
+            patch("zotero_cli.cli.commands.ai_notes.ZoteroWriter"),
+            patch("zotero_cli.cli.commands.ai_notes.AiClient"),
         ):
             res = self._run(["ai-note", "X"])
 
@@ -742,11 +742,11 @@ class TestAiNoteCLI:
         expected = {"status": "dry_run", "item_key": "ABC123"}
         runner = CliRunner()
         with (
-            patch("zotero_cli.cli.ai_notes.load_ai_note_config", return_value=AiNoteConfig()),
-            patch("zotero_cli.cli.ai_notes.analyze_item", return_value=expected) as analyze,
-            patch("zotero_cli.cli.ai_notes.ZoteroReader"),
-            patch("zotero_cli.cli.ai_notes.ZoteroWriter"),
-            patch("zotero_cli.cli.ai_notes.AiClient") as client_cls,
+            patch("zotero_cli.cli.commands.ai_notes.load_ai_note_config", return_value=AiNoteConfig()),
+            patch("zotero_cli.cli.commands.ai_notes.analyze_item", return_value=expected) as analyze,
+            patch("zotero_cli.cli.commands.ai_notes.ZoteroReader"),
+            patch("zotero_cli.cli.commands.ai_notes.ZoteroWriter"),
+            patch("zotero_cli.cli.commands.ai_notes.AiClient") as client_cls,
         ):
             res = runner.invoke(
                 main,
@@ -767,11 +767,11 @@ class TestAiNoteCLI:
     def test_idempotency_cached_replay_skips_analysis(self):
         cached = {"ok": True, "data": {"status": "ok", "note_key": "NOTE1"}, "meta": {"count": 1}}
         with (
-            patch("zotero_cli.cli.ai_notes.begin_mutation", return_value=cached),
-            patch("zotero_cli.cli.ai_notes.analyze_item") as analyze,
-            patch("zotero_cli.cli.ai_notes.ZoteroReader"),
-            patch("zotero_cli.cli.ai_notes.ZoteroWriter"),
-            patch("zotero_cli.cli.ai_notes.AiClient"),
+            patch("zotero_cli.cli.commands.ai_notes.begin_mutation", return_value=cached),
+            patch("zotero_cli.cli.commands.ai_notes.analyze_item") as analyze,
+            patch("zotero_cli.cli.commands.ai_notes.ZoteroReader"),
+            patch("zotero_cli.cli.commands.ai_notes.ZoteroWriter"),
+            patch("zotero_cli.cli.commands.ai_notes.AiClient"),
         ):
             res = self._run(["ai-note", "ABC123", "--idempotency-key", "k1"])
         assert res.exit_code == 0, res.output
@@ -789,12 +789,12 @@ class TestAiNoteCLI:
             "short_note_error": "",
         }
         with (
-            patch("zotero_cli.cli.ai_notes.begin_mutation", return_value=None),
-            patch("zotero_cli.cli.ai_notes.store_cached") as store,
-            patch("zotero_cli.cli.ai_notes.analyze_item", return_value=result),
-            patch("zotero_cli.cli.ai_notes.ZoteroReader"),
-            patch("zotero_cli.cli.ai_notes.ZoteroWriter"),
-            patch("zotero_cli.cli.ai_notes.AiClient"),
+            patch("zotero_cli.cli.commands.ai_notes.begin_mutation", return_value=None),
+            patch("zotero_cli.cli.commands.ai_notes.store_cached") as store,
+            patch("zotero_cli.cli.commands.ai_notes.analyze_item", return_value=result),
+            patch("zotero_cli.cli.commands.ai_notes.ZoteroReader"),
+            patch("zotero_cli.cli.commands.ai_notes.ZoteroWriter"),
+            patch("zotero_cli.cli.commands.ai_notes.AiClient"),
         ):
             res = self._run(["ai-note", "ABC123", "--idempotency-key", "k1"])
         assert res.exit_code == 0, res.output
@@ -804,15 +804,15 @@ class TestAiNoteCLI:
 
     def test_idempotency_released_on_pre_write_error(self):
         with (
-            patch("zotero_cli.cli.ai_notes.begin_mutation", return_value=None),
-            patch("zotero_cli.cli.ai_notes.release_rejected_mutation") as release,
+            patch("zotero_cli.cli.commands.ai_notes.begin_mutation", return_value=None),
+            patch("zotero_cli.cli.commands.ai_notes.release_rejected_mutation") as release,
             patch(
-                "zotero_cli.cli.ai_notes.analyze_item",
+                "zotero_cli.cli.commands.ai_notes.analyze_item",
                 side_effect=NoteAnalysisError("条目 'X' 不存在", code="not_found"),
             ),
-            patch("zotero_cli.cli.ai_notes.ZoteroReader"),
-            patch("zotero_cli.cli.ai_notes.ZoteroWriter"),
-            patch("zotero_cli.cli.ai_notes.AiClient"),
+            patch("zotero_cli.cli.commands.ai_notes.ZoteroReader"),
+            patch("zotero_cli.cli.commands.ai_notes.ZoteroWriter"),
+            patch("zotero_cli.cli.commands.ai_notes.AiClient"),
         ):
             res = self._run(["ai-note", "X", "--idempotency-key", "k1"])
         assert res.exit_code == 4
@@ -821,12 +821,12 @@ class TestAiNoteCLI:
     def test_idempotency_released_for_definite_rejection(self):
         error = NoteAnalysisError("Bad request", code="auth_invalid", retryable=False, committed=False)
         with (
-            patch("zotero_cli.cli.ai_notes.begin_mutation", return_value=None),
-            patch("zotero_cli.cli.ai_notes.release_rejected_mutation") as release,
-            patch("zotero_cli.cli.ai_notes.analyze_item", side_effect=error),
-            patch("zotero_cli.cli.ai_notes.ZoteroReader"),
-            patch("zotero_cli.cli.ai_notes.ZoteroWriter"),
-            patch("zotero_cli.cli.ai_notes.AiClient"),
+            patch("zotero_cli.cli.commands.ai_notes.begin_mutation", return_value=None),
+            patch("zotero_cli.cli.commands.ai_notes.release_rejected_mutation") as release,
+            patch("zotero_cli.cli.commands.ai_notes.analyze_item", side_effect=error),
+            patch("zotero_cli.cli.commands.ai_notes.ZoteroReader"),
+            patch("zotero_cli.cli.commands.ai_notes.ZoteroWriter"),
+            patch("zotero_cli.cli.commands.ai_notes.AiClient"),
         ):
             res = self._run(["ai-note", "ABC123", "--idempotency-key", "k1"])
         assert res.exit_code == 2
@@ -836,12 +836,12 @@ class TestAiNoteCLI:
     def test_idempotency_reservation_kept_when_write_may_have_committed(self):
         error = NoteAnalysisError("note 已写入但 tag 失败", code="api_error", committed=True)
         with (
-            patch("zotero_cli.cli.ai_notes.begin_mutation", return_value=None),
-            patch("zotero_cli.cli.ai_notes.release_rejected_mutation") as release,
-            patch("zotero_cli.cli.ai_notes.analyze_item", side_effect=error),
-            patch("zotero_cli.cli.ai_notes.ZoteroReader"),
-            patch("zotero_cli.cli.ai_notes.ZoteroWriter"),
-            patch("zotero_cli.cli.ai_notes.AiClient"),
+            patch("zotero_cli.cli.commands.ai_notes.begin_mutation", return_value=None),
+            patch("zotero_cli.cli.commands.ai_notes.release_rejected_mutation") as release,
+            patch("zotero_cli.cli.commands.ai_notes.analyze_item", side_effect=error),
+            patch("zotero_cli.cli.commands.ai_notes.ZoteroReader"),
+            patch("zotero_cli.cli.commands.ai_notes.ZoteroWriter"),
+            patch("zotero_cli.cli.commands.ai_notes.AiClient"),
         ):
             res = self._run(["ai-note", "ABC123", "--idempotency-key", "k1"])
         assert res.exit_code == 1
@@ -851,13 +851,13 @@ class TestAiNoteCLI:
     def test_idempotency_pending_conflict(self):
         with (
             patch(
-                "zotero_cli.cli.ai_notes.begin_mutation",
+                "zotero_cli.cli.commands.ai_notes.begin_mutation",
                 side_effect=PendingMutationError("pending"),
             ),
-            patch("zotero_cli.cli.ai_notes.analyze_item") as analyze,
-            patch("zotero_cli.cli.ai_notes.ZoteroReader"),
-            patch("zotero_cli.cli.ai_notes.ZoteroWriter"),
-            patch("zotero_cli.cli.ai_notes.AiClient"),
+            patch("zotero_cli.cli.commands.ai_notes.analyze_item") as analyze,
+            patch("zotero_cli.cli.commands.ai_notes.ZoteroReader"),
+            patch("zotero_cli.cli.commands.ai_notes.ZoteroWriter"),
+            patch("zotero_cli.cli.commands.ai_notes.AiClient"),
         ):
             res = self._run(["ai-note", "ABC123", "--idempotency-key", "k1"])
         assert res.exit_code == 6
@@ -866,12 +866,12 @@ class TestAiNoteCLI:
     def test_provider_auth_error_exits_2(self):
         with (
             patch(
-                "zotero_cli.cli.ai_notes.analyze_item",
+                "zotero_cli.cli.commands.ai_notes.analyze_item",
                 side_effect=NoteAnalysisError("401 Unauthorized", code="auth_invalid"),
             ),
-            patch("zotero_cli.cli.ai_notes.ZoteroReader"),
-            patch("zotero_cli.cli.ai_notes.ZoteroWriter"),
-            patch("zotero_cli.cli.ai_notes.AiClient"),
+            patch("zotero_cli.cli.commands.ai_notes.ZoteroReader"),
+            patch("zotero_cli.cli.commands.ai_notes.ZoteroWriter"),
+            patch("zotero_cli.cli.commands.ai_notes.AiClient"),
         ):
             res = self._run(["ai-note", "ABC123"])
         assert res.exit_code == 2
@@ -886,11 +886,11 @@ class TestAiNoteCLI:
     def test_idempotency_key_is_ignored_under_dry_run(self):
         expected = {"status": "dry_run", "item_key": "ABC123"}
         with (
-            patch("zotero_cli.cli.ai_notes.begin_mutation") as begin,
-            patch("zotero_cli.cli.ai_notes.analyze_item", return_value=expected),
-            patch("zotero_cli.cli.ai_notes.ZoteroReader"),
-            patch("zotero_cli.cli.ai_notes.ZoteroWriter"),
-            patch("zotero_cli.cli.ai_notes.AiClient"),
+            patch("zotero_cli.cli.commands.ai_notes.begin_mutation") as begin,
+            patch("zotero_cli.cli.commands.ai_notes.analyze_item", return_value=expected),
+            patch("zotero_cli.cli.commands.ai_notes.ZoteroReader"),
+            patch("zotero_cli.cli.commands.ai_notes.ZoteroWriter"),
+            patch("zotero_cli.cli.commands.ai_notes.AiClient"),
         ):
             res = self._run(["ai-note", "ABC123", "--dry-run", "--idempotency-key", "k1"])
         assert res.exit_code == 0, res.output
@@ -902,10 +902,10 @@ class TestAiNoteCLI:
             return {"status": "dry_run", "item_key": key}
 
         with (
-            patch("zotero_cli.cli.ai_notes.analyze_item", side_effect=fake_analyze),
-            patch("zotero_cli.cli.ai_notes.ZoteroReader"),
-            patch("zotero_cli.cli.ai_notes.ZoteroWriter"),
-            patch("zotero_cli.cli.ai_notes.AiClient"),
+            patch("zotero_cli.cli.commands.ai_notes.analyze_item", side_effect=fake_analyze),
+            patch("zotero_cli.cli.commands.ai_notes.ZoteroReader"),
+            patch("zotero_cli.cli.commands.ai_notes.ZoteroWriter"),
+            patch("zotero_cli.cli.commands.ai_notes.AiClient"),
         ):
             res = self._run(["--no-json", "ai-note", "ABC123", "--dry-run"])
         assert res.exit_code == 0, res.output

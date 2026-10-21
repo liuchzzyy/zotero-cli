@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from zotero_cli.cli.models import ErrorInfo
-from zotero_cli.cli.renderers import (
+from zotero_cli.cli.output.models import ErrorInfo
+from zotero_cli.cli.output.renderers import (
     format_collections,
     format_error,
     format_item_detail,

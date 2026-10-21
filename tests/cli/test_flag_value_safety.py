@@ -11,8 +11,8 @@ import pytest
 from click.testing import CliRunner
 
 from zotero_cli.cli import _hoist_global_flags, main
-from zotero_cli.cli.workspace import _output as workspace_output
-from zotero_cli.cli.workspace import commands as workspace_commands
+from zotero_cli.cli.commands.workspace import _output as workspace_output
+from zotero_cli.cli.commands.workspace import operations as workspace_commands
 from zotero_cli.config import AppConfig
 
 
@@ -22,8 +22,8 @@ def test_flag_like_option_values_do_not_disable_dry_run(
     monkeypatch: pytest.MonkeyPatch, command: str, option: str, value: str
 ) -> None:
     module_path = {
-        "update": "zotero_cli.cli.zotero.update",
-        "note": "zotero_cli.cli.zotero.notes",
+        "update": "zotero_cli.cli.commands.zotero.update",
+        "note": "zotero_cli.cli.commands.zotero.notes",
     }[command]
     module = importlib.import_module(module_path)
     monkeypatch.setattr(module, "load_config", Mock(return_value=AppConfig()))

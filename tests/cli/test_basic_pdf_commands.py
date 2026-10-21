@@ -54,7 +54,7 @@ def test_path_requires_explicit_attachment_for_multiple_pdfs(test_db_path):
         Attachment("MAIN0001", "ATTN001", "main.pdf", "application/pdf", Path("/missing/main.pdf")),
         Attachment("SUPP0001", "ATTN001", "supp.pdf", "application/pdf", Path("/missing/supp.pdf")),
     ]
-    with patch("zotero_cli.cli.zotero.pdf.ZoteroReader") as reader_type:
+    with patch("zotero_cli.cli.commands.zotero.pdf.ZoteroReader") as reader_type:
         reader_type.return_value.get_pdf_attachments.return_value = attachments
         result = _invoke(["path", "ATTN001"], test_db_path)
     assert result.exit_code == 3
@@ -62,7 +62,7 @@ def test_path_requires_explicit_attachment_for_multiple_pdfs(test_db_path):
 
 
 def test_path_reports_missing_file(test_db_path):
-    with patch("zotero_cli.cli.zotero.pdf.ZoteroReader") as reader_type:
+    with patch("zotero_cli.cli.commands.zotero.pdf.ZoteroReader") as reader_type:
         reader_type.return_value.get_pdf_attachments.return_value = [
             Attachment("MAIN0001", "ATTN001", "main.pdf", "application/pdf", Path("/missing/main.pdf"))
         ]
@@ -74,7 +74,7 @@ def test_path_reports_missing_file(test_db_path):
 def test_path_reports_selected_pdf(test_db_path, tmp_path):
     pdf_path = tmp_path / "paper.pdf"
     pdf_path.write_bytes(b"%PDF-test")
-    with patch("zotero_cli.cli.zotero.pdf.ZoteroReader") as reader_type:
+    with patch("zotero_cli.cli.commands.zotero.pdf.ZoteroReader") as reader_type:
         reader_type.return_value.get_pdf_attachments.return_value = [
             Attachment("MAIN0001", "ATTN001", "paper.pdf", "application/pdf", pdf_path)
         ]

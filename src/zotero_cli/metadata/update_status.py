@@ -7,7 +7,6 @@ from typing import Any
 
 import click
 
-from zotero_cli.cli.renderers import sanitize_text
 from zotero_cli.config import (
     get_data_dir,
     load_config,
@@ -23,6 +22,7 @@ from zotero_cli.metadata.publication_status import (
 )
 from zotero_cli.output.envelope import envelope_ok, envelope_partial_data
 from zotero_cli.output.exit_codes import EXIT_NETWORK, EXIT_RUNTIME, emit_error
+from zotero_cli.output.sanitize import sanitize_text
 from zotero_cli.zotero.reader import ZoteroReader
 from zotero_cli.zotero.writer import SYNC_REMINDER, ZoteroWriter
 from zotero_cli.zotero.writer_errors import ZoteroWriteError

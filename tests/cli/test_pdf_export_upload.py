@@ -25,7 +25,7 @@ def _attachment(path: Path, key: str = "PDF00001") -> Attachment:
 def test_export_copies_selected_pdf_without_changing_source(test_db_path, tmp_path):
     source = _pdf(tmp_path / "source.pdf")
     destination = tmp_path / "exported.pdf"
-    with patch("zotero_cli.cli.zotero.pdf.ZoteroReader") as reader:
+    with patch("zotero_cli.cli.commands.zotero.pdf.ZoteroReader") as reader:
         reader.return_value.get_pdf_attachments.return_value = [_attachment(source)]
         result = invoke_agent_cli(
             ["zotero", "pdf", "export", "ATTN001", str(destination)], env={"ZOT_DATA_DIR": str(test_db_path.parent)}
@@ -40,7 +40,7 @@ def test_export_rejects_existing_symlink_and_multiple_selection(test_db_path, tm
     destination = tmp_path / "destination.pdf"
     destination.symlink_to(source)
     attachments = [_attachment(source, "MAIN0001"), _attachment(source, "SUPP0001")]
-    with patch("zotero_cli.cli.zotero.pdf.ZoteroReader") as reader:
+    with patch("zotero_cli.cli.commands.zotero.pdf.ZoteroReader") as reader:
         reader.return_value.get_pdf_attachments.return_value = attachments
         multiple = invoke_agent_cli(
             ["zotero", "pdf", "export", "ATTN001", str(tmp_path / "new.pdf")],
@@ -60,7 +60,7 @@ def test_export_removes_partial_destination_on_copy_failure(test_db_path, tmp_pa
     source = _pdf(tmp_path / "source.pdf")
     destination = tmp_path / "failed.pdf"
     with (
-        patch("zotero_cli.cli.zotero.pdf.ZoteroReader") as reader,
+        patch("zotero_cli.cli.commands.zotero.pdf.ZoteroReader") as reader,
         patch("zotero_cli.zotero.pdf.shutil.copyfileobj", side_effect=OSError("disk full")),
     ):
         reader.return_value.get_pdf_attachments.return_value = [_attachment(source)]
@@ -74,7 +74,7 @@ def test_export_removes_partial_destination_on_copy_failure(test_db_path, tmp_pa
 
 def test_pdf_upload_dry_run_validates_without_web_write(tmp_path):
     pdf = _pdf(tmp_path / "paper.pdf")
-    with patch("zotero_cli.cli.zotero.pdf.ZoteroWriter") as writer:
+    with patch("zotero_cli.cli.commands.zotero.pdf.ZoteroWriter") as writer:
         result = invoke_agent_cli(["zotero", "pdf", "upload", "ATTN001", "--file", str(pdf), "--dry-run"])
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["dry_run"] is True
@@ -86,7 +86,7 @@ def test_pdf_upload_replays_idempotent_result_and_blocks_unknown_retry(tmp_path)
     env = {"ZOT_LIBRARY_ID": "123", "ZOT_API_KEY": "secret"}
     with (
         patch("zotero_cli.zotero.idempotency.state_dir", return_value=tmp_path),
-        patch("zotero_cli.cli.zotero.pdf.ZoteroWriter") as writer,
+        patch("zotero_cli.cli.commands.zotero.pdf.ZoteroWriter") as writer,
     ):
         idempotency.clear()
         writer.return_value.upload_attachment.return_value = "PDF00001"
@@ -99,7 +99,7 @@ def test_pdf_upload_replays_idempotent_result_and_blocks_unknown_retry(tmp_path)
 
     with (
         patch("zotero_cli.zotero.idempotency.state_dir", return_value=tmp_path),
-        patch("zotero_cli.cli.zotero.pdf.ZoteroWriter") as writer,
+        patch("zotero_cli.cli.commands.zotero.pdf.ZoteroWriter") as writer,
     ):
         idempotency.clear()
         writer.return_value.upload_attachment.side_effect = ZoteroWriteError(
@@ -114,7 +114,7 @@ def test_pdf_upload_replays_idempotent_result_and_blocks_unknown_retry(tmp_path)
 
 def test_pdf_upload_rejects_non_pdf_without_web_write(tmp_path):
     file_path = _pdf(tmp_path / "not-a-pdf.pdf", b"text")
-    with patch("zotero_cli.cli.zotero.pdf.ZoteroWriter") as writer:
+    with patch("zotero_cli.cli.commands.zotero.pdf.ZoteroWriter") as writer:
         result = invoke_agent_cli(["zotero", "pdf", "upload", "ATTN001", "--file", str(file_path), "--dry-run"])
     assert result.exit_code == 3
     assert json.loads(result.output)["error"]["code"] == "validation_error"

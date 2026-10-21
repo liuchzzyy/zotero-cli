@@ -30,7 +30,7 @@ def test_note_read_json(test_db_path):
     assert len(data) >= 1
 
 
-@patch("zotero_cli.cli.zotero.notes.ZoteroWriter")
+@patch("zotero_cli.cli.commands.zotero.notes.ZoteroWriter")
 def test_note_add(mock_writer_cls, test_db_path):
     mock_writer = MagicMock()
     mock_writer_cls.return_value = mock_writer
@@ -81,7 +81,7 @@ def test_note_existing_item_without_notes_reports_no_notes():
     reader.get_notes.return_value = []
     reader.get_item.return_value = MagicMock()
     runner = CliRunner()
-    with patch("zotero_cli.cli.zotero.notes.ZoteroReader", return_value=reader):
+    with patch("zotero_cli.cli.commands.zotero.notes.ZoteroReader", return_value=reader):
         result = runner.invoke(
             main,
             ["--json", "zotero", "note", "ITEM1"],
@@ -96,7 +96,7 @@ def test_note_existing_item_without_notes_reports_no_notes():
 
 def test_note_dry_run_never_writes():
     runner = CliRunner()
-    with patch("zotero_cli.cli.zotero.notes.ZoteroWriter") as writer:
+    with patch("zotero_cli.cli.commands.zotero.notes.ZoteroWriter") as writer:
         result = runner.invoke(
             main,
             ["--json", "zotero", "note", "ABC", "--add", "New note", "--dry-run"],
@@ -115,7 +115,7 @@ def test_note_unknown_outcome_blocks_retry(tmp_path):
     runner = CliRunner()
     with (
         patch("zotero_cli.zotero.idempotency.state_dir", return_value=tmp_path),
-        patch("zotero_cli.cli.zotero.notes.ZoteroWriter") as writer,
+        patch("zotero_cli.cli.commands.zotero.notes.ZoteroWriter") as writer,
     ):
         writer.return_value.add_note.side_effect = ZoteroWriteError(
             "Connection lost", code="network_error", retryable=True

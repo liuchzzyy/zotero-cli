@@ -7,8 +7,8 @@ from zotero_cli.cli import main
 WRITE_ENV = {"ZOT_LIBRARY_ID": "123", "ZOT_API_KEY": "abc"}
 
 
-@patch("zotero_cli.cli.zotero.add.resolve_doi")
-@patch("zotero_cli.cli.zotero.add.ZoteroWriter")
+@patch("zotero_cli.cli.commands.zotero.add.resolve_doi")
+@patch("zotero_cli.cli.commands.zotero.add.ZoteroWriter")
 def test_add_by_doi(mock_writer_cls, mock_resolve):
     mock_resolve.return_value = {
         "title": "Resolved Title",
@@ -31,8 +31,8 @@ def test_add_by_doi(mock_writer_cls, mock_resolve):
     assert kwargs["extra_fields"]["title"] == "Resolved Title"
 
 
-@patch("zotero_cli.cli.zotero.add.resolve_doi")
-@patch("zotero_cli.cli.zotero.add.ZoteroWriter")
+@patch("zotero_cli.cli.commands.zotero.add.resolve_doi")
+@patch("zotero_cli.cli.commands.zotero.add.ZoteroWriter")
 def test_add_by_doi_no_resolve_skips_lookup(mock_writer_cls, mock_resolve):
     mock_writer = MagicMock()
     mock_writer_cls.return_value = mock_writer
@@ -45,8 +45,8 @@ def test_add_by_doi_no_resolve_skips_lookup(mock_writer_cls, mock_resolve):
     assert mock_writer.add_item.call_args.kwargs["extra_fields"] is None
 
 
-@patch("zotero_cli.cli.zotero.add.resolve_doi")
-@patch("zotero_cli.cli.zotero.add.ZoteroWriter")
+@patch("zotero_cli.cli.commands.zotero.add.resolve_doi")
+@patch("zotero_cli.cli.commands.zotero.add.ZoteroWriter")
 def test_add_by_doi_resolver_404_falls_back(mock_writer_cls, mock_resolve):
     mock_resolve.return_value = None  # Crossref miss
     mock_writer = MagicMock()
@@ -62,8 +62,8 @@ def test_add_by_doi_resolver_404_falls_back(mock_writer_cls, mock_resolve):
     # the item was still created and the writer call did not receive metadata.
 
 
-@patch("zotero_cli.cli.zotero.add.resolve_doi")
-@patch("zotero_cli.cli.zotero.add.ZoteroWriter")
+@patch("zotero_cli.cli.commands.zotero.add.resolve_doi")
+@patch("zotero_cli.cli.commands.zotero.add.ZoteroWriter")
 def test_add_by_doi_resolver_network_error_falls_back(mock_writer_cls, mock_resolve):
     from zotero_cli.zotero.metadata import MetadataResolveError
 
@@ -78,7 +78,7 @@ def test_add_by_doi_resolver_network_error_falls_back(mock_writer_cls, mock_reso
     assert mock_writer.add_item.call_args.kwargs["extra_fields"] is None
 
 
-@patch("zotero_cli.cli.zotero.delete.ZoteroWriter")
+@patch("zotero_cli.cli.commands.zotero.delete.ZoteroWriter")
 def test_delete_with_confirm(mock_writer_cls):
     mock_writer = MagicMock()
     mock_writer_cls.return_value = mock_writer
@@ -89,7 +89,7 @@ def test_delete_with_confirm(mock_writer_cls):
     mock_writer.delete_item.assert_called_once_with("K1")
 
 
-@patch("zotero_cli.cli.zotero.delete.ZoteroWriter")
+@patch("zotero_cli.cli.commands.zotero.delete.ZoteroWriter")
 def test_delete_without_confirm(mock_writer_cls):
     # Without --yes on non-tty stdin (CliRunner uses StringIO), `delete` refuses
     # the operation and exits EXIT_VALIDATION (3) — guards against unattended
@@ -100,7 +100,7 @@ def test_delete_without_confirm(mock_writer_cls):
     mock_writer_cls.return_value.delete_item.assert_not_called()
 
 
-@patch("zotero_cli.cli.zotero.tag.ZoteroWriter")
+@patch("zotero_cli.cli.commands.zotero.tag.ZoteroWriter")
 def test_tag_add(mock_writer_cls):
     mock_writer = MagicMock()
     mock_writer_cls.return_value = mock_writer
@@ -133,7 +133,7 @@ def test_collection_list(test_db_path):
     assert "Machine Learning" in result.output
 
 
-@patch("zotero_cli.cli.zotero.collection.ZoteroWriter")
+@patch("zotero_cli.cli.commands.zotero.collection.ZoteroWriter")
 def test_collection_create(mock_writer_cls):
     mock_writer = MagicMock()
     mock_writer_cls.return_value = mock_writer

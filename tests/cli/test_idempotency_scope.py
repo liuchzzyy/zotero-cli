@@ -12,7 +12,7 @@ from zotero_cli.zotero.writer_errors import ZoteroWriteError
 def test_update_same_key_different_payload_or_library_is_not_cached(tmp_path):
     with (
         patch("zotero_cli.zotero.idempotency.state_dir", return_value=tmp_path),
-        patch("zotero_cli.cli.zotero.update.ZoteroWriter") as writer,
+        patch("zotero_cli.cli.commands.zotero.update.ZoteroWriter") as writer,
     ):
         idempotency.clear()
         common = ["zotero", "update", "ABC", "--idempotency-key", "same"]
@@ -36,7 +36,7 @@ ENV = {"ZOT_LIBRARY_ID": "123", "ZOT_API_KEY": "fake"}
 def test_update_unknown_outcome_blocks_retry_with_conflict(tmp_path):
     with (
         patch("zotero_cli.zotero.idempotency.state_dir", return_value=tmp_path),
-        patch("zotero_cli.cli.zotero.update.ZoteroWriter") as writer,
+        patch("zotero_cli.cli.commands.zotero.update.ZoteroWriter") as writer,
     ):
         writer.return_value.update_item.side_effect = ZoteroWriteError(
             "network lost after submit", code="network_error", retryable=True
@@ -53,7 +53,7 @@ def test_update_unknown_outcome_blocks_retry_with_conflict(tmp_path):
 def test_update_definite_rejection_releases_the_reservation(tmp_path):
     with (
         patch("zotero_cli.zotero.idempotency.state_dir", return_value=tmp_path),
-        patch("zotero_cli.cli.zotero.update.ZoteroWriter") as writer,
+        patch("zotero_cli.cli.commands.zotero.update.ZoteroWriter") as writer,
     ):
         writer.return_value.update_item.side_effect = ZoteroWriteError(
             "Item 'ABC' not found", code="not_found", retryable=False
@@ -68,7 +68,7 @@ def test_update_definite_rejection_releases_the_reservation(tmp_path):
 def test_add_success_is_replayed_without_a_second_write(tmp_path):
     with (
         patch("zotero_cli.zotero.idempotency.state_dir", return_value=tmp_path),
-        patch("zotero_cli.cli.zotero.add.ZoteroWriter") as writer,
+        patch("zotero_cli.cli.commands.zotero.add.ZoteroWriter") as writer,
     ):
         writer.return_value.add_item.return_value = "NEW00001"
         args = ["zotero", "add", "--doi", "10.1000/x", "--no-resolve", "--idempotency-key", "k"]
@@ -83,7 +83,7 @@ def test_add_success_is_replayed_without_a_second_write(tmp_path):
 def test_add_unknown_outcome_blocks_retry_with_conflict(tmp_path):
     with (
         patch("zotero_cli.zotero.idempotency.state_dir", return_value=tmp_path),
-        patch("zotero_cli.cli.zotero.add.ZoteroWriter") as writer,
+        patch("zotero_cli.cli.commands.zotero.add.ZoteroWriter") as writer,
     ):
         writer.return_value.add_item.side_effect = ZoteroWriteError(
             "timeout after POST", code="network_error", retryable=True
@@ -101,7 +101,7 @@ def test_attach_success_is_replayed_without_a_second_upload(tmp_path):
     pdf.write_bytes(b"%PDF-1.4\n")
     with (
         patch("zotero_cli.zotero.idempotency.state_dir", return_value=tmp_path),
-        patch("zotero_cli.cli.zotero.attachments.ZoteroWriter") as writer,
+        patch("zotero_cli.cli.commands.zotero.attachments.ZoteroWriter") as writer,
     ):
         writer.return_value.upload_attachment.return_value = "ATT00001"
         args = ["zotero", "attach", "ABC", "--file", str(pdf), "--idempotency-key", "k"]
@@ -116,7 +116,7 @@ def test_attach_success_is_replayed_without_a_second_upload(tmp_path):
 def test_attach_dry_run_does_not_write_or_require_credentials(tmp_path):
     pdf = tmp_path / "paper.pdf"
     pdf.write_bytes(b"%PDF-1.4\n")
-    with patch("zotero_cli.cli.zotero.attachments.ZoteroWriter") as writer:
+    with patch("zotero_cli.cli.commands.zotero.attachments.ZoteroWriter") as writer:
         result = invoke_agent_cli(["zotero", "attach", "ABC", "--file", str(pdf), "--dry-run"])
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
@@ -130,7 +130,7 @@ def test_attach_unknown_outcome_blocks_retry_with_conflict(tmp_path):
     pdf.write_bytes(b"%PDF-1.4\n")
     with (
         patch("zotero_cli.zotero.idempotency.state_dir", return_value=tmp_path),
-        patch("zotero_cli.cli.zotero.attachments.ZoteroWriter") as writer,
+        patch("zotero_cli.cli.commands.zotero.attachments.ZoteroWriter") as writer,
     ):
         writer.return_value.upload_attachment.side_effect = ZoteroWriteError(
             "Connection lost", code="network_error", retryable=True
@@ -148,7 +148,7 @@ def test_attach_unknown_outcome_blocks_retry_with_conflict(tmp_path):
 def test_delete_unknown_outcome_blocks_retry_with_conflict(tmp_path):
     with (
         patch("zotero_cli.zotero.idempotency.state_dir", return_value=tmp_path),
-        patch("zotero_cli.cli.zotero.delete.ZoteroWriter") as writer,
+        patch("zotero_cli.cli.commands.zotero.delete.ZoteroWriter") as writer,
     ):
         writer.return_value.delete_item.side_effect = ZoteroWriteError(
             "connection reset", code="network_error", retryable=True

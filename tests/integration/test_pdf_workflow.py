@@ -125,8 +125,8 @@ def test_pdf_cli_reads_canonical_markdown_and_structured_json(tmp_path) -> None:
     cache.lookup.return_value = (parsed, parsed.fingerprint)
 
     with (
-        patch("zotero_cli.cli.ai_pdf.MinerUParseCache", return_value=cache),
-        patch("zotero_cli.cli.ai_pdf.load_pdf_config", return_value=PdfConfig(mineru_token="token")),
+        patch("zotero_cli.cli.commands.ai_pdf.MinerUParseCache", return_value=cache),
+        patch("zotero_cli.cli.commands.ai_pdf.load_pdf_config", return_value=PdfConfig(mineru_token="token")),
     ):
         markdown_result = invoke_cli(["ai-pdf", "ATTN001"])
         structured_result = invoke_cli(["ai-pdf", "ATTN001", "--structured"], json_output=True)
@@ -140,8 +140,8 @@ def test_pdf_cli_missing_mineru_token_is_configuration_error() -> None:
     cache = MagicMock()
     cache.lookup.return_value = (None, None)
     with (
-        patch("zotero_cli.cli.ai_pdf.MinerUParseCache", return_value=cache),
-        patch("zotero_cli.cli.ai_pdf.load_pdf_config", return_value=PdfConfig()),
+        patch("zotero_cli.cli.commands.ai_pdf.MinerUParseCache", return_value=cache),
+        patch("zotero_cli.cli.commands.ai_pdf.load_pdf_config", return_value=PdfConfig()),
     ):
         result = invoke_cli(["ai-pdf", "ATTN001"])
     assert result.exit_code == 3
@@ -193,7 +193,7 @@ def test_pdf_cli_invalid_model_version_is_configuration_error() -> None:
 
 
 def test_pdf_cli_cache_configuration_error_is_configuration_error() -> None:
-    with patch("zotero_cli.cli.ai_pdf.MinerUParseCache", side_effect=MinerUError("bad model version")):
+    with patch("zotero_cli.cli.commands.ai_pdf.MinerUParseCache", side_effect=MinerUError("bad model version")):
         result = invoke_cli(["ai-pdf", "ATTN001"], json_output=True)
     assert result.exit_code == 3, result.output
     payload = json.loads(result.output)
@@ -204,7 +204,7 @@ def test_pdf_cli_cache_configuration_error_is_configuration_error() -> None:
 def test_pdf_cli_unreadable_pdf_is_typed_runtime_error() -> None:
     cache = MagicMock()
     cache.lookup.side_effect = OSError("permission denied")
-    with patch("zotero_cli.cli.ai_pdf.MinerUParseCache", return_value=cache):
+    with patch("zotero_cli.cli.commands.ai_pdf.MinerUParseCache", return_value=cache):
         result = invoke_cli(["ai-pdf", "ATTN001"], json_output=True)
     assert result.exit_code == 1, result.output
     payload = json.loads(result.output)
@@ -216,7 +216,7 @@ def test_pdf_cli_unreadable_pdf_is_typed_runtime_error() -> None:
 def test_pdf_cli_unsafe_cache_state_is_typed_internal_error() -> None:
     cache = MagicMock()
     cache.lookup.side_effect = MinerUError("MinerU cache path must stay strictly inside its fingerprint directory")
-    with patch("zotero_cli.cli.ai_pdf.MinerUParseCache", return_value=cache):
+    with patch("zotero_cli.cli.commands.ai_pdf.MinerUParseCache", return_value=cache):
         result = invoke_cli(["ai-pdf", "ATTN001"], json_output=True)
     assert result.exit_code == 1, result.output
     payload = json.loads(result.output)
@@ -227,7 +227,7 @@ def test_pdf_cli_unsafe_cache_state_is_typed_internal_error() -> None:
 def test_pdf_cli_corrupt_cached_markdown_is_typed_internal_error(tmp_path: Path) -> None:
     parsed = _cached_package(tmp_path, markdown=b"# broken \xff\xfe")
     cache = _cache_for(parsed)
-    with patch("zotero_cli.cli.ai_pdf.MinerUParseCache", return_value=cache):
+    with patch("zotero_cli.cli.commands.ai_pdf.MinerUParseCache", return_value=cache):
         result = invoke_cli(["ai-pdf", "ATTN001"], json_output=True)
     assert result.exit_code == 1, result.output
     payload = json.loads(result.output)
@@ -239,7 +239,7 @@ def test_pdf_cli_corrupt_cached_markdown_is_typed_internal_error(tmp_path: Path)
 def test_pdf_cli_corrupt_cached_content_list_is_typed_internal_error(tmp_path: Path) -> None:
     parsed = _cached_package(tmp_path, content_list="{not json")
     cache = _cache_for(parsed)
-    with patch("zotero_cli.cli.ai_pdf.MinerUParseCache", return_value=cache):
+    with patch("zotero_cli.cli.commands.ai_pdf.MinerUParseCache", return_value=cache):
         result = invoke_cli(["ai-pdf", "ATTN001", "--structured"], json_output=True)
     assert result.exit_code == 1, result.output
     payload = json.loads(result.output)
@@ -251,8 +251,8 @@ def test_pdf_cli_renderer_failure_is_typed_internal_error(tmp_path: Path) -> Non
     parsed = _cached_package(tmp_path)
     cache = _cache_for(parsed)
     with (
-        patch("zotero_cli.cli.ai_pdf.MinerUParseCache", return_value=cache),
-        patch("zotero_cli.cli.ai_pdf.format_pdf_text", side_effect=RuntimeError("markup broke")),
+        patch("zotero_cli.cli.commands.ai_pdf.MinerUParseCache", return_value=cache),
+        patch("zotero_cli.cli.commands.ai_pdf.format_pdf_text", side_effect=RuntimeError("markup broke")),
     ):
         result = invoke_cli(["ai-pdf", "ATTN001", "--section", "1"], json_output=True)
     assert result.exit_code == 1, result.output
@@ -264,7 +264,7 @@ def test_pdf_cli_renderer_failure_is_typed_internal_error(tmp_path: Path) -> Non
 
 
 def test_pdf_cli_reader_failure_is_typed_runtime_error() -> None:
-    with patch("zotero_cli.cli.ai_pdf.ZoteroReader", side_effect=OSError("database unreadable")):
+    with patch("zotero_cli.cli.commands.ai_pdf.ZoteroReader", side_effect=OSError("database unreadable")):
         result = invoke_cli(["ai-pdf", "ATTN001"], json_output=True)
     assert result.exit_code == 1, result.output
     payload = json.loads(result.output)
@@ -299,7 +299,7 @@ def test_pdf_cli_verbose_prints_traceback_for_configuration_errors() -> None:
 
 
 def test_pdf_cli_verbose_prints_traceback_for_unexpected_errors() -> None:
-    with patch("zotero_cli.cli.ai_pdf.MinerUParseCache", side_effect=ValueError("boom-inside-pdf")):
+    with patch("zotero_cli.cli.commands.ai_pdf.MinerUParseCache", side_effect=ValueError("boom-inside-pdf")):
         result = invoke_cli(["ai-pdf", "ATTN001", "--verbose"], json_output=True)
     assert result.exit_code == 1, result.output
     payload = json.loads(result.stdout)
@@ -312,7 +312,7 @@ def test_pdf_cli_unknown_item_without_listing_is_not_found() -> None:
     reader = MagicMock()
     reader.get_pdf_attachments.return_value = []
     reader.get_item.return_value = None
-    with patch("zotero_cli.cli.ai_pdf.ZoteroReader", return_value=reader):
+    with patch("zotero_cli.cli.commands.ai_pdf.ZoteroReader", return_value=reader):
         result = invoke_cli(["ai-pdf", "NOPDFKEY"], json_output=True)
     assert result.exit_code == 4, result.output
     payload = json.loads(result.output)
@@ -327,8 +327,8 @@ def test_pdf_cli_passes_lookup_fingerprint_to_ensure(tmp_path: Path) -> None:
     cache.lookup.return_value = (None, "prehashed-fingerprint")
     cache.ensure.return_value = parsed
     with (
-        patch("zotero_cli.cli.ai_pdf.MinerUParseCache", return_value=cache),
-        patch("zotero_cli.cli.ai_pdf.load_pdf_config", return_value=PdfConfig(mineru_token="token")),
+        patch("zotero_cli.cli.commands.ai_pdf.MinerUParseCache", return_value=cache),
+        patch("zotero_cli.cli.commands.ai_pdf.load_pdf_config", return_value=PdfConfig(mineru_token="token")),
     ):
         result = invoke_cli(["ai-pdf", "ATTN001"], json_output=True)
     assert result.exit_code == 0, result.output

@@ -141,7 +141,7 @@ class TestDryRun:
 
 
 class TestCollectionJsonOutput:
-    @patch("zotero_cli.cli.zotero.collection.ZoteroWriter")
+    @patch("zotero_cli.cli.commands.zotero.collection.ZoteroWriter")
     def test_collection_create_json_success_envelope(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
@@ -166,7 +166,7 @@ class TestCollectionJsonOutput:
         assert SYNC_REMINDER not in result.output
         mock_writer.create_collection.assert_called_once_with("New Col", parent_key="PARENT")
 
-    @patch("zotero_cli.cli.zotero.collection.ZoteroWriter")
+    @patch("zotero_cli.cli.commands.zotero.collection.ZoteroWriter")
     def test_collection_move_json_success_envelope(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
@@ -191,7 +191,7 @@ class TestCollectionJsonOutput:
         assert SYNC_REMINDER not in result.output
         mock_writer.move_to_collection.assert_called_once_with("ITEM1", "DESTCOL", source_collection_key="SRCCOL")
 
-    @patch("zotero_cli.cli.zotero.collection.ZoteroWriter")
+    @patch("zotero_cli.cli.commands.zotero.collection.ZoteroWriter")
     def test_collection_delete_json_success_envelope(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
@@ -212,7 +212,7 @@ class TestCollectionJsonOutput:
         assert SYNC_REMINDER not in result.output
         mock_writer.delete_collection.assert_called_once_with("COL1")
 
-    @patch("zotero_cli.cli.zotero.collection.ZoteroWriter")
+    @patch("zotero_cli.cli.commands.zotero.collection.ZoteroWriter")
     def test_collection_rename_json_success_envelope(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
@@ -227,7 +227,7 @@ class TestCollectionJsonOutput:
         assert SYNC_REMINDER not in result.output
         mock_writer.rename_collection.assert_called_once_with("COL1", "New Name")
 
-    @patch("zotero_cli.cli.zotero.collection_reorganize.ZoteroWriter")
+    @patch("zotero_cli.cli.commands.zotero.collection_reorganize.ZoteroWriter")
     def test_collection_reorganize_json_success_envelope(self, mock_writer_cls, tmp_path):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
@@ -394,7 +394,7 @@ class TestOffset:
 
 
 class TestBatchDelete:
-    @patch("zotero_cli.cli.zotero.delete.ZoteroWriter")
+    @patch("zotero_cli.cli.commands.zotero.delete.ZoteroWriter")
     def test_delete_multiple_keys(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
@@ -419,7 +419,7 @@ class TestBatchDelete:
         assert "K1" in result.output
         assert "K2" in result.output
 
-    @patch("zotero_cli.cli.zotero.delete.ZoteroWriter")
+    @patch("zotero_cli.cli.commands.zotero.delete.ZoteroWriter")
     def test_delete_partial_failure(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
@@ -440,7 +440,7 @@ class TestBatchDelete:
 
 
 class TestBatchTag:
-    @patch("zotero_cli.cli.zotero.tag.ZoteroWriter")
+    @patch("zotero_cli.cli.commands.zotero.tag.ZoteroWriter")
     def test_tag_add_multiple_keys(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
@@ -457,7 +457,7 @@ class TestBatchTag:
         assert "K2" in result.output
         assert "K3" in result.output
 
-    @patch("zotero_cli.cli.zotero.tag.ZoteroWriter")
+    @patch("zotero_cli.cli.commands.zotero.tag.ZoteroWriter")
     def test_tag_remove_multiple_keys(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
@@ -539,7 +539,7 @@ class TestTimeout:
 
 
 class TestWriteErrorInCommands:
-    @patch("zotero_cli.cli.zotero.add.ZoteroWriter")
+    @patch("zotero_cli.cli.commands.zotero.add.ZoteroWriter")
     def test_add_write_error(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
@@ -550,7 +550,7 @@ class TestWriteErrorInCommands:
         assert result.exit_code != 0
         assert "Bad request" in result.output
 
-    @patch("zotero_cli.cli.zotero.delete.ZoteroWriter")
+    @patch("zotero_cli.cli.commands.zotero.delete.ZoteroWriter")
     def test_delete_write_error(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
@@ -561,7 +561,7 @@ class TestWriteErrorInCommands:
         assert result.exit_code != 0
         assert "not found" in result.output
 
-    @patch("zotero_cli.cli.zotero.tag.ZoteroWriter")
+    @patch("zotero_cli.cli.commands.zotero.tag.ZoteroWriter")
     def test_tag_add_write_error(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
@@ -572,7 +572,7 @@ class TestWriteErrorInCommands:
         assert result.exit_code != 0
         assert "not found" in result.output
 
-    @patch("zotero_cli.cli.zotero.notes.ZoteroWriter")
+    @patch("zotero_cli.cli.commands.zotero.notes.ZoteroWriter")
     def test_note_write_error(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer
@@ -583,7 +583,7 @@ class TestWriteErrorInCommands:
         assert result.exit_code != 0
         assert "timeout" in result.output
 
-    @patch("zotero_cli.cli.zotero.collection.ZoteroWriter")
+    @patch("zotero_cli.cli.commands.zotero.collection.ZoteroWriter")
     def test_collection_create_write_error(self, mock_writer_cls):
         mock_writer = MagicMock()
         mock_writer_cls.return_value = mock_writer

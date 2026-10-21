@@ -277,14 +277,14 @@ def test_cli_short_note_dry_run_uses_real_analysis_without_credentials(monkeypat
     reader.get_notes.return_value = [Note("LATEST", "ITEM1", "<p>AI条目分析 - Current evidence.</p>")]
     ai_client = MagicMock()
     writer_constructor = MagicMock(side_effect=AssertionError("dry-run must not construct a writer"))
-    monkeypatch.setattr("zotero_cli.cli.ai_notes.load_config", lambda **kwargs: AppConfig())
+    monkeypatch.setattr("zotero_cli.cli.commands.ai_notes.load_config", lambda **kwargs: AppConfig())
     monkeypatch.setattr(
-        "zotero_cli.cli.ai_notes.load_ai_note_config",
+        "zotero_cli.cli.commands.ai_notes.load_ai_note_config",
         lambda: AiNoteConfig(api_key="test-key", base_url="http://127.0.0.1:9/v1", model="test-model"),
     )
-    monkeypatch.setattr("zotero_cli.cli.ai_notes.ZoteroReader", lambda *args, **kwargs: reader)
-    monkeypatch.setattr("zotero_cli.cli.ai_notes.ZoteroWriter", writer_constructor)
-    monkeypatch.setattr("zotero_cli.cli.ai_notes.AiClient", lambda config: ai_client)
+    monkeypatch.setattr("zotero_cli.cli.commands.ai_notes.ZoteroReader", lambda *args, **kwargs: reader)
+    monkeypatch.setattr("zotero_cli.cli.commands.ai_notes.ZoteroWriter", writer_constructor)
+    monkeypatch.setattr("zotero_cli.cli.commands.ai_notes.AiClient", lambda config: ai_client)
 
     result = CliRunner().invoke(main, ["--json", "ai-note", "ITEM1", "--dry-run", "--short-note-only"])
 

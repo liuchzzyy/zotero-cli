@@ -11,7 +11,7 @@ ENV = {"ZOT_LIBRARY_ID": "123", "ZOT_API_KEY": "fake"}
 
 
 def test_delete_without_yes_or_dry_run_requires_confirmation() -> None:
-    with patch("zotero_cli.cli.zotero.delete.ZoteroWriter") as writer:
+    with patch("zotero_cli.cli.commands.zotero.delete.ZoteroWriter") as writer:
         result = _run(["--json", "zotero", "delete", "ABC123"], env=ENV)
     assert result.exit_code == 3
     env = json.loads(result.output)
@@ -21,7 +21,7 @@ def test_delete_without_yes_or_dry_run_requires_confirmation() -> None:
 
 
 def test_no_interaction_never_implies_yes_for_delete() -> None:
-    with patch("zotero_cli.cli.zotero.delete.ZoteroWriter") as writer:
+    with patch("zotero_cli.cli.commands.zotero.delete.ZoteroWriter") as writer:
         result = _run(["--json", "--no-interaction", "zotero", "delete", "ABC123"], env=ENV)
     assert result.exit_code == 3
     env = json.loads(result.output)
@@ -30,7 +30,7 @@ def test_no_interaction_never_implies_yes_for_delete() -> None:
 
 
 def test_delete_dry_run_does_not_require_yes() -> None:
-    with patch("zotero_cli.cli.zotero.delete.ZoteroWriter") as writer:
+    with patch("zotero_cli.cli.commands.zotero.delete.ZoteroWriter") as writer:
         result = _run(["--json", "zotero", "delete", "ABC123", "--dry-run"], env=ENV)
     assert result.exit_code == 0
     env = json.loads(result.output)
@@ -40,7 +40,7 @@ def test_delete_dry_run_does_not_require_yes() -> None:
 
 
 def test_delete_with_yes_executes() -> None:
-    with patch("zotero_cli.cli.zotero.delete.ZoteroWriter") as writer:
+    with patch("zotero_cli.cli.commands.zotero.delete.ZoteroWriter") as writer:
         result = _run(["--json", "zotero", "delete", "ABC123", "--yes"], env=ENV)
     assert result.exit_code == 0, result.output
     writer.return_value.delete_item.assert_called_once_with("ABC123")
@@ -73,7 +73,7 @@ def test_delete_dry_run_payload_is_explicitly_permanent() -> None:
 def test_delete_partial_failure_is_typed_partial_envelope() -> None:
     from zotero_cli.zotero.writer_errors import ZoteroWriteError
 
-    with patch("zotero_cli.cli.zotero.delete.ZoteroWriter") as writer:
+    with patch("zotero_cli.cli.commands.zotero.delete.ZoteroWriter") as writer:
         writer.return_value.delete_item.side_effect = [None, ZoteroWriteError("gone", code="not_found")]
         result = _run(["--json", "zotero", "delete", "K1", "K2", "--yes"], env=ENV)
     assert result.exit_code == 4, result.output
@@ -92,7 +92,7 @@ def test_delete_definite_rejection_releases_idempotency_reservation(tmp_path) ->
 
     with (
         patch_obj("zotero_cli.zotero.idempotency.state_dir", return_value=tmp_path),
-        patch("zotero_cli.cli.zotero.delete.ZoteroWriter") as writer,
+        patch("zotero_cli.cli.commands.zotero.delete.ZoteroWriter") as writer,
     ):
         writer.return_value.delete_item.side_effect = ZoteroWriteError("gone", code="not_found")
         args = ["--json", "zotero", "delete", "ABC", "--yes", "--idempotency-key", "k"]

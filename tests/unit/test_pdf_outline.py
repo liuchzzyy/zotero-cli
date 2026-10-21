@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from zotero_cli.cli.ai_pdf import _extract_section, _parse_outline
+from zotero_cli.cli.commands.ai_pdf import _extract_section, _parse_outline
 
 MARKDOWN = """# Introduction
 

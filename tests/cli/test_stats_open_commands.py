@@ -59,7 +59,7 @@ class TestOpenCmd:
         assert result.exit_code != 0
         assert "No PDF" in result.output
 
-    @patch("zotero_cli.cli.zotero.open_item._open_path")
+    @patch("zotero_cli.cli.commands.zotero.open_item._open_path")
     def test_open_url(self, mock_open, test_db_path: Path):
         runner = CliRunner()
         result = runner.invoke(
@@ -106,12 +106,12 @@ class TestOpenPath:
         import os
         import sys
 
-        from zotero_cli.cli.zotero.open_item import _open_path
+        from zotero_cli.cli.commands.zotero.open_item import _open_path
 
         opened: list[str] = []
         monkeypatch.setattr(sys, "platform", "win32")
         monkeypatch.setattr(os, "startfile", lambda path: opened.append(path), raising=False)
-        with patch("zotero_cli.cli.zotero.open_item.subprocess.run") as run:
+        with patch("zotero_cli.cli.commands.zotero.open_item.subprocess.run") as run:
             _open_path(r"C:\\papers\\paper.pdf")
         assert opened == [r"C:\\papers\\paper.pdf"]
         run.assert_not_called()
@@ -119,19 +119,19 @@ class TestOpenPath:
     def test_darwin_uses_open_binary(self, monkeypatch):
         import sys
 
-        from zotero_cli.cli.zotero.open_item import _open_path
+        from zotero_cli.cli.commands.zotero.open_item import _open_path
 
         monkeypatch.setattr(sys, "platform", "darwin")
-        with patch("zotero_cli.cli.zotero.open_item.subprocess.run") as run:
+        with patch("zotero_cli.cli.commands.zotero.open_item.subprocess.run") as run:
             _open_path("/tmp/paper.pdf")
         run.assert_called_once_with(["open", "/tmp/paper.pdf"], check=True)
 
     def test_linux_uses_xdg_open_binary(self, monkeypatch):
         import sys
 
-        from zotero_cli.cli.zotero.open_item import _open_path
+        from zotero_cli.cli.commands.zotero.open_item import _open_path
 
         monkeypatch.setattr(sys, "platform", "linux")
-        with patch("zotero_cli.cli.zotero.open_item.subprocess.run") as run:
+        with patch("zotero_cli.cli.commands.zotero.open_item.subprocess.run") as run:
             _open_path("/tmp/paper.pdf")
         run.assert_called_once_with(["xdg-open", "/tmp/paper.pdf"], check=True)

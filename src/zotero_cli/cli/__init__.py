@@ -6,8 +6,8 @@
 
 from __future__ import annotations
 
-from zotero_cli.cli.global_flags import _hoist_global_flags as _hoist_global_flags
-from zotero_cli.cli.root import main as main
-from zotero_cli.cli.tiered_group import TieredGroup as TieredGroup
+from zotero_cli.cli.app.flags import _hoist_global_flags as _hoist_global_flags
+from zotero_cli.cli.app.group import TieredGroup as TieredGroup
+from zotero_cli.cli.app.root import main as main
 
 __all__ = ["_hoist_global_flags", "TieredGroup", "main"]

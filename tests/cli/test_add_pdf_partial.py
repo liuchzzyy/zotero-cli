@@ -11,8 +11,8 @@ def test_add_pdf_upload_failure_returns_partial_state(tmp_path):
     pdf = tmp_path / "paper.pdf"
     pdf.write_bytes(b"%PDF-1.4 test")
     with (
-        patch("zotero_cli.cli.zotero.add.ZoteroWriter") as cls,
-        patch("zotero_cli.cli.zotero.add.resolve_doi", return_value={"title": "T"}),
+        patch("zotero_cli.cli.commands.zotero.add.ZoteroWriter") as cls,
+        patch("zotero_cli.cli.commands.zotero.add.resolve_doi", return_value={"title": "T"}),
     ):
         cls.return_value.add_item.return_value = "NEW001"
         cls.return_value.upload_attachment.side_effect = ZoteroWriteError("upload failed")
