@@ -20,7 +20,7 @@ def test_live_service_environment_is_not_inherited(name: str, monkeypatch: pytes
 
 
 def test_unmocked_outbound_network_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
-    from conftest import block_live_services
+    from tests.conftest import block_live_services
 
     monkeypatch.setattr(socket.socket, "connect", lambda *_args: None)
     with pytest.MonkeyPatch.context() as isolated:
