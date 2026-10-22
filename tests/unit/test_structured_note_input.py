@@ -79,7 +79,7 @@ def test_more_than_thirty_si_images_are_sampled_not_only_the_front(tmp_path):
         image_count=45,
     )
     evidence = build_evidence([("SI", "supplementary", si)])
-    plan = plan_request(evidence, "Prompt " + evidence.text, "group/daily")
+    plan = plan_request(evidence, "Prompt " + evidence.text, "group/deepseek")
     assert len(plan.si_images) == 30
     assert plan.si_images[-1][0] > 30
     assert len(plan.images) == 30
@@ -90,10 +90,10 @@ def test_plan_never_truncates_required_text_or_main_images(tmp_path):
     main = _parse(tmp_path, "m", [{"type": "chart", "img_path": "images/0.jpg", "page_idx": 0}], image_count=1)
     evidence = build_evidence([("MAIN", "main", main)])
     with pytest.raises(ValueError, match="required text"):
-        plan_request(evidence, "X" * 600_000, "group/daily")
+        plan_request(evidence, "X" * 600_000, "group/deepseek")
     (main.root / "raw" / "images" / "0.jpg").unlink()
     with pytest.raises(ValueError, match="main image"):
-        plan_request(evidence, evidence.text, "group/daily")
+        plan_request(evidence, evidence.text, "group/deepseek")
 
 
 def test_unknown_route_cannot_claim_verified_500k_budget(tmp_path):
@@ -119,7 +119,7 @@ def test_missing_si_image_is_skipped_not_fatal(tmp_path):
     (si.root / "raw" / "images" / "0.jpg").unlink()
     main = _parse(tmp_path, "main", [{"type": "text", "text": "body", "page_idx": 0}])
     evidence = build_evidence([("MAIN", "main", main), ("SI", "supplementary", si)])
-    plan = plan_request(evidence, "prompt", "group/daily")
+    plan = plan_request(evidence, "prompt", "group/deepseek")
     assert 1 in plan.skipped
     assert len(plan.images) == 0
 
@@ -129,14 +129,14 @@ def test_missing_main_image_raises_error(tmp_path):
     (main.root / "raw" / "images" / "0.jpg").unlink()
     evidence = build_evidence([("MAIN", "main", main)])
     with pytest.raises(ValueError, match="required main image 1 is unavailable"):
-        plan_request(evidence, "prompt", "group/daily")
+        plan_request(evidence, "prompt", "group/deepseek")
 
 
 def test_fallback_budget_accepts_exact_image_boundary_but_not_overflow():
     prompt = "x" * (500_000 - 32_768 - 50_000 - 4_096)
-    assert model_supports_request("group/daily", prompt, 1)
     assert model_supports_request("group/deepseek", prompt, 1)
-    assert not model_supports_request("group/daily", prompt, 2)
+    assert model_supports_request("group/advanced", prompt, 1)
+    assert not model_supports_request("group/deepseek", prompt, 2)
     assert not model_supports_request("unverified-model", prompt, 1)
 
 
@@ -152,7 +152,7 @@ def test_coverage_notice_replans_when_its_own_text_removes_an_si_image(tmp_path)
     )
     evidence = build_evidence([("SI", "supplementary", si)])
     prompt = "x" * (500_000 - 32_768 - 50_000 - 4_096)
-    plan, final_prompt, omitted = plan_with_coverage(evidence, prompt, "group/daily")
+    plan, final_prompt, omitted = plan_with_coverage(evidence, prompt, "group/deepseek")
     assert not plan.images
     assert omitted == [1, 2]
     assert "【图 1】" in final_prompt and "【图 2】" in final_prompt
@@ -161,7 +161,7 @@ def test_coverage_notice_replans_when_its_own_text_removes_an_si_image(tmp_path)
 def test_si_budget_drops_all_images_only_when_required_text_fits(tmp_path):
     si = _parse(tmp_path, "si", [{"type": "image", "img_path": "images/0.jpg", "page_idx": 0}], image_count=1)
     evidence = build_evidence([("SI", "supplementary", si)])
-    plan = plan_request(evidence, "x" * 416_900, "group/daily")
+    plan = plan_request(evidence, "x" * 416_900, "group/deepseek")
     assert plan.images == []
     assert "【图 1】" in evidence.text
     assert "未附图像" not in evidence.text
@@ -171,7 +171,7 @@ def test_image_budget_does_not_undercount_a_large_image(tmp_path):
     main = _parse(tmp_path, "m", [{"type": "image", "img_path": "images/0.jpg", "page_idx": 0}], image_count=1)
     evidence = build_evidence([("M", "main", main)])
     with pytest.raises(ValueError, match="required main images"):
-        plan_request(evidence, "x" * 416_000, "group/daily")
+        plan_request(evidence, "x" * 416_000, "group/deepseek")
 
 
 def test_image_block_without_a_path_is_rejected_at_build_time(tmp_path):
@@ -194,7 +194,7 @@ def test_degenerate_spacer_image_is_skipped_and_reported_not_fatal(tmp_path):
         {"type": "image", "img_path": "images/1.jpg", "page_idx": 0},
     ]
     evidence = build_evidence([("M", "main", parsed)])
-    plan = plan_request(evidence, "prompt", "group/daily")
+    plan = plan_request(evidence, "prompt", "group/deepseek")
     assert [number for number, _ in plan.images] == [1]
     assert plan.skipped == [2]
 
@@ -211,7 +211,7 @@ def test_supplementary_images_referenced_by_main_are_prioritized(tmp_path):
         image_count=45,
     )
     evidence = build_evidence([("M", "main", main), ("SI", "supplementary", si)])
-    plan = plan_request(evidence, evidence.text, "group/daily")
+    plan = plan_request(evidence, evidence.text, "group/deepseek")
     assert len(plan.si_images) == 30
     assert {44, 45}.issubset({n for n, _ in plan.si_images})
 
@@ -219,14 +219,14 @@ def test_supplementary_images_referenced_by_main_are_prioritized(tmp_path):
 def test_parse_retry_keeps_full_image_set_until_explicit_text_only_fallback(tmp_path):
     parsed = _parse(tmp_path, "m", [{"type": "image", "img_path": "images/0.jpg", "page_idx": 0}], image_count=1)
     evidence = build_evidence([("M", "main", parsed)])
-    assert len(plan_request(evidence, evidence.text, "group/daily").images) == 1
+    assert len(plan_request(evidence, evidence.text, "group/deepseek").images) == 1
 
 
 def test_real_client_rejects_truncated_output(monkeypatch):
     from zotero_cli.ai_notes.access.client import AiClient
     from zotero_cli.config import AiNoteConfig
 
-    config = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="group/daily")
+    config = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="group/deepseek")
     client = AiClient(config)
     response = SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(content='{"sections": []}'), finish_reason="length")],
@@ -241,7 +241,7 @@ def test_real_client_records_usage_without_exposing_the_payload(monkeypatch):
     from zotero_cli.ai_notes.access.client import AiClient
     from zotero_cli.config import AiNoteConfig
 
-    config = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="group/daily")
+    config = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="group/deepseek")
     client = AiClient(config)
     response = SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(content="OK"), finish_reason="stop")],
@@ -259,15 +259,15 @@ def test_long_note_fallback_uses_only_preflighted_routes(monkeypatch):
     config = AiNoteConfig(
         api_key="test",
         base_url="http://127.0.0.1:1/v1",
-        model="group/daily",
-        fallback_models=["unverified-model", "group/deepseek"],
+        model="group/deepseek",
+        fallback_models=["unverified-model", "group/advanced"],
     )
     client = AiClient(config)
     attempted: list[str] = []
 
     def fake_create(**kwargs):
         attempted.append(kwargs["model"])
-        if kwargs["model"] == "group/daily":
+        if kwargs["model"] == "group/deepseek":
             raise RuntimeError("provider temporarily unavailable")
         return SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content="OK"), finish_reason="stop")],
@@ -278,14 +278,14 @@ def test_long_note_fallback_uses_only_preflighted_routes(monkeypatch):
     prompt = "x" * 200_000
     allowed = {model for model in client.get_model_chain() if model_supports_request(model, prompt, 10)}
     assert client.chat(prompt, allowed_models=allowed) == "OK"
-    assert attempted == ["group/daily", "group/deepseek"]
+    assert attempted == ["group/deepseek", "group/advanced"]
 
 
 def test_image_rejection_drops_all_images_but_keeps_the_whole_text(monkeypatch):
     from zotero_cli.ai_notes.access.client import AiClient
     from zotero_cli.config import AiNoteConfig
 
-    config = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="group/daily", fallback_models=[])
+    config = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="group/deepseek", fallback_models=[])
     client = AiClient(config)
     calls: list[dict] = []
 
@@ -311,18 +311,18 @@ def test_usage_history_records_every_call(monkeypatch):
     from zotero_cli.ai_notes.access.client import AiClient
     from zotero_cli.config import AiNoteConfig
 
-    config = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="group/daily", fallback_models=[])
+    config = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="group/deepseek", fallback_models=[])
     client = AiClient(config)
     responses = [
         SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content="one"), finish_reason="stop")],
             usage=SimpleNamespace(prompt_tokens=10, completion_tokens=1),
-            model="group/daily",
+            model="group/deepseek",
         ),
         SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content="two"), finish_reason="stop")],
             usage=SimpleNamespace(prompt_tokens=20, completion_tokens=2),
-            model="group/daily",
+            model="group/deepseek",
         ),
     ]
     monkeypatch.setattr(client._client.chat.completions, "create", lambda **kwargs: responses.pop(0))
@@ -377,7 +377,7 @@ def test_pipeline_uses_structured_blocks_and_does_not_write_on_preview(tmp_path)
     reader.get_pdf_attachments.return_value = [att]
     writer = MagicMock()
     ai_client = MagicMock()
-    ai_client.config = AiNoteConfig(api_key="k", base_url="http://x", model="group/daily")
+    ai_client.config = AiNoteConfig(api_key="k", base_url="http://x", model="group/deepseek")
     with patch("zotero_cli.ai_notes.documents.MinerUParseCache.ensure_many", return_value={pdf: actual}):
         result = analyze_item(reader, writer, ai_client, "ABC123", dry_run=True)
     assert result["status"] == "dry_run"

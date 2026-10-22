@@ -124,7 +124,7 @@ def analyze_item(
     total_refs = evidence.main_count + evidence.si_count
     # 在任何 Zotero 变更之前，对整个带来源标注的 prompt 做预先校验。
     prompt = build_analysis_prompt(item, template, cleaned)
-    model = (ai_client.config.model if ai_client is not None else "") or "group/daily"
+    model = (ai_client.config.model if ai_client is not None else "") or "group/deepseek"
     try:
         plan, prompt, omitted_numbers = plan_with_coverage(evidence, prompt, model)
     except ValueError as exc:

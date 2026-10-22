@@ -63,7 +63,7 @@ def _make_attachment(tmp_path) -> Attachment:
 
 
 def _make_ai_config() -> AiNoteConfig:
-    return AiNoteConfig(api_key="k", base_url="http://x", model="group/daily", max_extracted_chars=10000)
+    return AiNoteConfig(api_key="k", base_url="http://x", model="group/deepseek", max_extracted_chars=10000)
 
 
 def _sections_json(n: int = 12) -> str:
@@ -650,27 +650,27 @@ class TestAiClient:
 
     def test_chat_fallback_chain(self):
         config = _make_ai_config()
-        config.model = "group/daily"
-        config.fallback_models = ["group/deepseek", "group/advanced"]
+        config.model = "group/deepseek"
+        config.fallback_models = ["group/advanced"]
         client = AiClient(config)
-        # 第一次日常组失败，第二次 DeepSeek 组成功
+        # 第一次 DeepSeek 组失败，第二次高级组成功
         client._client.chat.completions.create = MagicMock(
-            side_effect=[Exception("daily group connection error"), self._respond("fallback answer")]
+            side_effect=[Exception("deepseek group connection error"), self._respond("fallback answer")]
         )
         progress_calls = []
         out = client.chat("hello", progress=lambda ev, msg: progress_calls.append((ev, msg)))
         assert out == "fallback answer"
         assert client._client.chat.completions.create.call_count == 2
         calls = client._client.chat.completions.create.call_args_list
-        assert calls[0].kwargs["model"] == "group/daily"
-        assert calls[1].kwargs["model"] == "group/deepseek"
+        assert calls[0].kwargs["model"] == "group/deepseek"
+        assert calls[1].kwargs["model"] == "group/advanced"
         assert len(progress_calls) == 1
         assert progress_calls[0][0] == "fallback"
 
     def test_chat_fallback_all_failed_raises(self):
         config = _make_ai_config()
-        config.model = "group/daily"
-        config.fallback_models = ["group/deepseek"]
+        config.model = "group/deepseek"
+        config.fallback_models = ["group/advanced"]
         client = AiClient(config)
         client._client.chat.completions.create = MagicMock(side_effect=[Exception("err1"), Exception("err2")])
         with pytest.raises(Exception) as exc:
@@ -1059,7 +1059,7 @@ class TestPromptBounds:
         reader.get_item.return_value = _make_item()
         reader.get_pdf_attachments.return_value = [att]
         ai_client = MagicMock()
-        ai_client.config = AiNoteConfig(api_key="k", base_url="http://x", model="group/daily", max_extracted_chars=0)
+        ai_client.config = AiNoteConfig(api_key="k", base_url="http://x", model="group/deepseek", max_extracted_chars=0)
         with (
             _patch_mineru(att, "word " * 100000, tmp_path),
             pytest.raises(NoteAnalysisError, match="required text") as caught,
@@ -1076,7 +1076,7 @@ class TestPromptBounds:
         reader.get_item.return_value = item
         reader.get_pdf_attachments.return_value = [att]
         ai_client = MagicMock()
-        ai_client.config = AiNoteConfig(api_key="k", base_url="http://x", model="group/daily", max_extracted_chars=0)
+        ai_client.config = AiNoteConfig(api_key="k", base_url="http://x", model="group/deepseek", max_extracted_chars=0)
         with _patch_mineru(att, "word " * 40000, tmp_path):
             result = analyze_item(reader, MagicMock(), ai_client, "ABC123", dry_run=True)
         assert result["status"] == "dry_run"
@@ -1095,7 +1095,7 @@ class TestFigureCapAnnotation:
         writer.add_note.return_value = "NOTE1"
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        ai_client.get_model_chain.return_value = ["group/daily", "unverified-model", "group/deepseek"]
+        ai_client.get_model_chain.return_value = ["group/deepseek", "unverified-model", "group/advanced"]
         ai_client.chat.side_effect = [
             '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
             _sections_json(12),
@@ -1104,7 +1104,7 @@ class TestFigureCapAnnotation:
             result = analyze_item(reader, writer, ai_client, "ABC123", no_short_note=True)
         assert result["status"] == "ok"
         assert len(ai_client.chat.call_args.kwargs["figures"]) == 20
-        assert ai_client.chat.call_args.kwargs["allowed_models"] == {"group/daily", "group/deepseek"}
+        assert ai_client.chat.call_args.kwargs["allowed_models"] == {"group/deepseek", "group/advanced"}
 
 
 class TestPlainTextNoteTitle:

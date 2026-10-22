@@ -71,9 +71,9 @@ class PdfConfig:
 class AiNoteConfig:
     api_key: str = ""
     base_url: str = ""
-    model: str = "group/daily"
-    fallback_models: list[str] = field(default_factory=lambda: ["group/deepseek", "group/advanced"])
-    reasoning_effort: str = "high"
+    model: str = "group/deepseek"
+    fallback_models: list[str] = field(default_factory=lambda: ["group/advanced"])
+    reasoning_effort: str = "max"
     temperature: float = 0.7
     max_tokens: int = 0
     max_extracted_chars: int = 250000

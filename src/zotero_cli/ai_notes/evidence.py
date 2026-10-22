@@ -13,10 +13,9 @@ from zotero_cli.ai_notes.models import Evidence, RequestPlan
 
 # 这是保守的预检，不是服务商的 tokenizer。启用其他路由前，必须先
 # 对照实际代理核实其路由限制与图片上限。
-# 当前清单中的六个路由均支持图像；上下文上限来自 Magpie /v1/models 元数据。
+# 当前清单中的五个路由均支持图像；上下文上限来自 Magpie /v1/models 元数据。
 # 每图 4_096 是保守的预检估计值，不代表实际 tokenizer 或服务端图片限制。
 _ROUTE_LIMITS = {
-    "group/daily": (1_048_576, 4_096),
     "group/deepseek": (1_000_000, 4_096),
     "group/advanced": (1_048_576, 4_096),
     "antigravity/gemini-3.8-flash": (1_048_576, 4_096),
