@@ -776,10 +776,11 @@ class TestDuplicateDocumentFigureNumbering:
         capture = _PromptCapture()
         with (
             patch("zotero_cli.ai_notes.documents.MinerUParseCache.ensure_many", return_value=parses),
-            patch("zotero_cli.ai_notes.templates.format_template", side_effect=capture),
+            patch("zotero_cli.ai_notes.generation.format_template", side_effect=capture),
         ):
             result = analyze_item(reader, MagicMock(), ai_client, "ABC123", dry_run=True)
-        return result, capture.prompts[-1] if capture.prompts else result["prompt_preview"]
+        assert capture.prompts, "format_template 未被捕获：patch 目标与调用方导入方式不匹配"
+        return result, capture.prompts[-1]
 
     def test_single_pdf_keeps_its_numbering(self, tmp_path):
         docs = [_make_parsed_document(tmp_path, "single", _figure_markdown(3), image_count=3)]
@@ -813,7 +814,7 @@ class TestDuplicateDocumentFigureNumbering:
         capture = _PromptCapture()
         with (
             patch("zotero_cli.ai_notes.documents.MinerUParseCache.ensure_many", return_value=parses),
-            patch("zotero_cli.ai_notes.templates.format_template", side_effect=capture),
+            patch("zotero_cli.ai_notes.generation.format_template", side_effect=capture),
             patch(
                 "zotero_cli.ai_notes.documents.resolve_pdf_kinds",
                 return_value={att.key: "supplementary" for att in attachments},
@@ -822,7 +823,8 @@ class TestDuplicateDocumentFigureNumbering:
             result = analyze_item(reader, MagicMock(), ai_client, "ABC123", dry_run=True)
         assert result["figure_refs"] == 2
         assert result["figures"] == 2
-        assert re.findall(r"【图 ([0-9]+)】", capture.prompts[-1] if capture.prompts else result["prompt_preview"]) == [
+        assert capture.prompts, "format_template 未被捕获：patch 目标与调用方导入方式不匹配"
+        assert re.findall(r"【图 ([0-9]+)】", capture.prompts[-1]) == [
             "1",
             "2",
         ]
@@ -853,10 +855,11 @@ class TestPromptInjectionHardening:
         parsed = _parsed_result(att, "Introduction text. This is the main body.", tmp_path)
         with (
             patch("zotero_cli.ai_notes.documents.MinerUParseCache.ensure_many", return_value={att.path: parsed}),
-            patch("zotero_cli.ai_notes.templates.format_template", side_effect=capture),
+            patch("zotero_cli.ai_notes.generation.format_template", side_effect=capture),
         ):
-            result = analyze_item(reader, MagicMock(), ai_client, "ABC123", dry_run=True)
-        prompt = capture.prompts[-1] if capture.prompts else result["prompt_preview"]
+            analyze_item(reader, MagicMock(), ai_client, "ABC123", dry_run=True)
+        assert capture.prompts, "format_template 未被捕获：patch 目标与调用方导入方式不匹配"
+        prompt = capture.prompts[-1]
         assert "<untrusted-title>" in prompt and "</untrusted-title>" in prompt
         assert "Test Paper" in prompt
         assert "<untrusted-document>" in prompt
