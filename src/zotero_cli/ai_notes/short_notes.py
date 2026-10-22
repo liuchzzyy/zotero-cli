@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 
 from zotero_cli.ai_notes.access.client import AiClient
@@ -30,6 +31,10 @@ from zotero_cli.zotero.models import Item
 
 _SHORT_NOTE_MAX_CHARS = 500
 _SHORT_NOTE_MIN_SEGMENTS = 3
+# 分段符两侧的空白，用于把 `Zn || MnO2` 还原成 `Zn||MnO2` 后再切分。
+_PIPE_GAP = re.compile(r"[ \t]*\|[ \t]*")
+# 双竖线在切分前的占位符：`Zn||MnO2` 是电池记法，不是两个空段。
+_LITERAL_PIPE_PAIR = "\x00"
 
 
 def normalize_short_note(text: str) -> str:
@@ -37,7 +42,10 @@ def normalize_short_note(text: str) -> str:
     val = (text or "").strip()
     val = val.strip("|").strip()
     val = val.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
-    parts = [part.strip() for part in val.split("|")]
+    # `Zn||MnO2` 这类电池记法中的双竖线是字面量，不是分段符。先去掉竖线两侧空格，
+    # 把 `Zn || MnO2` 也还原成 `Zn||MnO2`，再用占位符保护，避免被切成空段。
+    val = _PIPE_GAP.sub("|", val).replace("||", _LITERAL_PIPE_PAIR)
+    parts = [part.strip().replace(_LITERAL_PIPE_PAIR, "||") for part in val.split("|")]
     if parts:
         last = parts[-1]
         if last.startswith("疑问:") and not last.startswith("疑问："):
@@ -58,7 +66,8 @@ def validate_short_note(text: str) -> str | None:
         return "contains forbidden bracket/backtick"
     if value.startswith("|") or value.endswith("|"):
         return "leading/trailing pipe"
-    parts = [part.strip() for part in value.split("|")]
+    # 与 normalize_short_note 一致：双竖线是电池记法的字面量，切分时不能算作空段。
+    parts = [part.strip() for part in value.replace("||", _LITERAL_PIPE_PAIR).split("|")]
     if any(not part for part in parts):
         return "empty pipe segment"
     if len(parts) < _SHORT_NOTE_MIN_SEGMENTS:

@@ -565,6 +565,17 @@ class TestNormalizeShortNote:
         raw = "体系A |\n 机制B |\n 疑问：未解问题"
         assert normalize_short_note(raw) == "体系A | 机制B | 疑问：未解问题"
 
+    def test_preserves_battery_double_pipe(self):
+        # `Zn||MnO2` 是电池记法，双竖线是字面量，不能被切成空段
+        out = normalize_short_note("Zn||MnO2 电池 | 机制B | 疑问：X")
+        assert out == "Zn||MnO2 电池 | 机制B | 疑问：X"
+        assert validate_short_note(out) is None
+
+    def test_preserves_spaced_double_pipe(self):
+        out = normalize_short_note("Zn || MnO2 电池 | 机制B | 疑问：X")
+        assert out == "Zn||MnO2 电池 | 机制B | 疑问：X"
+        assert validate_short_note(out) is None
+
 
 class TestMergeShortNote:
     def test_empty_extra(self):
