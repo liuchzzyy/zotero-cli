@@ -50,7 +50,7 @@ AI 笔记相关配置（`[ai_notes]`）：
 api_key = ""
 base_url = "http://127.0.0.1:3425/v1"
 model = "group/deepseek"
-fallback_models = ["group/advanced"]
+fallback_models = ["antigravity/gemini-3.8-flash"]
 reasoning_effort = "max"
 temperature = 0.7
 max_tokens = 0

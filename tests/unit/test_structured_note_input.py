@@ -104,12 +104,12 @@ def test_unknown_route_cannot_claim_verified_500k_budget(tmp_path):
         plan_request(evidence, evidence.text, "unknown-proxy-model")
 
 
-def test_supported_routes_include_group_advanced(tmp_path):
+def test_supported_routes_include_gemini_3_8_flash(tmp_path):
     evidence = build_evidence(
         [("MAIN", "main", _parse(tmp_path, "m", [{"type": "text", "text": "body", "page_idx": 0}]))]
     )
-    plan = plan_request(evidence, evidence.text, "group/advanced")
-    assert plan.model == "group/advanced"
+    plan = plan_request(evidence, evidence.text, "antigravity/gemini-3.8-flash")
+    assert plan.model == "antigravity/gemini-3.8-flash"
 
 
 def test_missing_si_image_is_skipped_not_fatal(tmp_path):
@@ -135,7 +135,7 @@ def test_missing_main_image_raises_error(tmp_path):
 def test_fallback_budget_accepts_exact_image_boundary_but_not_overflow():
     prompt = "x" * (500_000 - 32_768 - 50_000 - 4_096)
     assert model_supports_request("group/deepseek", prompt, 1)
-    assert model_supports_request("group/advanced", prompt, 1)
+    assert model_supports_request("antigravity/gemini-3.8-flash", prompt, 1)
     assert not model_supports_request("group/deepseek", prompt, 2)
     assert not model_supports_request("unverified-model", prompt, 1)
 
@@ -260,7 +260,7 @@ def test_long_note_fallback_uses_only_preflighted_routes(monkeypatch):
         api_key="test",
         base_url="http://127.0.0.1:1/v1",
         model="group/deepseek",
-        fallback_models=["unverified-model", "group/advanced"],
+        fallback_models=["unverified-model", "antigravity/gemini-3.8-flash"],
     )
     client = AiClient(config)
     attempted: list[str] = []
@@ -278,7 +278,7 @@ def test_long_note_fallback_uses_only_preflighted_routes(monkeypatch):
     prompt = "x" * 200_000
     allowed = {model for model in client.get_model_chain() if model_supports_request(model, prompt, 10)}
     assert client.chat(prompt, allowed_models=allowed) == "OK"
-    assert attempted == ["group/deepseek", "group/advanced"]
+    assert attempted == ["group/deepseek", "antigravity/gemini-3.8-flash"]
 
 
 def test_image_rejection_drops_all_images_but_keeps_the_whole_text(monkeypatch):

@@ -651,9 +651,9 @@ class TestAiClient:
     def test_chat_fallback_chain(self):
         config = _make_ai_config()
         config.model = "group/deepseek"
-        config.fallback_models = ["group/advanced"]
+        config.fallback_models = ["antigravity/gemini-3.8-flash"]
         client = AiClient(config)
-        # 第一次 DeepSeek 组失败，第二次高级组成功
+        # 第一次 DeepSeek 组失败，第二次 Gemini 成功
         client._client.chat.completions.create = MagicMock(
             side_effect=[Exception("deepseek group connection error"), self._respond("fallback answer")]
         )
@@ -663,14 +663,14 @@ class TestAiClient:
         assert client._client.chat.completions.create.call_count == 2
         calls = client._client.chat.completions.create.call_args_list
         assert calls[0].kwargs["model"] == "group/deepseek"
-        assert calls[1].kwargs["model"] == "group/advanced"
+        assert calls[1].kwargs["model"] == "antigravity/gemini-3.8-flash"
         assert len(progress_calls) == 1
         assert progress_calls[0][0] == "fallback"
 
     def test_chat_fallback_all_failed_raises(self):
         config = _make_ai_config()
         config.model = "group/deepseek"
-        config.fallback_models = ["group/advanced"]
+        config.fallback_models = ["antigravity/gemini-3.8-flash"]
         client = AiClient(config)
         client._client.chat.completions.create = MagicMock(side_effect=[Exception("err1"), Exception("err2")])
         with pytest.raises(Exception) as exc:
@@ -1095,7 +1095,7 @@ class TestFigureCapAnnotation:
         writer.add_note.return_value = "NOTE1"
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        ai_client.get_model_chain.return_value = ["group/deepseek", "unverified-model", "group/advanced"]
+        ai_client.get_model_chain.return_value = ["group/deepseek", "unverified-model", "antigravity/gemini-3.8-flash"]
         ai_client.chat.side_effect = [
             '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
             _sections_json(12),
@@ -1104,7 +1104,7 @@ class TestFigureCapAnnotation:
             result = analyze_item(reader, writer, ai_client, "ABC123", no_short_note=True)
         assert result["status"] == "ok"
         assert len(ai_client.chat.call_args.kwargs["figures"]) == 20
-        assert ai_client.chat.call_args.kwargs["allowed_models"] == {"group/deepseek", "group/advanced"}
+        assert ai_client.chat.call_args.kwargs["allowed_models"] == {"group/deepseek", "antigravity/gemini-3.8-flash"}
 
 
 class TestPlainTextNoteTitle:
