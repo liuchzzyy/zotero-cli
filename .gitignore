@@ -17,6 +17,8 @@ htmlcov/
 # AI 服务调用的本地调试转储可能含文档内容与凭据
 *.request-dump.json
 *.response-dump.json
+# 浏览器网络诊断文件可能包含 Authorization 及文档内容
+*.har
 # 本地日志统一写入 .zot/log，避免误提交散落的日志
 *.log
 # Docs build output

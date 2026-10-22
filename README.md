@@ -48,10 +48,10 @@ AI 笔记相关配置（`[ai_notes]`）：
 ```toml
 [ai_notes]
 api_key = ""
-base_url = "http://127.0.0.1:8317/v1"
-model = "deepseek-flash"
-fallback_models = ["<备用模型1>", "<备用模型2>"]
-reasoning_effort = "max"
+base_url = "http://127.0.0.1:3425/v1"
+model = "group/daily"
+fallback_models = ["group/deepseek", "group/advanced"]
+reasoning_effort = "high"
 temperature = 0.7
 max_tokens = 0
 max_extracted_chars = 250000

@@ -66,7 +66,7 @@ class AiClient:
         for m in getattr(self.config, "fallback_models", []):
             if m and m not in chain:
                 chain.append(m)
-        return chain or ["deepseek-flash", "gemini-3.8-flash-high", "gpt-5.6-sol"]
+        return chain or ["group/daily", "group/deepseek", "group/advanced"]
 
     def _user_content(self, prompt: str, figures: list[tuple[int, str]]) -> Any:
         """构造用户消息；提供图片时把图像作为 image 部分附上。"""

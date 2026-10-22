@@ -63,7 +63,7 @@ def _make_attachment(tmp_path) -> Attachment:
 
 
 def _make_ai_config() -> AiNoteConfig:
-    return AiNoteConfig(api_key="k", base_url="http://x", model="deepseek-flash", max_extracted_chars=10000)
+    return AiNoteConfig(api_key="k", base_url="http://x", model="group/daily", max_extracted_chars=10000)
 
 
 def _sections_json(n: int = 12) -> str:
@@ -650,27 +650,27 @@ class TestAiClient:
 
     def test_chat_fallback_chain(self):
         config = _make_ai_config()
-        config.model = "deepseek-flash"
-        config.fallback_models = ["gemini-3.8-flash-high", "gpt-5.6-sol"]
+        config.model = "group/daily"
+        config.fallback_models = ["group/deepseek", "group/advanced"]
         client = AiClient(config)
-        # 第一次 deepseek 失败，第二次 gemini 成功
+        # 第一次日常组失败，第二次 DeepSeek 组成功
         client._client.chat.completions.create = MagicMock(
-            side_effect=[Exception("deepseek connection error"), self._respond("gemini answer")]
+            side_effect=[Exception("daily group connection error"), self._respond("fallback answer")]
         )
         progress_calls = []
         out = client.chat("hello", progress=lambda ev, msg: progress_calls.append((ev, msg)))
-        assert out == "gemini answer"
+        assert out == "fallback answer"
         assert client._client.chat.completions.create.call_count == 2
         calls = client._client.chat.completions.create.call_args_list
-        assert calls[0].kwargs["model"] == "deepseek-flash"
-        assert calls[1].kwargs["model"] == "gemini-3.8-flash-high"
+        assert calls[0].kwargs["model"] == "group/daily"
+        assert calls[1].kwargs["model"] == "group/deepseek"
         assert len(progress_calls) == 1
         assert progress_calls[0][0] == "fallback"
 
     def test_chat_fallback_all_failed_raises(self):
         config = _make_ai_config()
-        config.model = "deepseek-flash"
-        config.fallback_models = ["gemini-3.8-flash-high"]
+        config.model = "group/daily"
+        config.fallback_models = ["group/deepseek"]
         client = AiClient(config)
         client._client.chat.completions.create = MagicMock(side_effect=[Exception("err1"), Exception("err2")])
         with pytest.raises(Exception) as exc:
@@ -679,7 +679,7 @@ class TestAiClient:
 
     def test_chat_local_base_url_trust_env_false(self):
         config = _make_ai_config()
-        config.base_url = "http://127.0.0.1:8317/v1"
+        config.base_url = "http://127.0.0.1:3425/v1"
         client = AiClient(config)
         # 本地地址配置 trust_env=False 绕过系统网络代理
         assert client._client._client.trust_env is False
@@ -1056,7 +1056,7 @@ class TestPromptBounds:
         reader.get_item.return_value = _make_item()
         reader.get_pdf_attachments.return_value = [att]
         ai_client = MagicMock()
-        ai_client.config = AiNoteConfig(api_key="k", base_url="http://x", model="deepseek-flash", max_extracted_chars=0)
+        ai_client.config = AiNoteConfig(api_key="k", base_url="http://x", model="group/daily", max_extracted_chars=0)
         with (
             _patch_mineru(att, "word " * 100000, tmp_path),
             pytest.raises(NoteAnalysisError, match="required text") as caught,
@@ -1073,7 +1073,7 @@ class TestPromptBounds:
         reader.get_item.return_value = item
         reader.get_pdf_attachments.return_value = [att]
         ai_client = MagicMock()
-        ai_client.config = AiNoteConfig(api_key="k", base_url="http://x", model="deepseek-flash", max_extracted_chars=0)
+        ai_client.config = AiNoteConfig(api_key="k", base_url="http://x", model="group/daily", max_extracted_chars=0)
         with _patch_mineru(att, "word " * 40000, tmp_path):
             result = analyze_item(reader, MagicMock(), ai_client, "ABC123", dry_run=True)
         assert result["status"] == "dry_run"
@@ -1092,7 +1092,7 @@ class TestFigureCapAnnotation:
         writer.add_note.return_value = "NOTE1"
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        ai_client.get_model_chain.return_value = ["deepseek-flash", "unverified-model", "gemini-3.8-flash-high"]
+        ai_client.get_model_chain.return_value = ["group/daily", "unverified-model", "group/deepseek"]
         ai_client.chat.side_effect = [
             '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
             _sections_json(12),
@@ -1101,7 +1101,7 @@ class TestFigureCapAnnotation:
             result = analyze_item(reader, writer, ai_client, "ABC123", no_short_note=True)
         assert result["status"] == "ok"
         assert len(ai_client.chat.call_args.kwargs["figures"]) == 20
-        assert ai_client.chat.call_args.kwargs["allowed_models"] == {"deepseek-flash", "gemini-3.8-flash-high"}
+        assert ai_client.chat.call_args.kwargs["allowed_models"] == {"group/daily", "group/deepseek"}
 
 
 class TestPlainTextNoteTitle:
