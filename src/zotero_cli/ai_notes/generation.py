@@ -19,6 +19,7 @@ from zotero_cli.ai_notes.constants import (
 )
 from zotero_cli.ai_notes.documents import _item_authors, _item_journal
 from zotero_cli.ai_notes.errors import NoteAnalysisError
+from zotero_cli.ai_notes.evidence import model_supports_request
 from zotero_cli.ai_notes.templates import format_template
 from zotero_cli.zotero.models import Item
 
@@ -31,6 +32,11 @@ def _wrap_field(value: str, label: str, max_chars: int) -> str:
     if len(text) > max_chars:
         text = text[:max_chars]
     return wrap_untrusted(text or _MISSING_FIELD, label)
+
+
+def _retry_models(prompt: str, figures: list[tuple[int, str]], allowed_models: set[str]) -> set[str]:
+    """重试文本变化后，只保留原已验证且仍容得下同组图片的路由。"""
+    return {model for model in allowed_models if model_supports_request(model, prompt, len(figures))}
 
 
 def _chat_with_retry(
@@ -50,9 +56,11 @@ def _chat_with_retry(
             progress("retry", "AI 输出无法解析为 JSON，追加格式要求重试一次")
         # 格式重试必须使用同一组图片。只有 AiClient 明确拒绝图像能力时，
         # 才允许以零图片重试。
-        retry_answer = _chat(
-            client, prompt + PARSE_RETRY_SUFFIX, progress=progress, figures=figures, allowed_models=allowed_models
-        )
+        retry_prompt = prompt + PARSE_RETRY_SUFFIX
+        retry_models = _retry_models(retry_prompt, figures, allowed_models)
+        if not retry_models:
+            raise NoteAnalysisError("输出格式重试超过已验证的模型预算", code="validation_error", parkable=True)
+        retry_answer = _chat(client, retry_prompt, progress=progress, figures=figures, allowed_models=retry_models)
         try:
             sections = extract_json_object(retry_answer).get("sections", [])
         except NoteAnalysisError as retry_error:
@@ -66,15 +74,18 @@ def _chat_with_retry(
     if len(sections) < MIN_SECTIONS:
         if progress:
             progress("retry", f"输出过简略（{len(sections)} 个 block），追加内容充实度要求重试一次")
-        try:
-            retry_answer = _chat(
-                client, prompt + SPARSE_RETRY_SUFFIX, progress=progress, figures=figures, allowed_models=allowed_models
-            )
-            retried = extract_json_object(retry_answer).get("sections", [])
-            if isinstance(retried, list) and len(retried) > len(sections):
-                sections = retried
-        except NoteAnalysisError:
-            pass
+        retry_prompt = prompt + SPARSE_RETRY_SUFFIX
+        retry_models = _retry_models(retry_prompt, figures, allowed_models)
+        if retry_models:
+            try:
+                retry_answer = _chat(
+                    client, retry_prompt, progress=progress, figures=figures, allowed_models=retry_models
+                )
+                retried = extract_json_object(retry_answer).get("sections", [])
+                if isinstance(retried, list) and len(retried) > len(sections):
+                    sections = retried
+            except NoteAnalysisError:
+                pass
     return sections
 
 

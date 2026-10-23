@@ -279,6 +279,7 @@ class TestAnalyzeItem:
         writer.add_note.return_value = "NOTE1"
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
+        ai_client.get_model_chain.return_value = ["group/deepseek"]
         ai_client.chat.side_effect = [
             '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
             _sections_json(3),
@@ -304,6 +305,7 @@ class TestAnalyzeItem:
         writer.add_note.return_value = "NOTE1"
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
+        ai_client.get_model_chain.return_value = ["group/deepseek"]
         ai_client.chat.side_effect = [
             '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
             _sections_json(3),
@@ -328,6 +330,7 @@ class TestAnalyzeItem:
         writer.add_note.return_value = "NOTE1"
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
+        ai_client.get_model_chain.return_value = ["group/deepseek"]
         ai_client.chat.side_effect = [
             "这是一段没有 JSON 的输出",
             _sections_json(12),
@@ -351,6 +354,7 @@ class TestAnalyzeItem:
         writer = MagicMock()
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
+        ai_client.get_model_chain.return_value = ["group/deepseek"]
         ai_client.chat.side_effect = ["无 JSON 一", "无 JSON 二"]
 
         with _patch_mineru(att, "Chapter 1. Introduction.", tmp_path):

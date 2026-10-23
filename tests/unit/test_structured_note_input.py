@@ -10,13 +10,19 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from zotero_cli.ai_notes.analysis import analyze_item
+from zotero_cli.ai_notes.constants import PARSE_RETRY_SUFFIX, SPARSE_RETRY_SUFFIX
+from zotero_cli.ai_notes.errors import EvidenceBudgetError, NoteAnalysisError
 from zotero_cli.ai_notes.evidence import (
+    MAX_IMAGE_BYTES,
+    OUTPUT_RESERVE,
     REQUEST_CEILING,
+    SAFETY_RESERVE,
     build_evidence,
     model_supports_request,
     plan_request,
     plan_with_coverage,
 )
+from zotero_cli.ai_notes.generation import _chat_with_retry
 from zotero_cli.ai_pdf import MinerUParseResult
 from zotero_cli.config import AiNoteConfig
 from zotero_cli.zotero.models import Attachment, Creator, Item
@@ -181,6 +187,15 @@ def test_image_block_without_a_path_is_rejected_at_build_time(tmp_path):
         build_evidence([("M", "main", parsed)])
 
 
+def test_oversized_main_image_fails_instead_of_being_omitted(tmp_path):
+    main = _parse(tmp_path, "main", [{"type": "image", "img_path": "images/0.jpg", "page_idx": 0}])
+    image = main.root / "raw" / "images" / "0.jpg"
+    image.write_bytes(b"\xff\xd8\xff" + b"a" * (MAX_IMAGE_BYTES - 2))
+    evidence = build_evidence([("MAIN", "main", main)])
+    with pytest.raises(EvidenceBudgetError, match="required main image 1"):
+        plan_request(evidence, "prompt", "group/deepseek")
+
+
 def test_degenerate_spacer_image_is_skipped_and_reported_not_fatal(tmp_path):
     # MinerU 会输出 1x1 的占位图；151 px 的分图约 4 kB，因此只有不足 1 kB 的
     # 文件才被视为退化产物。丢弃时必须显式告知，并且
@@ -251,6 +266,39 @@ def test_real_client_records_usage_without_exposing_the_payload(monkeypatch):
     monkeypatch.setattr(client._client.chat.completions, "create", lambda **kwargs: response)
     assert client.chat("prompt") == "OK"
     assert client.last_usage == {"prompt_tokens": 123, "completion_tokens": 9}
+
+
+def test_format_retry_rejects_over_budget_request_before_sending():
+    prompt = "x" * (REQUEST_CEILING - OUTPUT_RESERVE - SAFETY_RESERVE - 1)
+    assert model_supports_request("group/deepseek", prompt, 0)
+    assert not model_supports_request("group/deepseek", prompt + PARSE_RETRY_SUFFIX, 0)
+    client = MagicMock()
+    client.chat.return_value = "无法解析的输出"
+    with pytest.raises(NoteAnalysisError, match="重试.*预算"):
+        _chat_with_retry(client, prompt, figures=[], allowed_models={"group/deepseek"}, progress=None)
+    client.chat.assert_called_once()
+
+
+def test_format_retry_filters_model_that_no_longer_fits():
+    prompt = "x" * (250_000 - OUTPUT_RESERVE - SAFETY_RESERVE - 1)
+    models = {"group/deepseek", "antigravity/claude-sonnet-4-6"}
+    assert all(model_supports_request(model, prompt, 0) for model in models)
+    client = MagicMock()
+    client.chat.side_effect = ["无法解析的输出", '{"sections": [' + ",".join("{}" for _ in range(10)) + "]}"]
+    sections = _chat_with_retry(client, prompt, figures=[], allowed_models=models, progress=None)
+    assert len(sections) == 10
+    assert client.chat.call_count == 2
+    assert client.chat.call_args.kwargs["allowed_models"] == {"group/deepseek"}
+
+
+def test_sparse_retry_keeps_valid_result_when_retry_exceeds_budget():
+    prompt = "x" * (REQUEST_CEILING - OUTPUT_RESERVE - SAFETY_RESERVE - 1)
+    assert not model_supports_request("group/deepseek", prompt + SPARSE_RETRY_SUFFIX, 0)
+    client = MagicMock()
+    client.chat.return_value = '{"sections": [{"type": "paragraph", "text": "已有内容"}]}'
+    sections = _chat_with_retry(client, prompt, figures=[], allowed_models={"group/deepseek"}, progress=None)
+    assert sections == [{"type": "paragraph", "text": "已有内容"}]
+    client.chat.assert_called_once()
 
 
 def test_long_note_fallback_uses_only_preflighted_routes(monkeypatch):

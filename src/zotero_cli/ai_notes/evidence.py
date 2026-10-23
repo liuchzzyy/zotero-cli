@@ -30,7 +30,7 @@ SAFETY_RESERVE = 50_000
 MAX_SI_IMAGES = 30
 MAX_REQUEST_BYTES = 20 * 1024 * 1024
 # 真实的图表面板不可能只有几百字节；MinerU 确实会输出 1x1 的占位 JPEG。
-# 超出此范围的图像会被跳过，并在 prompt 中声明。
+# 过小的占位图与超限 SI 图像会被跳过并在 prompt 中声明；超限正文图报错。
 MIN_IMAGE_BYTES = 1024
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 _IMAGE_TYPES = {"image", "chart"}
@@ -173,9 +173,11 @@ def plan_request(evidence: Evidence, prompt: str, model: str, *, output_reserve:
             skipped.append(number)
             continue
         data = path.read_bytes()
+        if len(data) > MAX_IMAGE_BYTES and (number, path) in required:
+            raise EvidenceBudgetError(f"required main image {number} exceeds the image size limit")
         if not MIN_IMAGE_BYTES <= len(data) <= MAX_IMAGE_BYTES:
             # MinerU 会输出退化占位图（151 px 的面板也已有约 4 kB）；
-            # 真实面板不可能只有几百字节。声明即可，不要失败。
+            # 过小的占位图及超限的 SI 图像需声明跳过。
             skipped.append(number)
             continue
         mime = "jpeg" if path.suffix.lower() in {".jpg", ".jpeg"} else path.suffix.lower().lstrip(".")
