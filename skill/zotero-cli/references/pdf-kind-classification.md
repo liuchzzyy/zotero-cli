@@ -2,14 +2,12 @@
 
 `ai-note` consumes every PDF of an item and assigns each one a role; the role
 decides what the request then *requires*. Every main-text image must fit the
-budget or the run fails, while SI images are one candidate pool capped at 30 and
-sampled. A wrong role is therefore not a label bug — it converts required
+budget or the run fails, while SI images share the remaining context/request-byte budget without a fixed count cap. A wrong role is therefore not a label bug — it converts required
 main-text evidence into optional, budget-sampled evidence, silently.
 
 ## Current mechanism
 
-Two layers, both string heuristics over the cached `document.md`, both
-classifying one attachment at a time.
+The authoritative classifier is `pdf_rag/metadata.py::resolve_pdf_kinds()`, called with the attachment set, Markdown and structured caption blocks by `ai_notes/documents.py` and RAG indexing. It combines caption counts and front matter, then falls back to the per-file string heuristic below. See [set-level classification](#set-level-classification-implemented) for the rule order.
 
 `pdf_rag/metadata.py::infer_pdf_kind(text, filename)` — first matching rule
 wins:
@@ -33,15 +31,11 @@ between 4 and 6 for the same reason — a phrase like `supporting information`
 this early is a cover, whereas the same phrase thousands of characters in is a
 main text citing its own SI (see the guardrail below).
 
-`ai_notes/analysis.py` then overrides: a first-2500-char span containing both
-`this pdf file includes:` and `figures s1` forces `supplementary`. That override
-exists because a same-named SI can carry the article title and byline, which
-trips rule 3 — for some items it is the only thing that saves the pair.
+There is no separate role override in `ai_notes/analysis.py`. Read the set-level result before interpreting a per-file heuristic; individual hints alone do not determine an item’s final roles.
 
-These two layers classify **one attachment at a time** and are now the fallback
-inside the set-level classifier below, not the whole mechanism. Reading the
-rules alone tells you why a single file was decided; it no longer tells you the
-item's roles.
+## Historical measurements
+
+The sample counts and percentages below are retained from earlier cache audits, not reproduced in this documentation update. Their raw corpus and labels were not inspected here. Treat them as motivation and counterexamples, not current classifier accuracy or proof of generalization. Validate new behavior with isolated regression tests and, when authorized, a versioned labelled corpus.
 
 ## Signals that look structural but are not: `aside_text` and friends
 
@@ -143,7 +137,7 @@ fixed:
 Safety direction matters more than accuracy here: a main text labelled SI has its
 required figures silently budget-sampled, while an SI labelled main only fails a
 budget check loudly. So keep a hard guard — a document whose front matter carries
-`abstract` or `introduction` must not be demoted to SI on captions alone.
+both `abstract` in the first 6,000 characters and `introduction` in the first 12,000 is protected from caption/text SI decisions in rules 1, 2 and 4. The later unique-main and longest-document rules still determine final roles.
 
 ## Failure modes that remain
 
@@ -189,9 +183,7 @@ hypothetical.
 ## Audit the roles before trusting a run
 
 `--dry-run` exposes the outcome without writing: `main_images`, `si_images`,
-`si_candidates`. `main_images: 0` on a multi-PDF item is the signature of a
-misrouted main text — every figure then comes from the SI pool, sampled at 30 of
-the total.
+`si_candidates`. `main_images: 0` on a multi-PDF item calls for inspection of roles, extracted image blocks and placeholders. It is not proof of misrouting: text-only inputs or missing extraction can also cause zero. SI selection is bounded by context and exact request bytes, without a fixed count cap.
 
 To measure the classifier across a library, take the connection from the reader
 rather than opening a fresh one: `ZoteroReader` has already copied the database
@@ -260,20 +252,16 @@ express it); never let that copy live on as a second classifier.
 ## Set-level classification (implemented)
 
 `pdf_rag/metadata.py::resolve_pdf_kinds(documents)` classifies an item's
-attachments **together** and returns exactly one main text per item. It takes
-`PdfDocument(identifier, filename, markdown, blocks)`; `pipeline.py` builds those
-from the MinerU parse results, so `caption_counts()` reads the same
+attachments **together**. A single attachment is main; with more attachments, rules 1, 2 and 4 can mark one as SI and leave several others main. It takes `PdfDocument(identifier, filename, markdown, blocks)`; `ai_notes/documents.py` and RAG indexing build these from MinerU parse results, so `caption_counts()` reads the same
 `content_list.json` the note consumes and the test costs no extra I/O. Rule-level
-work above remains the low-risk part; this is the layer that removes the
-`main=0` / `main=2` outcomes the string rules produced (23 and 13 items of 194 in
-the measured corpus).
+work above is a fallback within this layer. It does not establish exactly one main for every possible attachment set.
 
 Single attachment → `main`, by definition. Otherwise, in order:
 
 1. Exactly one document whose captions are S-dominant, after the front-matter
    guard below → that one is SI, everything else main.
 2. Exactly one document carrying *any* S-numbered caption (figures or tables)
-   while none is S-dominant → SI. This is what rescues a Nature-style SI whose
+   after rule 1 did not produce a result → SI. This is what rescues a Nature-style SI whose
    figures are plain but whose tables are `Supplementary Table 1`.
 3. Exactly one plainly-numbered document → main, the rest SI. This handles a
    supplement with no captions at all beside a normal article.
@@ -287,7 +275,7 @@ candidates means the evidence is contradictory, not that either is right.
 
 **The front-matter guard is absolute for steps 1, 2 and 4.** A document with
 `abstract` in its first 6000 chars *and* `introduction` in its first 12000 is
-never demoted to SI on captions or string cues, because a merged article+SI PDF
+protected from an SI verdict in those three rules, because a merged article+SI PDF
 carries both front matter and S-numbered panels. It still counts as a main
 candidate in step 3 and can still be the longest document in step 5.
 
@@ -296,7 +284,7 @@ attached twice, and classifying one copy as supplementary must not keep both.
 The survivor keeps its own kind.
 
 Measured on 194 items whose two PDFs both had cached parses: 193 resolved to
-exactly one main + one SI, one to one main + two SI, and **zero** to no main.
+exactly one main + one SI, one to one main + two SI, and **zero** to no main. These are historical results rather than a guarantee for arbitrary multi-attachment inputs.
 Cross-checked against cover/filename ground truth on 113 labelled attachments,
 agreement was 111/113 with no article→SI errors — both misses were the label set
 being wrong, not the classifier.

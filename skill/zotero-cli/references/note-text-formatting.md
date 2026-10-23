@@ -77,7 +77,7 @@ answer it — its spaced digits make a genuine number unfindable there. Check th
 text layer Zotero already extracted (`~/Zotero/storage/<ATTKEY>/.zotero-ft-cache`)
 before calling anything invented: a value can survive intact there while being
 invisible in the MinerU Markdown, and one paper may report the same quantity twice
-at different precision in different sections, both genuine.
+at different precision in different sections. The original PDF and its conditions remain the reference; either extraction can be wrong.
 
 Join digits before padding the prompt — digits first, then the decimal point,
 because `2 0 1 . 6` must become `201 . 6` before a decimal rule can see numbers on
@@ -101,7 +101,7 @@ with two independent counters:
   unit (`mAh  g`), a split formula (`[A-Za-z] - [A-Za-z]`), a space before CJK
   punctuation (`\s[，。、：；！？]`), and leading/trailing whitespace.
 
-Run both on a real note body, not on the fixture only; the fixture is written by
+When authorized source material is available, inspect a real note body as well as fixtures; the fixture is written by
 the same hand that wrote the regex.
 
 ## Order of operations
@@ -121,13 +121,16 @@ assembly point**, not inside the renderer. A prefix such as `AI条目分析 - ` 
 matched byte-for-byte by scripts and tests; padding it silently breaks prefix
 matching while looking like a cosmetic change.
 
-## Existing tests encode the old format
+## Updating assertions when the format changes
 
-Assertions pinning the pre-fix literal (`第3页`, `体系A`, `纯文本项 1` variants)
-will fail the moment padding is enabled. Update each expectation to the new
+When changing formatting behavior, assertions pinning earlier literals (`第3页`, `体系A`, `纯文本项 1` variants) may fail. Update each expectation to the new
 correct string. Do not relax the assertion to a shorter substring and do not
 delete it: that hides a real regression later. Add the normaliser's own coverage
 next to it — boundary cases, non-boundary cases, idempotence.
+
+## Scope of normalization and validation
+
+These transformations enforce layout and notation; they do not validate scientific claims. `stages.py::parse_text_packet()` accepts differing numerical/scientific notations and checks structure, source labels and figure references rather than exact numeric/text matches. Do not turn OCR normalization or a failed substring search into a new hard rejection of model content. Full analysis builds evidence from `content_list.json`; joining OCR digits in helper paths is not a guarantee that every structured block has been repaired. Keep original data and inspect ambiguous values in the PDF.
 
 ## Editing the prompt templates
 

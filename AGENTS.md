@@ -49,6 +49,18 @@
 - 只有出现真实职责时才建立相应目录，不创建空目录或多余嵌套；小功能可以先放在一个明确命名的模块中，职责扩展后再拆分。不要用 `utils/`、`misc/` 等泛称容纳不同领域的代码，也不要为每个函数单独建文件。
 - 维护已有项目时，在任务涉及的范围内调整不合理的目录结构；移动文件时，同步更新导入、入口、测试和文档，并运行相关验证。
 
+## 业务契约与文档同步
+
+- 命令风险等级由 `src/zotero_cli/cli/app/safety.py` 定义。`collection reorganize` 属于 destructive：整体替换计划内条目的全部旧集合归属（包含计划外集合），不删除条目和旧集合；执行前须 `--yes` 或交互确认，dry-run 必须说明替换范围。不要改成合并语义。
+- `search` / `list` 未知 `--type` 报 `validation_error`；附件 `storage:` / `attachments:` 的相对路径必须受各自根目录约束，检查 Windows 路径伪装和 symlink 越界。
+- AI Note 第一阶段只检查 JSON 结构、必要字段、来源标签、图号和预算；不得加入具体数值或文本内容的字面硬阻断。来源合法不能证明数值、样品或实验条件已验证。
+- AI Note 写回不是整体事务。note 已创建后标签失败、Extra 已写入后关键词标签失败，都须保留 `committed=True` 并要求核对远端；不得缓存为成功或盲目补写 `ai/no_keywords`。只有确定未写入的失败才释放相应幂等预留。
+- MinerU 缓存命中无需 token；缺失 token 使用 `MinerUTokenMissingError`，调用方按类型分类。确认存活的锁持有者不得仅按年龄回收；归档 GET（含重试）须 `stream=True`、有界读取并关闭响应，跨源跳转重新检查鉴权。
+- MinerU staging 到目标的替换不等于发布事务：删除旧目录后的失败可丢失旧缓存，按路径延迟读取也无快照保证。不要把它与 PDF RAG 候选索引的原子发布混为一谈。
+- 批量写入错误字段复用 `zotero/items.py::_write_error_fields()`；`apply_publication_updates()` 保留不含 `committed` 的三字段 `update_error`，不得因内部去重改变输出契约。
+- 行为变更同步 [README](README.md)、[仓库 Skill](skill/zotero-cli/SKILL.md)及相关参考文档。只维护本仓库副本；修改其他 Hermes 档案或共享安装需另有明确指令。
+- 验证使用隔离 fixture、mock 和临时目录；不把测试通过写成真实 Zotero、MinerU 或模型质量验证。真实服务验证须符合当次授权，记录实际请求与写入范围。
+
 ## 辅助脚本
 
 - 新增的独立执行脚本统一放在项目根目录的 `tool/`；不散放在仓库根目录、`src/`、`tests/` 或其他位置。
