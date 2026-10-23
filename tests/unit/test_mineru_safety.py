@@ -65,6 +65,7 @@ class _MinerUTransport(BaseAdapter):
                 response._content = self.archive
         else:
             raise AssertionError(f"Unexpected HTTP request: {request.method} {request.url}")
+        response._content_consumed = True
         return response
 
     def close(self) -> None:

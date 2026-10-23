@@ -20,13 +20,13 @@ from zotero_cli.ai_notes.constants import (
     NOT_ANALYZED_TAG,
     NOTE_TITLE_PREFIX,
 )
-from zotero_cli.ai_notes.documents import _sections_to_text
+from zotero_cli.ai_notes.documents import _sections_to_text, collect_documents
 from zotero_cli.ai_notes.errors import NoteAnalysisError
 from zotero_cli.ai_notes.evidence import REQUEST_CEILING
 from zotero_cli.ai_notes.generation import _chat, extract_json_object, wrap_untrusted
 from zotero_cli.ai_notes.short_notes import normalize_short_note, validate_short_note
 from zotero_cli.ai_notes.templates import format_template
-from zotero_cli.ai_pdf import MinerUParseResult
+from zotero_cli.ai_pdf import MinerUError, MinerUParseResult, MinerUTokenMissingError
 from zotero_cli.config import AiNoteConfig
 from zotero_cli.zotero.access.writer import ZoteroWriteError, merge_short_note_into_extra
 from zotero_cli.zotero.models import Attachment, Creator, Item, Note
@@ -115,6 +115,23 @@ def _parsed_result(att: Attachment, markdown: str, tmp_path, name: str = "mineru
 def _patch_mineru(att: Attachment, markdown: str, tmp_path):
     parsed = _parsed_result(att, markdown, tmp_path)
     return patch("zotero_cli.ai_notes.documents.MinerUParseCache.ensure_many", return_value={att.path: parsed})
+
+
+@pytest.mark.parametrize(
+    "error,code,retryable",
+    [
+        (MinerUTokenMissingError("令牌缺失"), "configuration_error", False),
+        (MinerUError("token not configured is only arbitrary provider text"), "network_error", True),
+    ],
+)
+def test_document_parse_failure_uses_exception_type(tmp_path, error, code, retryable):
+    reader = MagicMock()
+    reader.get_pdf_attachments.return_value = [_make_attachment(tmp_path)]
+    with patch("zotero_cli.ai_notes.documents.PdfParsingService.parse_many", side_effect=error):
+        with pytest.raises(NoteAnalysisError) as caught:
+            collect_documents(reader, "ABC123")
+    assert caught.value.code == code
+    assert caught.value.retryable is retryable
 
 
 class TestExtractJsonObject:
@@ -444,6 +461,39 @@ class TestAnalyzeItem:
         writer.add_tags.assert_any_call("ABC123", [ANALYZED_TAG])
         writer.add_tags.assert_any_call("ABC123", [NO_KEYWORDS_TAG])
         writer.update_short_note.assert_not_called()
+
+    @pytest.mark.parametrize("code", ["network_error", "auth_invalid"])
+    def test_keyword_tag_failure_after_extra_write_requires_reconciliation(self, tmp_path, code):
+        att = _make_attachment(tmp_path)
+        reader = MagicMock()
+        reader.get_item.return_value = _make_item()
+        reader.get_pdf_attachments.return_value = [att]
+        writer = MagicMock()
+        writer.add_note.return_value = "NOTE1"
+        writer.add_tags.side_effect = [
+            None,
+            ZoteroWriteError(
+                "tag failed", code=code, retryable=code == "network_error", committed=code == "network_error"
+            ),
+        ]
+        ai_client = MagicMock()
+        ai_client.config = _make_ai_config()
+        ai_client.get_model_chain.return_value = ["group/deepseek", "antigravity/gemini-3.8-flash"]
+        ai_client.chat.side_effect = [
+            '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
+            _text_packet(),
+            _sections_json(12),
+            _short_note_json(),
+        ]
+
+        with _patch_mineru(att, "Introduction text.", tmp_path), pytest.raises(NoteAnalysisError) as raised:
+            analyze_item(reader, writer, ai_client, "ABC123")
+
+        assert raised.value.committed is True
+        assert "short-note 已写入" in str(raised.value)
+        writer.update_short_note.assert_called_once()
+        assert writer.add_tags.call_args_list[-1].args == ("ABC123", [KEYWORDS_TAG])
+        assert not any(call.args[1] == [NO_KEYWORDS_TAG] for call in writer.add_tags.call_args_list)
 
     def test_analyze_short_note_only_backfill(self):
         item = _make_item()
@@ -1007,15 +1057,25 @@ class TestWriterMutationErrors:
         assert "NOTE1" in str(caught.value)
         assert caught.value.retryable is False
 
-    def test_short_note_write_failure_degrades_instead_of_raw_traceback(self, tmp_path):
+    def test_rejected_short_note_write_degrades_instead_of_raw_traceback(self, tmp_path):
         att, reader, writer, ai_client = _analysis_inputs(tmp_path)
-        writer.update_short_note.side_effect = ZoteroWriteError("update failed")
+        writer.update_short_note.side_effect = ZoteroWriteError("update rejected", code="validation_error")
         with _patch_mineru(att, "Introduction text.", tmp_path):
             result = analyze_item(reader, writer, ai_client, "ABC123")
         assert result["status"] == "ok"
         assert result["short_note"] == "failed"
         assert result["short_note_error"]
         writer.add_tags.assert_any_call("ABC123", [NO_KEYWORDS_TAG])
+
+    def test_uncertain_short_note_write_requires_reconciliation(self, tmp_path):
+        att, reader, writer, ai_client = _analysis_inputs(tmp_path)
+        writer.update_short_note.side_effect = ZoteroWriteError(
+            "update outcome unknown", code="network_error", committed=True
+        )
+        with _patch_mineru(att, "Introduction text.", tmp_path), pytest.raises(NoteAnalysisError) as caught:
+            analyze_item(reader, writer, ai_client, "ABC123")
+        assert caught.value.committed is True
+        assert not any(call.args[1] == [NO_KEYWORDS_TAG] for call in writer.add_tags.call_args_list)
 
 
 class TestWriterCommittedSemantics:

@@ -9,7 +9,7 @@ from unittest.mock import patch
 from tests.support import invoke_cli as _invoke
 from tests.support import isolate_pdf_rag_backend
 
-from zotero_cli.ai_pdf import MinerUError
+from zotero_cli.ai_pdf import MinerUError, MinerUTokenMissingError
 from zotero_cli.pdf_rag.index import RagIndex
 
 
@@ -459,7 +459,7 @@ class TestPdfRagForceFailurePreservesIndex:
             first = _invoke(["pdf-rag", "index", "keep-idx", "--no-embed"])
             assert first.exit_code == 0, first.output
             with patch("zotero_cli.cli.commands.pdf_rag.indexing.MinerUParseCache") as cache_cls:
-                cache_cls.return_value.ensure_many.side_effect = MinerUError("token not configured")
+                cache_cls.return_value.ensure_many.side_effect = MinerUTokenMissingError("令牌缺失")
                 failed = _invoke(["pdf-rag", "index", "keep-idx", "--force"], json_output=True)
             result = _invoke(["pdf-rag", "query", "attention", "--pdf-rag", "keep-idx"], json_output=True)
         assert failed.exit_code == 3, failed.output

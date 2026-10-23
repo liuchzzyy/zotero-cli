@@ -26,7 +26,7 @@ from zotero_cli.ai_pdf.access.requests import (
     _url_origin,
     _validated_model_version,
 )
-from zotero_cli.ai_pdf.errors import MinerUError
+from zotero_cli.ai_pdf.errors import MinerUError, MinerUTokenMissingError
 from zotero_cli.ai_pdf.models import (
     _MAX_ARCHIVE_BYTES,
     _MAX_ARCHIVE_ENTRIES,
@@ -64,7 +64,7 @@ class MinerUClient:
         session: Session | None = None,
     ) -> None:
         if not token.strip():
-            raise MinerUError("MinerU token not configured. Set [pdf].mineru_token in .zot/config.toml.")
+            raise MinerUTokenMissingError("MinerU token not configured. Set [pdf].mineru_token in .zot/config.toml.")
         self.token = token.strip()
         self.api_base = api_base.rstrip("/")
         self.model_version = _validated_model_version(model_version)
@@ -230,50 +230,36 @@ class MinerUClient:
 
     def _download_archive(self, zip_url: str) -> bytes:
         self._rate_limiter.acquire()
+        body_retries = 0
         for _redirect in range(31):
             trusted = _url_origin(zip_url) == _url_origin(self.api_base)
             headers: dict[str, str | None] = {"Authorization": self._headers["Authorization"] if trusted else None}
-            # None 会移除继承的 session 头；显式 auth 绕过 session/netrc/URL
-            # 凭证，包括预签名下载场景。
-            response = _retry(
-                lambda: self._session.get(
-                    zip_url,
-                    headers=headers,  # ty: ignore[invalid-argument-type]  # None 会移除继承的请求头
-                    auth=lambda request: request,
-                    timeout=300,
-                    allow_redirects=False,
-                )
-            )
-            # requests 在某些跨源重定向时会保留 auth（尤其是 http -> https），
-            # 因此每次实际 GET 前都要重新核对源。
-            if response.status_code in {301, 302, 303, 307, 308} and response.headers.get("Location"):
-                zip_url = urljoin(zip_url, response.headers["Location"])
-                response.close()
-                continue
-            if response.status_code != 200:
-                raise MinerUError(
-                    f"Failed to download MinerU result: HTTP {response.status_code} {_error_text(response)}"
-                )
-            try:
-                return _read_limited_body(response)
-            except _RETRYABLE_EXCEPTIONS:
-                # 在流式读取大体积响应时连接可能中断，而这发生在上面请求级
-                # 重试已经成功之后。下载是幂等的，因此重新发起恰好一次 GET
-                # 并使用其响应体。
-                retried = _retry(
+            while True:
+                # 每次请求重新核对来源；禁用继承鉴权并延迟读取响应体。
+                response = _retry(
                     lambda: self._session.get(
                         zip_url,
-                        headers=headers,  # ty: ignore[invalid-argument-type]  # None 会移除继承的请求头
+                        headers=headers,  # ty: ignore[invalid-argument-type]  # None 移除继承的请求头
                         auth=lambda request: request,
                         timeout=300,
                         allow_redirects=False,
+                        stream=True,
                     )
                 )
-                if retried.status_code != 200:
-                    raise MinerUError(
-                        f"Failed to download MinerU result: HTTP {retried.status_code} {_error_text(retried)}"
-                    )
-                return _read_limited_body(retried)
+                try:
+                    if response.status_code in {301, 302, 303, 307, 308} and response.headers.get("Location"):
+                        zip_url = urljoin(zip_url, response.headers["Location"])
+                        break
+                    if response.status_code != 200:
+                        # 不访问 response.text，避免错误响应绕过归档读取预算。
+                        raise MinerUError(f"Failed to download MinerU result: HTTP {response.status_code}")
+                    return _read_limited_body(response)
+                except _RETRYABLE_EXCEPTIONS:
+                    if body_retries >= 1:
+                        raise
+                    body_retries += 1
+                finally:
+                    response.close()
         raise MinerUError("Too many redirects while downloading MinerU result")
 
 

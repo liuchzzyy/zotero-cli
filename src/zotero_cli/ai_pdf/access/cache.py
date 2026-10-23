@@ -2,7 +2,7 @@
 
 写入分两阶段（mkdtemp 暂存目录 + 同一文件系统内替换），并由按指纹
 加锁的锁文件保护，使并发的 CLI 进程对每份 PDF 最多只解析一次。锁会记录
-持有者 PID：持有进程已死的锁立即回收，其他等待中的锁在过期后回收。隐藏的
+持有者 PID：已死的锁立即回收，确认存活时只等待，无法探测存活性时才按年龄回收。隐藏的
 暂存/锁条目不计入统计与列表，被杀掉的写入留下的过期暂存目录会在下次解析前清扫。
 """
 
@@ -36,8 +36,8 @@ _CACHE_SCHEMA_VERSION = 1
 _LOGGER = logging.getLogger(__name__)
 
 # 跨进程解析预占。第二个 CLI 进程会等待第一个，而不是重复发起 MinerU 批次。
-# 记录的所有者 PID 已不存在的锁立即回收；否则超过过期窗口后视为过期，
-# 该窗口保持在最大等待时间之内，使等待者总能有机会恢复崩溃或卡住的持有者。
+# 已死的持有者立即回收；确认存活的持有者只等待到超时，不能仅凭年龄抢锁。
+# 无法探测存活性时才按过期窗口回收，该窗口保持在最大等待时间之内。
 _LOCK_DIRNAME = ".locks"
 _LOCK_POLL_SECONDS = 0.2
 _LOCK_TIMEOUT_SECONDS = 1800.0
@@ -85,7 +85,7 @@ def _process_is_alive(pid: int) -> bool | None:
 
 @contextmanager
 def _exclusive_lock(lock_path: Path, *, timeout: float, poll: float, stale: float) -> Generator[None]:
-    """创建排他锁文件；等待存活的持有者，并回收已死/过期的锁。"""
+    """创建排他锁文件；仅回收已死或存活性未知且过期的持有者。"""
     deadline = time.monotonic() + timeout
     notified = False
     while True:
@@ -98,7 +98,7 @@ def _exclusive_lock(lock_path: Path, *, timeout: float, poll: float, stale: floa
                 age = time.time() - lock_path.stat().st_mtime
             except OSError:
                 age = 0.0
-            if alive is False or age > stale:
+            if alive is False or (alive is None and age > stale):
                 with contextlib.suppress(OSError):
                     lock_path.unlink()
                 continue

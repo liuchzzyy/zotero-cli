@@ -18,6 +18,7 @@ from zotero_cli.ai_pdf import (
     MinerUError,
     MinerUParseCache,
     MinerUParseResult,
+    MinerUTokenMissingError,
     extract_doi_from_markdown,
 )
 from zotero_cli.ai_pdf.access.client import (
@@ -97,6 +98,28 @@ def test_parsing_service_delegates_batch_results_without_token_preflight(tmp_pat
 
     assert PdfParsingService(cache).parse_many([pdf]) == results
     cache.ensure_many.assert_called_once_with([pdf], None)
+
+
+@pytest.mark.parametrize("batch", [False, True])
+def test_cache_miss_without_token_has_typed_configuration_error(tmp_path, batch):
+    pdf = tmp_path / "paper.pdf"
+    pdf.write_bytes(b"pdf")
+    cache = MinerUParseCache(tmp_path / "cache", token="", model_version="vlm")
+    with pytest.raises(MinerUTokenMissingError):
+        if batch:
+            PdfParsingService(cache).parse_many([pdf])
+        else:
+            cache.ensure(pdf)
+
+
+def test_cache_hit_needs_no_token_or_client(tmp_path):
+    pdf = tmp_path / "paper.pdf"
+    pdf.write_bytes(b"pdf")
+    client = MagicMock()
+    client.parse_many.return_value = {pdf: _remote_for(pdf)}
+    MinerUParseCache(tmp_path / "cache", client=client, model_version="vlm").ensure(pdf)
+    cache = MinerUParseCache(tmp_path / "cache", token="", model_version="vlm")
+    assert isinstance(cache.ensure_many([pdf])[pdf], MinerUParseResult)
 
 
 def test_parse_cache_key_changes_with_pdf_content(tmp_path) -> None:
@@ -508,7 +531,8 @@ def test_dead_owner_lock_is_reclaimed_immediately(tmp_path) -> None:
     assert not lock_path.exists()
 
 
-def test_live_owner_lock_logs_once(tmp_path, monkeypatch, caplog) -> None:
+@pytest.mark.parametrize("age", [0, 910])
+def test_live_owner_lock_logs_once(tmp_path, monkeypatch, caplog, age) -> None:
     pdf = tmp_path / "paper.pdf"
     pdf.write_bytes(b"pdf")
     client = MagicMock()
@@ -518,7 +542,8 @@ def test_live_owner_lock_logs_once(tmp_path, monkeypatch, caplog) -> None:
     lock_dir.mkdir(parents=True)
     fingerprint = cache_module.file_sha256(pdf)
     lock_path = lock_dir / f"{fingerprint}.lock"
-    lock_path.write_text(str(os.getpid()))  # this process is alive
+    lock_path.write_text(str(os.getpid()))  # 当前测试进程保持存活。
+    os.utime(lock_path, (time.time() - age, time.time() - age))
     monkeypatch.setattr(cache_module, "_LOCK_TIMEOUT_SECONDS", 0.1)
     monkeypatch.setattr(cache_module, "_LOCK_POLL_SECONDS", 0.01)
 

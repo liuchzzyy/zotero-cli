@@ -38,6 +38,10 @@ class _Response:
         self._payload = payload or {}
         self.content = content
         self.text = json.dumps(self._payload)
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
 
     def json(self) -> dict:
         return self._payload

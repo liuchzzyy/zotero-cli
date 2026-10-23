@@ -14,7 +14,7 @@ from pathlib import Path
 
 import typer
 
-from zotero_cli.ai_pdf import MinerUError, MinerUParseCache, MinerUParseResult
+from zotero_cli.ai_pdf import MinerUError, MinerUParseCache, MinerUParseResult, MinerUTokenMissingError
 from zotero_cli.ai_pdf.parsing import PdfParsingService
 from zotero_cli.cli.commands.pdf_rag._output import (
     emit_progress,
@@ -399,9 +399,7 @@ def _index_pdf_rag(
                         unique_pdf_paths, batch_progress
                     )
                 except MinerUError as exc:
-                    error_code = (
-                        "configuration_error" if "token not configured" in str(exc).lower() else "network_error"
-                    )
+                    error_code = "configuration_error" if isinstance(exc, MinerUTokenMissingError) else "network_error"
                     emit_error(
                         error_code,
                         str(exc),

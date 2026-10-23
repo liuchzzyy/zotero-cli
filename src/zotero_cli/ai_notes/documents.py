@@ -10,7 +10,7 @@ from collections.abc import Callable
 from typing import Any
 
 from zotero_cli.ai_notes.errors import NoteAnalysisError
-from zotero_cli.ai_pdf import MinerUError, MinerUParseCache, MinerUParseResult
+from zotero_cli.ai_pdf import MinerUError, MinerUParseCache, MinerUParseResult, MinerUTokenMissingError
 from zotero_cli.ai_pdf.parsing import PdfParsingService
 from zotero_cli.pdf_rag import PdfDocument, resolve_pdf_kinds
 from zotero_cli.zotero.access.reader import ZoteroReader
@@ -108,7 +108,7 @@ def collect_documents(
         pdf_parses = PdfParsingService(cache=MinerUParseCache()).parse_many(pdf_paths)
     except MinerUError as exc:
         message = str(exc)
-        code = "configuration_error" if "token not configured" in message.lower() else "network_error"
+        code = "configuration_error" if isinstance(exc, MinerUTokenMissingError) else "network_error"
         raise NoteAnalysisError(message, code=code, retryable=code == "network_error") from exc
 
     parsed_pairs: list[tuple[Any, MinerUParseResult]] = []
