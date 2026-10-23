@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from tests.support import SAMPLE_DATA_DIR
 from tests.support import invoke_cli as _invoke
 
@@ -11,6 +12,15 @@ from zotero_cli.zotero.access.reader import ZoteroReader
 
 
 class TestItemTypeFilter:
+    @pytest.mark.parametrize("query", ["attention", "no-match-anywhere"])
+    def test_unknown_type_is_validation_error(self, query):
+        for args in (["zotero", "search", query], ["zotero", "list"]):
+            result = _invoke([*args, "--type", "nonexistent_type"], json_output=True)
+            assert result.exit_code == 3, result.output
+            error = json.loads(result.output)["error"]
+            assert error["code"] == "validation_error"
+            assert "Unknown item type" in error["message"]
+
     def test_search_filter_by_type_journal(self):
         result = _invoke(["zotero", "search", "attention", "--type", "journalArticle"], json_output=True)
         assert result.exit_code == 0
@@ -25,7 +35,7 @@ class TestItemTypeFilter:
         assert all(i["item_type"] == "book" for i in data)
 
     def test_search_filter_by_type_no_match(self):
-        result = _invoke(["zotero", "search", "attention", "--type", "thesis"], json_output=True)
+        result = _invoke(["zotero", "search", "attention", "--type", "book"], json_output=True)
         assert result.exit_code == 0
         assert json.loads(result.output)["data"] == []
 

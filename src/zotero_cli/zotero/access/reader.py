@@ -571,7 +571,11 @@ class ZoteroReader(CitationExportMixin):
                 "SELECT itemTypeID FROM itemTypes WHERE typeName = ?",
                 (item_type,),
             ).fetchone()
-            if type_row and item_ids:
+            if type_row is None:
+                raise ValueError(
+                    f"Unknown item type '{item_type}'; use a Zotero item type such as journalArticle or book."
+                )
+            if item_ids:
                 typed_ids: set[int] = set()
                 for chunk in self._chunks(list(item_ids)):
                     placeholders = ",".join("?" * len(chunk))

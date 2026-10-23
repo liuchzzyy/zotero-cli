@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import re
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from urllib.parse import unquote, urlparse
 
 
@@ -118,6 +118,25 @@ class AttachmentResolver:
         self._base_attachment_path_loaded = True
         return self._base_attachment_path
 
+    @staticmethod
+    def _relative_path(base: Path, relative: str) -> Path | None:
+        """仅接受基准目录内的相对文件路径，同时检查链接解析后的范围。"""
+        windows = PureWindowsPath(relative)
+        if not relative or "\x00" in relative or windows.drive or windows.root or relative.startswith("/"):
+            return None
+        parts = relative.replace("\\", "/").split("/")
+        if ".." in parts:
+            return None
+        candidate = base.joinpath(*parts)
+        try:
+            root = base.resolve()
+            resolved = candidate.resolve()
+        except (OSError, RuntimeError, ValueError):
+            return None
+        if resolved == root or not resolved.is_relative_to(root):
+            return None
+        return candidate
+
     def resolve(self, attachment_key: str, zotero_path: str) -> Path | None:
         """把 Zotero 附件路径解析为文件系统路径。
 
@@ -133,9 +152,12 @@ class AttachmentResolver:
 
         # Zotero 受管存储：'storage:filename.pdf'
         if zotero_path.startswith("storage:"):
-            rel = zotero_path.split(":", 1)[1]
-            parts = [p for p in rel.split("/") if p]
-            return self.storage_dir / attachment_key / Path(*parts)
+            if not attachment_key or not attachment_key.isascii() or not attachment_key.isalnum():
+                return None
+            base = self.storage_dir / attachment_key
+            if base.is_symlink():
+                return None
+            return self._relative_path(base, zotero_path.split(":", 1)[1])
 
         # 以 URL 表示的链接文件：'file:///path/to/file.pdf'（或 file://server/share）
         if zotero_path.startswith("file://"):
@@ -177,11 +199,9 @@ class AttachmentResolver:
         # Zotero 的 'attachments:' 相对路径——相对于 Zotero 偏好设置中配置的
         # 链接附件基准目录解析。
         if zotero_path.startswith("attachments:"):
-            rel = zotero_path.split(":", 1)[1]
-            parts = [p for p in rel.split("/") if p]
             base = self._read_base_attachment_path()
             if base and base.exists():
-                return base / Path(*parts)
+                return self._relative_path(base, zotero_path.split(":", 1)[1])
             return None
 
         return None

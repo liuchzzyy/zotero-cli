@@ -325,6 +325,7 @@ def collection_rename(
 def collection_reorganize(
     ctx: typer.Context,
     plan_file: str = typer.Argument(help="JSON 重组计划路径。"),
+    yes: bool = typer.Option(False, "--yes", help="确认替换全部旧集合归属。"),
     dry_run: bool = typer.Option(False, "--dry-run", help="仅预览计划，不执行写入。"),
 ) -> None:
     """根据 JSON 计划批量创建集合并替换条目所属集合。"""
@@ -364,7 +365,15 @@ def collection_reorganize(
         )
         return
 
+    replacement_warning = (
+        "This plan replaces all existing collection memberships of each listed item, "
+        "including collections outside the plan; only the new target collections remain. "
+        "Items and existing collections themselves are not deleted."
+    )
+    affected_items = len({key for coll in collections for key in coll.get("items", [])})
     if dry_run:
+        if not json_out:
+            typer.echo(f"[dry-run] {replacement_warning}")
         preview_collections: list[dict[str, Any]] = []
         for coll in collections:
             name = coll["name"]
@@ -390,6 +399,7 @@ def collection_reorganize(
                 "total_collections": len(preview_collections),
                 "total_items": sum(len(coll["items"]) for coll in preview_collections),
                 "would_replace_collection_memberships": True,
+                "replacement_warning": replacement_warning,
             }
             typer.echo(
                 json.dumps(
@@ -401,6 +411,22 @@ def collection_reorganize(
         else:
             typer.echo(f"\n[dry-run] Total: {len(collections)} collections to create")
         return
+
+    if not yes:
+        if ctx.obj.get("no_interaction", False) or not sys.stdin.isatty():
+            emit_error(
+                "confirmation_required",
+                replacement_warning,
+                output_json=json_out,
+                hint="Pass --yes to confirm or use --dry-run to preview",
+                context="collection reorganize",
+            )
+        prompt = (
+            f"Create {len(collections)} collection(s) and reorganize {affected_items} item(s)? {replacement_warning}"
+        )
+        if not typer.confirm(prompt):
+            _emit_json_or_text({"cancelled": True}, output_json=json_out, human_text="Cancelled.")
+            return
 
     library_type = ctx.obj.get("library_type", "user")
     group_id = ctx.obj.get("group_id")

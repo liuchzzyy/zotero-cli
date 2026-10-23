@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from zotero_cli.zotero.access.errors import ZoteroWriteError
-from zotero_cli.zotero.items import delete_items, restore_items
+from zotero_cli.zotero.items import apply_publication_updates, delete_items, restore_items
 from zotero_cli.zotero.tags import update_tags
 
 
@@ -63,3 +63,17 @@ def test_delete_items_marks_definite_rejection_for_idempotency() -> None:
             "definitely_rejected": True,
         }
     ]
+
+
+def test_publication_update_failure_keeps_three_field_error_shape() -> None:
+    writer = MagicMock()
+    writer.update_item.side_effect = ZoteroWriteError("offline", code="network_error", retryable=True, committed=True)
+    results = [{"key": "PAPER", "published": True, "doi": "10.1000/paper"}]
+
+    updated, failed = apply_publication_updates(writer, results)
+
+    expected = {"code": "network_error", "message": "offline", "retryable": True}
+    assert updated == 0
+    assert results[0]["updated"] is False
+    assert results[0]["update_error"] == expected
+    assert failed == [{"key": "PAPER", "error": expected}]

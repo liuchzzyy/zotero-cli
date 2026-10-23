@@ -46,7 +46,7 @@ SAFETY_TIERS: dict[tuple[str, ...], str] = {
     ("zotero", "collection", "create"): WRITE,
     ("zotero", "collection", "move"): WRITE,
     ("zotero", "collection", "rename"): WRITE,
-    ("zotero", "collection", "reorganize"): WRITE,
+    ("zotero", "collection", "reorganize"): DESTRUCTIVE,
     ("zotero", "collection", "delete"): DESTRUCTIVE,
     ("zotero", "trash", "restore"): WRITE,
     # 会改动本地配置/缓存状态的嵌套 config 命令

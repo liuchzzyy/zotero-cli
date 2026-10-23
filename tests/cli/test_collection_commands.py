@@ -3,12 +3,77 @@
 import json
 from unittest.mock import patch
 
+import pytest
 from click.testing import CliRunner
 from tests.support import SAMPLE_DATA_DIR
 
 from zotero_cli.cli import main
 from zotero_cli.zotero.access.errors import ZoteroWriteError
 from zotero_cli.zotero.access.reader import ZoteroReader
+
+
+@pytest.mark.parametrize("no_interaction", [False, True])
+def test_reorganize_requires_confirmation_before_writer(tmp_path, no_interaction):
+    plan = tmp_path / "plan.json"
+    plan.write_text(json.dumps({"collections": [{"name": "New", "items": ["ITEM1"]}]}))
+    args = ["--json", "zotero", "collection", "reorganize", str(plan)]
+    if no_interaction:
+        args.append("--no-interaction")
+    with patch("zotero_cli.cli.commands.zotero.collections.ZoteroWriter") as writer:
+        result = CliRunner().invoke(main, args)
+    assert result.exit_code == 3, result.output
+    error = json.loads(result.output)["error"]
+    assert error["code"] == "confirmation_required"
+    assert "all existing collection memberships" in error["message"]
+    writer.assert_not_called()
+
+
+def test_reorganize_declined_confirmation_makes_no_write(tmp_path):
+    plan = tmp_path / "plan.json"
+    plan.write_text(json.dumps({"collections": [{"name": "New", "items": ["ITEM1"]}]}))
+    with (
+        patch("zotero_cli.cli.commands.zotero.collections.sys") as terminal_sys,
+        patch("zotero_cli.cli.commands.zotero.collections.typer.confirm", return_value=False) as confirm,
+        patch("zotero_cli.cli.commands.zotero.collections.ZoteroWriter") as writer,
+    ):
+        terminal_sys.stdin.isatty.return_value = True
+        result = _run_json(["zotero", "collection", "reorganize", str(plan)])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["data"]["cancelled"] is True
+    assert "all existing collection memberships" in confirm.call_args.args[0]
+    writer.assert_not_called()
+
+
+def test_reorganize_dry_run_explicitly_warns_about_all_memberships(tmp_path):
+    plan = tmp_path / "plan.json"
+    plan.write_text(json.dumps({"collections": [{"name": "New", "items": ["ITEM1"]}]}))
+    result = _run_json(["zotero", "collection", "reorganize", str(plan), "--dry-run"])
+    assert result.exit_code == 0, result.output
+    assert "all existing collection memberships" in json.loads(result.output)["data"]["replacement_warning"]
+
+
+def test_reorganize_accepted_confirmation_keeps_replacement_semantics(tmp_path):
+    plan = tmp_path / "plan.json"
+    plan.write_text(json.dumps({"collections": [{"name": "New", "items": ["ITEM1"]}]}))
+    with (
+        patch("zotero_cli.cli.commands.zotero.collections.sys") as terminal_sys,
+        patch("zotero_cli.cli.commands.zotero.collections.typer.confirm", return_value=True),
+        patch("zotero_cli.cli.commands.zotero.collections.resolve_write_credentials", return_value=("123", "fake")),
+        patch("zotero_cli.cli.commands.zotero.collections.ZoteroWriter") as writer,
+    ):
+        terminal_sys.stdin.isatty.return_value = True
+        writer.return_value.create_collection.return_value = "NEWCOL"
+        result = _run_json(["zotero", "collection", "reorganize", str(plan)])
+    assert result.exit_code == 0, result.output
+    writer.return_value.set_item_collections.assert_called_once_with("ITEM1", ["NEWCOL"])
+    assert json.loads(result.output)["data"]["replaced_existing_memberships"] is True
+
+
+def test_reorganize_schema_reports_destructive_confirmation():
+    result = _run_json(["schema", "zotero", "collection", "reorganize"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)["data"]
+    assert data["safety_tier"] == "destructive"
 
 
 def test_reorganize_partial_failure_is_not_success(tmp_path):
@@ -25,7 +90,7 @@ def test_reorganize_partial_failure_is_not_success(tmp_path):
         cls.return_value.set_item_collections.side_effect = set_collections
         result = CliRunner().invoke(
             main,
-            ["--json", "zotero", "collection", "reorganize", str(plan)],
+            ["--json", "zotero", "collection", "reorganize", str(plan), "--yes"],
             env={"ZOT_LIBRARY_ID": "123", "ZOT_API_KEY": "fake"},
         )
     payload = json.loads(result.output)

@@ -1,6 +1,8 @@
 from pathlib import Path, PureWindowsPath
 from unittest.mock import patch
 
+import pytest
+
 from zotero_cli.zotero.attachments import AttachmentResolver
 
 
@@ -149,6 +151,48 @@ class TestAttachmentResolver:
         resolver = AttachmentResolver(db_path)
         result = resolver.resolve("ABC123", "ftp://server/file.pdf")
         assert result is None
+
+    @pytest.mark.parametrize(
+        "value", ["../outside.pdf", "../../outside.pdf", r"..\outside.pdf", "/outside.pdf", "C:/outside.pdf"]
+    )
+    @pytest.mark.parametrize("prefix", ["storage:", "attachments:"])
+    def test_relative_attachment_rejects_escape(self, tmp_path, value, prefix):
+        resolver = AttachmentResolver(tmp_path / "zotero.sqlite")
+        assert resolver.resolve("ABC123", prefix + value) is None
+
+    @pytest.mark.parametrize("prefix", ["storage:", "attachments:"])
+    def test_relative_attachment_rejects_symlink_escape(self, tmp_path, prefix):
+        base = tmp_path / "storage" / "ABC123" if prefix == "storage:" else tmp_path
+        base.mkdir(parents=True, exist_ok=True)
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (base / "escape").symlink_to(outside, target_is_directory=True)
+        resolver = AttachmentResolver(tmp_path / "zotero.sqlite")
+        if prefix == "attachments:":
+            outside_file = tmp_path.parent / (tmp_path.name + "-missing.pdf")
+            (base / "escape-file").symlink_to(outside_file)
+            assert resolver.resolve("ABC123", prefix + "escape-file") is None
+        else:
+            assert resolver.resolve("ABC123", prefix + "escape/missing.pdf") is None
+
+    @pytest.mark.parametrize("key", ["../OTHER", "/OTHER", "", ".."])
+    def test_storage_rejects_invalid_attachment_key(self, tmp_path, key):
+        assert AttachmentResolver(tmp_path / "zotero.sqlite").resolve(key, "storage:paper.pdf") is None
+
+    def test_storage_rejects_symlinked_attachment_root(self, tmp_path):
+        storage = tmp_path / "storage"
+        storage.mkdir()
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (storage / "ABC123").symlink_to(outside, target_is_directory=True)
+        assert AttachmentResolver(tmp_path / "zotero.sqlite").resolve("ABC123", "storage:paper.pdf") is None
+
+    def test_relative_attachment_allows_contained_symlink_and_missing_file(self, tmp_path):
+        base = tmp_path / "storage" / "ABC123"
+        (base / "inside").mkdir(parents=True)
+        (base / "link").symlink_to(base / "inside", target_is_directory=True)
+        result = AttachmentResolver(tmp_path / "zotero.sqlite").resolve("ABC123", "storage:link/missing.pdf")
+        assert result == base / "link" / "missing.pdf"
 
     def test_storage_dir_property(self, tmp_path):
         """`storage_dir` 等于 `db_path.parent / 'storage'`。"""

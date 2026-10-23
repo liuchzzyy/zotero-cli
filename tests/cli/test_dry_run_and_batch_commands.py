@@ -241,7 +241,9 @@ class TestCollectionJsonOutput:
         plan_file.write_text(json.dumps(plan))
 
         runner = CliRunner()
-        result = runner.invoke(main, ["--json", "zotero", "collection", "reorganize", str(plan_file)], env=WRITE_ENV)
+        result = runner.invoke(
+            main, ["--json", "zotero", "collection", "reorganize", str(plan_file), "--yes"], env=WRITE_ENV
+        )
 
         assert result.exit_code == 0
         env = _parse_json_output(result.output)

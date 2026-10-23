@@ -142,7 +142,7 @@ def test_reorganize_invalid_second_row_is_rejected_before_first_write(
     writer = Mock()
     writer.return_value.create_collection.return_value = "COL1"
     monkeypatch.setattr("zotero_cli.cli.commands.zotero.collections.ZoteroWriter", writer)
-    args = ["--json", "zotero", "collection", "reorganize", str(plan)]
+    args = ["--json", "zotero", "collection", "reorganize", str(plan), "--yes"]
     if dry_run:
         args.append("--dry-run")
 
@@ -190,7 +190,7 @@ def test_reorganize_invalid_json_types_fail_closed(
     writer = Mock()
     writer.return_value.create_collection.return_value = "COL1"
     monkeypatch.setattr("zotero_cli.cli.commands.zotero.collections.ZoteroWriter", writer)
-    args = ["--json", "zotero", "collection", "reorganize", str(plan)]
+    args = ["--json", "zotero", "collection", "reorganize", str(plan), "--yes"]
     if dry_run:
         args.append("--dry-run")
 
@@ -247,7 +247,7 @@ def test_reorganize_invalid_item_moves_fail_before_any_write(
     writer = Mock()
     writer.return_value.create_collection.return_value = "COL1"
     monkeypatch.setattr("zotero_cli.cli.commands.zotero.collections.ZoteroWriter", writer)
-    args = ["--json", "zotero", "collection", "reorganize", str(plan)]
+    args = ["--json", "zotero", "collection", "reorganize", str(plan), "--yes"]
     if dry_run:
         args.append("--dry-run")
 
@@ -300,7 +300,7 @@ def test_reorganize_invalid_hierarchy_is_rejected_before_any_write(
     writer = Mock()
     writer.return_value.create_collection.return_value = "COL1"
     monkeypatch.setattr("zotero_cli.cli.commands.zotero.collections.ZoteroWriter", writer)
-    args = ["--json", "zotero", "collection", "reorganize", str(plan)]
+    args = ["--json", "zotero", "collection", "reorganize", str(plan), "--yes"]
     if dry_run:
         args.append("--dry-run")
 
@@ -369,7 +369,9 @@ def test_reorganize_forward_parent_reference_does_not_become_root(
     writer.return_value.create_collection.side_effect = ["ROOTKEY", "CHILDKEY"]
     monkeypatch.setattr("zotero_cli.cli.commands.zotero.collections.ZoteroWriter", writer)
 
-    result = CliRunner().invoke(main, ["--json", "zotero", "collection", "reorganize", str(plan)], env=WRITE_ENV)
+    result = CliRunner().invoke(
+        main, ["--json", "zotero", "collection", "reorganize", str(plan), "--yes"], env=WRITE_ENV
+    )
 
     assert result.exit_code == 0, result.output
     assert writer.return_value.create_collection.call_args_list == [
@@ -403,7 +405,9 @@ def test_reorganize_failed_parent_never_creates_or_moves_orphaned_descendants(
     monkeypatch.setattr("zotero_cli.cli.commands.zotero.collections.ZoteroWriter", writer)
 
     result = CliRunner().invoke(
-        main, ["--json" if json_output else "--no-json", "zotero", "collection", "reorganize", str(plan)], env=WRITE_ENV
+        main,
+        ["--json" if json_output else "--no-json", "zotero", "collection", "reorganize", str(plan), "--yes"],
+        env=WRITE_ENV,
     )
 
     assert result.exit_code != 0
@@ -447,7 +451,7 @@ def test_reorganize_legacy_valid_plan_preserves_names_and_parent_links(
     writer = Mock()
     writer.return_value.create_collection.side_effect = ["COLA", "COLB", "COLC"]
     monkeypatch.setattr("zotero_cli.cli.commands.zotero.collections.ZoteroWriter", writer)
-    args = ["--json" if json_output else "--no-json", "zotero", "collection", "reorganize", str(plan)]
+    args = ["--json" if json_output else "--no-json", "zotero", "collection", "reorganize", str(plan), "--yes"]
     if dry_run:
         args.append("--dry-run")
 
@@ -494,7 +498,7 @@ def test_reorganize_empty_plan_remains_a_noop(
     plan.write_text(json.dumps(plan_value))
     writer = Mock()
     monkeypatch.setattr("zotero_cli.cli.commands.zotero.collections.ZoteroWriter", writer)
-    args = ["--json", "zotero", "collection", "reorganize", str(plan)]
+    args = ["--json", "zotero", "collection", "reorganize", str(plan), "--yes"]
     if dry_run:
         args.append("--dry-run")
 
@@ -514,7 +518,7 @@ def test_reorganize_malformed_json_is_a_validation_error(
     plan.write_text(contents)
     writer = Mock()
     monkeypatch.setattr("zotero_cli.cli.commands.zotero.collections.ZoteroWriter", writer)
-    args = ["--json", "zotero", "collection", "reorganize", str(plan)]
+    args = ["--json", "zotero", "collection", "reorganize", str(plan), "--yes"]
     if dry_run:
         args.append("--dry-run")
 

@@ -21,6 +21,19 @@ from zotero_cli.zotero.access.idempotency import failure_definitely_rejected
 from zotero_cli.zotero.access.writer import ZoteroWriter
 from zotero_cli.zotero.models import Item
 
+
+def _write_error_fields(error: ZoteroWriteError, *, include_committed: bool = True) -> dict[str, Any]:
+    """把 ZoteroWriteError 转换为批量写入服务共用的错误字段。"""
+    fields: dict[str, Any] = {
+        "code": error.code,
+        "message": str(error),
+        "retryable": error.retryable,
+    }
+    if include_committed:
+        fields["committed"] = error.committed
+    return fields
+
+
 if TYPE_CHECKING:
     from zotero_cli.zotero.access.reader import ZoteroReader
 
@@ -540,12 +553,7 @@ def import_items(
             failed.append(
                 {
                     "entry": entry,
-                    "error": {
-                        "code": error.code,
-                        "message": str(error),
-                        "retryable": error.retryable,
-                        "committed": error.committed,
-                    },
+                    "error": _write_error_fields(error),
                 }
             )
             report(f"  [{i}/{len(lines)}] Failed: {entry} ({error})")
@@ -681,12 +689,7 @@ def update_items(
                     "line": row_line,
                     "key": row_key,
                     "fields": row_fields,
-                    "error": {
-                        "code": error.code,
-                        "message": str(error),
-                        "retryable": error.retryable,
-                        "committed": error.committed,
-                    },
+                    "error": _write_error_fields(error),
                 }
             )
             report(f"  [{index}/{len(updates)}] Failed: {row_key} ({error})")
@@ -735,10 +738,7 @@ def delete_items(
                     rejected_count += 1
             row = {
                 "key": key,
-                "code": error.code,
-                "message": str(error),
-                "retryable": error.retryable,
-                "committed": error.committed,
+                **_write_error_fields(error),
                 "definitely_rejected": rejected or not error.committed,
             }
             failed.append(row)
@@ -774,13 +774,7 @@ def restore_items(
             if report:
                 report({"key": key}, False)
         except ZoteroWriteError as error:
-            row = {
-                "key": key,
-                "code": error.code,
-                "message": str(error),
-                "retryable": error.retryable,
-                "committed": error.committed,
-            }
+            row = {"key": key, **_write_error_fields(error)}
             failed.append(row)
             if report:
                 report(row, True)
@@ -965,7 +959,7 @@ def apply_publication_updates(
             if report:
                 report(r["key"], r.get("title", ""), False)
         except ZoteroWriteError as error:
-            failure = {"code": error.code, "message": str(error), "retryable": error.retryable}
+            failure = _write_error_fields(error, include_committed=False)
             r["updated"] = False
             r["update_error"] = failure
             update_failed.append({"key": r["key"], "error": failure})
