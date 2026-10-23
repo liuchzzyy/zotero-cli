@@ -21,7 +21,10 @@ _ROUTE_LIMITS = {
     "antigravity/claude-sonnet-4-6": (250_000, 4_096),
     "antigravity/claude-opus-4-6-thinking": (250_000, 4_096),
 }
-REQUEST_CEILING = 500_000
+# 单请求的字符上限（不是 target）：图多的综述正文 + 50–90 张正文插图会超过
+# 500k 的文本+图像合计上界，而按 4096/图的保守估算它们在 1M 上下文路由里仍然安全。
+# 650k 是实测所需的最大值（XIPR4NR6：91 张正文图 + 172k 字符 prompt = 627,745）。
+REQUEST_CEILING = 650_000
 OUTPUT_RESERVE = 32_768
 SAFETY_RESERVE = 50_000
 MAX_SI_IMAGES = 30

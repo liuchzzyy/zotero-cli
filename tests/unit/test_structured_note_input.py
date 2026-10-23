@@ -11,6 +11,7 @@ import pytest
 
 from zotero_cli.ai_notes.analysis import analyze_item
 from zotero_cli.ai_notes.evidence import (
+    REQUEST_CEILING,
     build_evidence,
     model_supports_request,
     plan_request,
@@ -133,7 +134,7 @@ def test_missing_main_image_raises_error(tmp_path):
 
 
 def test_fallback_budget_accepts_exact_image_boundary_but_not_overflow():
-    prompt = "x" * (500_000 - 32_768 - 50_000 - 4_096)
+    prompt = "x" * (REQUEST_CEILING - 32_768 - 50_000 - 4_096)
     assert model_supports_request("group/deepseek", prompt, 1)
     assert model_supports_request("antigravity/gemini-3.8-flash", prompt, 1)
     assert not model_supports_request("group/deepseek", prompt, 2)
@@ -151,7 +152,7 @@ def test_coverage_notice_replans_when_its_own_text_removes_an_si_image(tmp_path)
         image_count=2,
     )
     evidence = build_evidence([("SI", "supplementary", si)])
-    prompt = "x" * (500_000 - 32_768 - 50_000 - 4_096)
+    prompt = "x" * (REQUEST_CEILING - 32_768 - 50_000 - 4_096)
     plan, final_prompt, omitted = plan_with_coverage(evidence, prompt, "group/deepseek")
     assert not plan.images
     assert omitted == [1, 2]
@@ -161,7 +162,7 @@ def test_coverage_notice_replans_when_its_own_text_removes_an_si_image(tmp_path)
 def test_si_budget_drops_all_images_only_when_required_text_fits(tmp_path):
     si = _parse(tmp_path, "si", [{"type": "image", "img_path": "images/0.jpg", "page_idx": 0}], image_count=1)
     evidence = build_evidence([("SI", "supplementary", si)])
-    plan = plan_request(evidence, "x" * 416_900, "group/deepseek")
+    plan = plan_request(evidence, "x" * (REQUEST_CEILING - 32_768 - 50_000 - 100), "group/deepseek")
     assert plan.images == []
     assert "【图 1】" in evidence.text
     assert "未附图像" not in evidence.text
@@ -171,7 +172,7 @@ def test_image_budget_does_not_undercount_a_large_image(tmp_path):
     main = _parse(tmp_path, "m", [{"type": "image", "img_path": "images/0.jpg", "page_idx": 0}], image_count=1)
     evidence = build_evidence([("M", "main", main)])
     with pytest.raises(ValueError, match="required main images"):
-        plan_request(evidence, "x" * 416_000, "group/deepseek")
+        plan_request(evidence, "x" * (REQUEST_CEILING - 32_768 - 50_000 - 100), "group/deepseek")
 
 
 def test_image_block_without_a_path_is_rejected_at_build_time(tmp_path):

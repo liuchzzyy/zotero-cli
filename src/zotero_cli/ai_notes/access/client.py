@@ -15,10 +15,7 @@ logger = logging.getLogger(__name__)
 _SYSTEM_PROMPT = "你是一位专业的科研文献分析助手，擅长深入分析学术论文并提取关键信息。"
 
 # 仅在模型拒绝图像输入时追加：所有文本/表格块仍会被分析，但未看到任何图像像素。
-TEXT_ONLY_NOTICE = (
-    "\n\n【图像说明】当前模型不支持图像输入，本次请求未附任何图片。"
-    "图号与图注仍可作为文字证据；不得声称看过图内曲线、坐标、形貌或颜色。"
-)
+TEXT_ONLY_NOTICE = "\n\n【图像说明】当前模型不支持图像输入，本次请求未附任何图片。图号与图注仍可作为文字证据；不得声称看过图内曲线、坐标、形貌或颜色。"
 
 # 各服务商对同一限制的措辞不同；此处只匹配能力类拒绝。仅提及 "image"
 # 的普通错误（载荷过大、URL 错误）不得让请求静默降级为纯文本。
@@ -97,8 +94,7 @@ class AiClient:
         # 因此抛出错误而不是返回部分文本。
         if getattr(choice, "finish_reason", None) == "length":
             raise RuntimeError(
-                "AI truncated (finish_reason=length): the analysis output hit the "
-                "max_tokens limit; raise the output allowance or shorten the prompt"
+                "AI truncated (finish_reason=length): the analysis output hit the max_tokens limit; raise the output allowance or shorten the prompt"
             )
         return (choice.message.content or "").strip()
 

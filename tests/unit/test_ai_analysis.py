@@ -1061,7 +1061,7 @@ class TestPromptBounds:
         ai_client = MagicMock()
         ai_client.config = AiNoteConfig(api_key="k", base_url="http://x", model="group/deepseek", max_extracted_chars=0)
         with (
-            _patch_mineru(att, "word " * 100000, tmp_path),
+            _patch_mineru(att, "word " * 140000, tmp_path),
             pytest.raises(NoteAnalysisError, match="required text") as caught,
         ):
             analyze_item(reader, MagicMock(), ai_client, "ABC123", dry_run=True)
