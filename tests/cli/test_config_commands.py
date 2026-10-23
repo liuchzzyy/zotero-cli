@@ -64,8 +64,8 @@ def test_cli_help():
 def test_config_init(tmp_path):
     config_path = tmp_path / "config.toml"
     result = _invoke(
-        ["config", "init", "--config-path", str(config_path)],
-        input="12345\nmy-api-key\n\n",
+        ["config", "init", "--config-path", str(config_path), "--api-key", "my-api-key"],
+        input="12345\n\n",
     )
     assert result.exit_code == 0
     assert config_path.exists()
