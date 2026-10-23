@@ -126,6 +126,33 @@ def test_dry_run_does_not_reject_images_only_due_to_maximum_packet_reserve(tmp_p
     assert writer.mock_calls == []
 
 
+def test_actual_packet_allows_main_figures_beyond_preview_reserve(tmp_path):
+    reader, writer, client, att, parsed = _setup(tmp_path)
+    count = (REQUEST_CEILING - OUTPUT_RESERVE - SAFETY_RESERVE - MAX_PACKET_CHARS) // 4096 + 10
+    parsed.content_list_path.write_text(
+        json.dumps(
+            [
+                {"type": "text", "text": "正文", "page_idx": 0},
+                *[{"type": "image", "img_path": "images/0.jpg", "page_idx": i} for i in range(count)],
+            ]
+        )
+    )
+    client.chat.side_effect = [
+        _packet(),
+        json.dumps({"sections": [{"type": "paragraph", "text": f"内容 {i}"} for i in range(12)]}),
+    ]
+    with patch("zotero_cli.ai_notes.documents.MinerUParseCache.ensure_many", return_value={att.path: parsed}):
+        result = analyze_item(reader, writer, client, "ITEM1", no_short_note=True)
+    assert result["status"] == "ok"
+    assert result["main_images_sent"] == count
+    assert client.chat.call_count == 2
+    first, second = client.chat.call_args_list
+    assert not first.kwargs["figures"]
+    assert len(second.kwargs["figures"]) == count
+    assert "text-evidence" in second.args[0]
+    writer.add_note.assert_called_once()
+
+
 def test_invalid_source_packet_never_writes(tmp_path):
     reader, writer, client, att, parsed = _setup(tmp_path)
     client.chat.return_value = json.dumps(

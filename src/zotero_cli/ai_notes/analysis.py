@@ -158,46 +158,36 @@ def analyze_item(
         parts.append("### 正文核心图表索引 (Main Figures)\n" + "\n".join(main_figures))
     if si_figures:
         parts.append("### 支撑信息图表索引 (Supplementary Figures)\n" + "\n".join(si_figures))
-    figure_index = (
-        "\n\n".join(parts)
-        if parts
-        else "\n".join(
-            f"{evidence.figure_sources[number]}[图 {number}]{caption}" for number, caption in evidence.captions.items()
-        )
-    )
+    figure_index = "\n\n".join(parts)
     references_text = evidence.references_text or extract_references_text(cleaned)
     visual_template = build_analysis_prompt(item, template, "第一阶段文字证据与图像索引：\n" + figure_index)
-    preview_prompt = visual_note_prompt(
-        visual_template, "文" * MAX_PACKET_CHARS if dry_run else "{}", references_text=references_text
-    )
-    preview_kind = "reserved_packet_estimate"
-    try:
-        plan, preview_prompt, omitted_numbers = plan_with_coverage(evidence, preview_prompt, model, config=ai_config)
-    except EvidenceBudgetError as exc:
-        if not dry_run:
-            raise NoteAnalysisError(str(exc), code="validation_error", parkable=True) from exc
-        # 最大证据包只是预留，不是实际输入；空包也不合规才确认无法容纳正文。
-        preview_prompt = visual_note_prompt(visual_template, "{}", references_text=references_text)
+
+    if dry_run:
+        preview_prompt = visual_note_prompt(visual_template, "文" * MAX_PACKET_CHARS, references_text=references_text)
+        preview_kind = "reserved_packet_estimate"
         try:
             plan, preview_prompt, omitted_numbers = plan_with_coverage(
                 evidence, preview_prompt, model, config=ai_config
             )
-        except ValueError as minimal_error:
-            raise NoteAnalysisError(
-                str(minimal_error), code="validation_error", parkable=isinstance(minimal_error, EvidenceBudgetError)
-            ) from minimal_error
-        preview_kind = "requires_smaller_evidence_packet"
-    except ValueError as exc:
-        raise NoteAnalysisError(str(exc), code="validation_error") from exc
-    figures = plan.images
-    chars_used = len(cleaned)
-    if progress:
-        progress(
-            "figures",
-            f"预检：正文 {len(plan.images) - len(plan.si_images)}/{evidence.main_count}，SI {len(plan.si_images)}/{evidence.si_count} 张；最终数量以第二阶段规划为准",
-        )
-
-    if dry_run:
+        except EvidenceBudgetError:
+            # 最大证据包只是预留；空包也放不下时才确认正文无法发送。
+            preview_prompt = visual_note_prompt(visual_template, "{}", references_text=references_text)
+            try:
+                plan, preview_prompt, omitted_numbers = plan_with_coverage(
+                    evidence, preview_prompt, model, config=ai_config
+                )
+            except ValueError as exc:
+                raise NoteAnalysisError(
+                    str(exc), code="validation_error", parkable=isinstance(exc, EvidenceBudgetError)
+                ) from exc
+            preview_kind = "requires_smaller_evidence_packet"
+        except ValueError as exc:
+            raise NoteAnalysisError(str(exc), code="validation_error") from exc
+        if progress:
+            progress(
+                "figures",
+                f"预检：正文 {len(plan.images) - len(plan.si_images)}/{evidence.main_count}，SI {len(plan.si_images)}/{evidence.si_count} 张；最终数量以第二阶段规划为准",
+            )
         return {
             "status": "dry_run",
             "item_key": key,
@@ -205,8 +195,8 @@ def analyze_item(
             "paper_type": paper_type,
             "template": template_name,
             "pdf_count": len(structured_docs),
-            "chars": chars_used,
-            "figures": len(figures),
+            "chars": len(cleaned),
+            "figures": len(plan.images),
             "figure_refs": total_refs,
             "main_images": evidence.main_count,
             "si_images": len(plan.si_images),
@@ -240,16 +230,11 @@ def analyze_item(
         raise NoteAnalysisError("文字证据请求超出模型预算", code="validation_error", parkable=True)
     if progress:
         progress("evidence", "第一阶段：提取文字证据")
-    try:
-        packet = parse_text_packet(
-            _chat(client, text_prompt, figures=[], allowed_models=text_models, progress=progress),
-            source_text=cleaned,
-            figure_numbers=set(evidence.captions),
-        )
-    except NoteAnalysisError:
-        raise
-    except Exception as exc:
-        raise NoteAnalysisError(f"文字证据生成失败: {type(exc).__name__}: {exc}") from exc
+    packet = parse_text_packet(
+        _chat(client, text_prompt, figures=[], allowed_models=text_models, progress=progress),
+        source_text=cleaned,
+        figure_numbers=set(evidence.captions),
+    )
     final_prompt = visual_note_prompt(visual_template, packet, references_text=references_text)
     try:
         plan, final_prompt, omitted_numbers = plan_with_coverage(evidence, final_prompt, model, config=ai_config)

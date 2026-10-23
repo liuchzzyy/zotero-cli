@@ -15,6 +15,11 @@ htmlcov/
 *.credentials.json
 *.secrets.json
 *.credentials.toml
+# 本地数据库及其临时文件可能含个人文献元数据
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
 # AI 服务调用的本地调试转储可能含文档内容与凭据
 *.request-dump.json
 *.response-dump.json

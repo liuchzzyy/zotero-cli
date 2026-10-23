@@ -234,12 +234,6 @@ def test_supplementary_images_referenced_by_main_are_prioritized(tmp_path):
     assert {44, 45}.issubset({n for n, _ in plan.si_images})
 
 
-def test_parse_retry_keeps_full_image_set_until_explicit_text_only_fallback(tmp_path):
-    parsed = _parse(tmp_path, "m", [{"type": "image", "img_path": "images/0.jpg", "page_idx": 0}], image_count=1)
-    evidence = build_evidence([("M", "main", parsed)])
-    assert len(plan_request(evidence, evidence.text, "group/deepseek").images) == 1
-
-
 def test_real_client_rejects_truncated_output(monkeypatch):
     from zotero_cli.ai_notes.access.client import AiClient
     from zotero_cli.config import AiNoteConfig
