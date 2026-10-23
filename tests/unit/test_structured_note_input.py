@@ -71,7 +71,7 @@ def test_evidence_preserves_table_source_page_and_image_order(tmp_path):
     assert "[MAIN | main | PDF p.1 | Results] Main finding" in evidence.text
     assert '<td colspan="2">Cathode</td>' in evidence.text
     assert "[SI | supplementary | PDF p.62 | Methods] Table S8" in evidence.text
-    assert "【图 1】" in evidence.text and "【图 3】" in evidence.text
+    assert "[图 1]" in evidence.text and "[图 3]" in evidence.text
     assert [n for n, _ in evidence.main_images] == [1, 2]
     assert [n for n, _ in evidence.si_candidates] == [3]
 
@@ -163,7 +163,7 @@ def test_coverage_notice_replans_when_its_own_text_removes_an_si_image(tmp_path)
     plan, final_prompt, omitted = plan_with_coverage(evidence, prompt, "group/deepseek")
     assert not plan.images
     assert omitted == [1, 2]
-    assert "【图 1】" in final_prompt and "【图 2】" in final_prompt
+    assert "[图 1]" in final_prompt and "[图 2]" in final_prompt
 
 
 def test_si_budget_drops_all_images_only_when_required_text_fits(tmp_path):
@@ -171,7 +171,7 @@ def test_si_budget_drops_all_images_only_when_required_text_fits(tmp_path):
     evidence = build_evidence([("SI", "supplementary", si)])
     plan = plan_request(evidence, "x" * (REQUEST_CEILING - 32_768 - 50_000 - 100), "group/deepseek")
     assert plan.images == []
-    assert "【图 1】" in evidence.text
+    assert "[图 1]" in evidence.text
     assert "未附图像" not in evidence.text
 
 
@@ -439,3 +439,19 @@ def test_pipeline_uses_structured_blocks_and_does_not_write_on_preview(tmp_path)
     assert "Verified evidence" in result["prompt_preview"]
     assert "WRONG-MARKDOWN" not in result["prompt_preview"]
     writer.add_note.assert_not_called()
+
+
+def test_build_evidence_collects_structured_ref_text(tmp_path):
+    parsed = _parse(
+        tmp_path,
+        "main",
+        [
+            {"type": "text", "text": "Keywords", "text_level": 2, "page_idx": 0},
+            {"type": "ref_text", "text": "[1] J. Doe, Adv. Mater. 2025, 37, 100.", "page_idx": 0},
+            {"type": "ref_text", "text": "[2] M. Smith, Angew. Chem. 2024, 63, 200.", "page_idx": 0},
+        ],
+    )
+    evidence = build_evidence([("KEY1", "main", parsed)])
+    assert "J. Doe, Adv. Mater. 2025" in evidence.references_text
+    assert "M. Smith, Angew. Chem. 2024" in evidence.references_text
+    assert "[KEY1 | main | PDF p.1 | References]" in evidence.text

@@ -18,6 +18,7 @@ class Evidence:
     captions: dict[int, str]
     main_text: str
     figure_sources: dict[int, str] = field(default_factory=dict)
+    references_text: str = ""
 
 
 @dataclass(frozen=True)

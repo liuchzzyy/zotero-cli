@@ -62,11 +62,13 @@ def build_evidence(documents: list[tuple[str, str, Any]]) -> Evidence:
     captions: dict[int, str] = {}
     figure_sources: dict[int, str] = {}
     main_lines: list[str] = []
+    ref_lines: list[str] = []
     next_image = 1
     for key, kind, parsed in documents:
         attachments.append(f"{kind}:{key}")
         lines.append(f"\n## {'正文' if kind == 'main' else '支撑信息'} [attachment {key}]")
         section = ""
+        attachment_ref_started = False
         raw = parsed.root / "raw"
         safe_root = raw.resolve()
         blocks = _blocks(parsed.content_list)
@@ -77,12 +79,31 @@ def build_evidence(documents: list[tuple[str, str, Any]]) -> Evidence:
             if typ in _SKIP_TYPES:
                 continue
             page = block.get("page_idx")
-            label = f"[{key} | {kind} | PDF p.{page + 1 if type(page) is int else '?'}"
+            p_str = f"PDF p.{page + 1 if type(page) is int else '?'}"
             text = str(block.get("text") or "").strip()
+            level = block.get("text_level")
+
             if typ == "ref_text":
                 section = "References"
-            elif isinstance(block.get("text_level"), int) and text:
+                if text:
+                    ref_lines.append(text)
+                if not attachment_ref_started:
+                    lines.append(f"\n## [{key} | {kind} | {p_str} | References] 参考文献")
+                    attachment_ref_started = True
+                if text:
+                    lines.append(text)
+                continue
+
+            if isinstance(level, int) and text:
                 section = text
+                header_prefix = "#" * max(1, min(level, 3))
+                label = f"[{key} | {kind} | {p_str} | {section}] "
+                lines.append(f"\n{header_prefix} {label}{text}")
+                if kind == "main":
+                    main_lines.append(text)
+                continue
+
+            label = f"[{key} | {kind} | {p_str}"
             if section:
                 label += f" | {section}"
             label += "] "
@@ -92,7 +113,7 @@ def build_evidence(documents: list[tuple[str, str, Any]]) -> Evidence:
                 caption = _join(block.get(f"{typ}_caption"))
                 captions[number] = caption
                 figure_sources[number] = label.strip()
-                lines.append(f"{label}【图 {number}】{typ}: {caption}")
+                lines.append(f"{label}[图 {number}]{typ}: {caption}")
                 path_value = block.get("img_path")
                 if not isinstance(path_value, str) or not path_value:
                     raise ValueError(f"image block without img_path in {key}")
@@ -107,12 +128,25 @@ def build_evidence(documents: list[tuple[str, str, Any]]) -> Evidence:
                     lines.append(f"{label}{caption_text}\n{body}")
                 else:
                     lines.append(f"{label}{caption_text} [表格解析缺失，请勿据此推断数值]")
-            elif typ in {"text", "title", "heading", "ref_text", "equation"} and text:
+            elif typ == "equation" and text:
+                lines.append(f"{label}[独立公式]\n$$\n{text}\n$$")
+                if kind == "main":
+                    main_lines.append(text)
+            elif typ in {"text", "title", "heading"} and text:
                 lines.append(label + text)
                 if kind == "main":
                     main_lines.append(text)
     return Evidence(
-        "\n".join(lines), main, si, len(main), len(si), attachments, captions, "\n".join(main_lines), figure_sources
+        "\n".join(lines),
+        main,
+        si,
+        len(main),
+        len(si),
+        attachments,
+        captions,
+        "\n".join(main_lines),
+        figure_sources,
+        "\n".join(ref_lines),
     )
 
 
@@ -302,8 +336,8 @@ def plan_with_coverage(
         reasons.update(plan.omitted_reasons)
         excluded.update(omitted)
         prompt = base_prompt + (
-            "\n\n【图像覆盖说明】以下图像只有文字/图注而未附图像，请勿声称直接看过图内曲线、坐标或形貌："
-            + "、".join(f"【图 {number}】" for number in requested if number in excluded)
+            "\n\n[图像覆盖说明]以下图像只有文字/图注而未附图像，请勿声称直接看过图内曲线、坐标或形貌："
+            + "、".join(f"[图 {number}]" for number in requested if number in excluded)
         )
     raise EvidenceBudgetError("image coverage planning did not converge")
 

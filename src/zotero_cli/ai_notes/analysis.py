@@ -142,10 +142,30 @@ def analyze_item(
         raise NoteAnalysisError(
             "required text exceeds the model budget; do not truncate evidence", code="validation_error", parkable=True
         )
-    figure_index = "\n".join(
-        f"{evidence.figure_sources[number]}【图 {number}】{caption}" for number, caption in evidence.captions.items()
+    main_numbers = {num for num, _ in evidence.main_images}
+    main_figures = [
+        f"{evidence.figure_sources[num]}[图 {num}]{caption}"
+        for num, caption in evidence.captions.items()
+        if num in main_numbers
+    ]
+    si_figures = [
+        f"{evidence.figure_sources[num]}[图 {num}]{caption}"
+        for num, caption in evidence.captions.items()
+        if num not in main_numbers
+    ]
+    parts: list[str] = []
+    if main_figures:
+        parts.append("### 正文核心图表索引 (Main Figures)\n" + "\n".join(main_figures))
+    if si_figures:
+        parts.append("### 支撑信息图表索引 (Supplementary Figures)\n" + "\n".join(si_figures))
+    figure_index = (
+        "\n\n".join(parts)
+        if parts
+        else "\n".join(
+            f"{evidence.figure_sources[number]}[图 {number}]{caption}" for number, caption in evidence.captions.items()
+        )
     )
-    references_text = extract_references_text(cleaned)
+    references_text = evidence.references_text or extract_references_text(cleaned)
     visual_template = build_analysis_prompt(item, template, "第一阶段文字证据与图像索引：\n" + figure_index)
     preview_prompt = visual_note_prompt(
         visual_template, "文" * MAX_PACKET_CHARS if dry_run else "{}", references_text=references_text

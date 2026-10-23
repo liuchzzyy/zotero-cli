@@ -474,7 +474,7 @@ def main(argv: list[str] | None = None) -> None:
         dry_run=not args.apply,
         batch_size=args.batch_size,
     )
-    mode_label = "【实际写入完成】" if args.apply else "【预览模式 (dry-run)】"
+    mode_label = "[实际写入完成]" if args.apply else "[预览模式 (dry-run)]"
     print(f"{mode_label} 结果：{result}")
 
 

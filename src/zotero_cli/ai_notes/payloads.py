@@ -18,7 +18,7 @@ def user_content(prompt: str, figures: list[tuple[int, str]]) -> Any:
     for number, data_url in figures:
         content.extend(
             [
-                {"type": "text", "text": f"\n\n【图 {number}】"},
+                {"type": "text", "text": f"\n\n[图 {number}]"},
                 {"type": "image_url", "image_url": {"url": data_url}},
             ]
         )

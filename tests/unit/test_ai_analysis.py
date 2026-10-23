@@ -828,7 +828,7 @@ class TestDuplicateDocumentFigureNumbering:
         result, prompt = self._dry_run(tmp_path, docs)
         assert result["figure_refs"] == 3
         assert result["figures"] == 3
-        assert [int(n) for n in re.findall(r"【图 ([0-9]+)】", prompt)] == [1, 2, 3]
+        assert [int(n) for n in re.findall(r"\[图 ([0-9]+)\]", prompt)] == [1, 2, 3]
 
     def test_identical_duplicate_pdf_is_deduped_before_numbering(self, tmp_path):
         docs = [
@@ -838,7 +838,7 @@ class TestDuplicateDocumentFigureNumbering:
         result, prompt = self._dry_run(tmp_path, docs)
         assert result["figure_refs"] == 2
         assert result["figures"] == 2
-        assert [int(n) for n in re.findall(r"【图 ([0-9]+)】", prompt)] == [1, 2]
+        assert [int(n) for n in re.findall(r"\[图 ([0-9]+)\]", prompt)] == [1, 2]
 
     def test_duplicate_supplementary_documents_are_deduped(self, tmp_path):
         docs = [
@@ -866,7 +866,7 @@ class TestDuplicateDocumentFigureNumbering:
         assert result["figure_refs"] == 2
         assert result["figures"] == 2
         assert capture.prompts, "format_template 未被捕获：patch 目标与调用方导入方式不匹配"
-        assert re.findall(r"【图 ([0-9]+)】", capture.prompts[0]) == [
+        assert re.findall(r"\[图 ([0-9]+)\]", capture.prompts[0]) == [
             "1",
             "2",
         ]
@@ -877,7 +877,7 @@ class TestDuplicateDocumentFigureNumbering:
             _make_parsed_document(tmp_path, "long", _figure_markdown(2, extra_long_line=True), image_count=2),
         ]
         result, prompt = self._dry_run(tmp_path, docs)
-        markers = [int(n) for n in re.findall(r"【图 ([0-9]+)】", prompt)]
+        markers = [int(n) for n in re.findall(r"\[图 ([0-9]+)\]", prompt)]
         assert markers == [1, 2]
         assert "图 3" not in prompt
         assert result["figure_refs"] == 2

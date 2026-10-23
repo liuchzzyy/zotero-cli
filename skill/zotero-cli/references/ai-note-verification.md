@@ -36,7 +36,7 @@ Accepted forms — the "S" sits either on the number or on a qualifier word, and
 produces both: `Figure S1`, `Fig. S1`, `Supplementary Figure 1`, `Supplementary Fig. 2-1`,
 `Table S1`, `Supplementary Table 1`, against plain `Figure 1`, `Fig. 2`, `Scheme 1`,
 `Table 1`. Panel fragments (`a b`, `C`, `(a-1)`) carry no label and are ignored. Rules run
-in order: one S-numbered document is the SI; failing that, one document carrying *any*
+in order: one S-numbered document is the SI; failing that, one document carrying _any_
 S-numbered caption (a Nature-style SI numbers figures plainly but tables
 "Supplementary Table 1"); then one plainly numbered document with everything else as SI;
 then `infer_pdf_kind` (cover line, filename, front matter); then the longer document.
@@ -50,7 +50,7 @@ number of panels you expect in the article. `omitted_images` should be zero exce
 SIs that exceed the available context/byte budget (then it equals `si_candidates − si_images`), and
 `skipped_images` lists genuine 1x1 placeholders or unavailable SI images. Corrupt or uncompressible required main images fail before a note write. `image_manifest` records the decoded dimensions, lossless encoding, source/sent hashes and bytes.
 
-Known limits of the mechanism: a supplement that numbers its figures plainly *and* has no
+Known limits of the mechanism: a supplement that numbers its figures plainly _and_ has no
 S-numbered table captions cannot be told apart from the article by numbering, and a pair
 of scanned old papers with no captions falls through to the filename heuristics. On the
 194 cached two-PDF items here the rule resolves every item to exactly one main text;
@@ -78,10 +78,10 @@ claims you intend to repeat.
 MinerU renders mathematics as LaTeX, and its OCR emits per-character spacing
 inside those spans. The value is present, but not as a contiguous string:
 
-| You expect | The Markdown actually contains |
-|---|---|
-| `60.61` | `$R_{ct} = 6 0 . 6 1 \Omega$` |
-| `1.6 eV` | `1 . 6 eV` |
+| You expect  | The Markdown actually contains                           |
+| ----------- | -------------------------------------------------------- |
+| `60.61`     | `$R_{ct} = 6 0 . 6 1 \Omega$`                            |
+| `1.6 eV`    | `1 . 6 eV`                                               |
 | `5 mg cm-2` | `5 mg cm\u0001<sup>2</sup>` (unit superscript split off) |
 
 So strip separators before comparing, and search both forms before concluding
@@ -95,7 +95,7 @@ loose = re.search(r"6\s*0\s*\.\s*6\s*1", flat)  # whitespace-tolerant
 ```
 
 A zero hit in the first form alone is a false negative and must not be reported
-as a fabricated number. A zero hit in *both* forms is real: re-read the sentence
+as a fabricated number. A zero hit in _both_ forms is real: re-read the sentence
 around the claim before deciding whether the note over-reached.
 
 ### The PDF text layer is the tie-breaker
@@ -147,7 +147,7 @@ with pyzotero (see the SKILL.md snippet for the exact client construction).
 ## 5. Check what the model could actually see
 
 The note is built from MinerU `content_list.json`, not `document.md`: `image` and
-`chart` blocks become `【图 N】` markers **and** payload parts read from `raw/`, so a
+`chart` blocks become `[图 N]` markers **and** payload parts read from `raw/`, so a
 chart panel that Markdown never referenced is still attached. The request is
 budgeted as two main analysis calls — text evidence first, then evidence packet plus figures. The visual call uses `min(route context, 800k)` minus rendered text,
 output reserve and safety margin buys images at a per-image ceiling. **Every
@@ -167,7 +167,7 @@ numbering. `max_extracted_chars` is now a ceiling that fails the run instead of
 truncating evidence; its default is 250,000 chars, and `timeout_seconds`
 defaults to 300 s (a 51-image, 201 k-char analysis call measured 106 s).
 Titles/authors/journal/date/DOI/full text are wrapped as untrusted data by the
-prompt templates; only the *short-note* prompt is still char-capped
+prompt templates; only the _short-note_ prompt is still char-capped
 (220,000 after counting the template plus rendered metadata), while the analysis
 prompt is bounded by `max_extracted_chars` and per-stage 800k estimated budget instead. A typed writer failure with `committed` set
 means the note write may already have landed: verify before retrying, and remember
@@ -185,7 +185,7 @@ figures, asking for figure type, axis ranges and readable annotations, costs
 nothing in the library and settles whether images work at all.
 
 Two operational notes. There is no figure count cap any more: every main-text
-panel is mandatory and the run fails rather than dropping one (except decoded 1x1 placeholders). SI is selected by context and exact serialized request bytes, and a parse-retry resends the *same* image set with renewed preflight. And a
+panel is mandatory and the run fails rather than dropping one (except decoded 1x1 placeholders). SI is selected by context and exact serialized request bytes, and a parse-retry resends the _same_ image set with renewed preflight. And a
 `finish_reason=length` answer is rejected instead of being saved, so a truncated
 JSON note cannot land in the library — read the error rather than re-running.
 
