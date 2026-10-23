@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from zotero_cli.ai_notes.access.client import AiClient
 from zotero_cli.config import (
     AiNoteConfig,
     AppConfig,
@@ -485,6 +486,12 @@ def test_ai_note_config_timing_defaults():
     config = AiNoteConfig()
     assert config.timeout_seconds == 300.0
     assert config.max_retries == 2
+
+
+def test_ai_note_default_model_chain_prefers_vision_route():
+    """默认顺序由 Gemini 承担视觉请求，DeepSeek 作备用；链条顺序不可被集合去序。"""
+    chain = AiClient(AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1")).get_model_chain()
+    assert chain == ["antigravity/gemini-3.8-flash", "group/deepseek"]
 
 
 def test_load_ai_note_config_env_overrides_without_config_file(tmp_path, monkeypatch):

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +17,7 @@ class Evidence:
     attachments: list[str]
     captions: dict[int, str]
     main_text: str
+    figure_sources: dict[int, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -29,9 +30,11 @@ class RequestPlan:
     request_bytes: int
     image_tokens_reserved: int
     omitted_si: int
-    # MinerU 生成但无法附上的图像（1x1 占位图，或超出大小上限的文件）。
+    # 解码后确认的占位图及无法附上的 SI 图；无效正文图会报错。
     # 它们会在 prompt 中声明，绝不静默丢弃。
     skipped: list[int]
+    image_manifest: list[dict[str, Any]] = field(default_factory=list)
+    omitted_reasons: dict[int, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

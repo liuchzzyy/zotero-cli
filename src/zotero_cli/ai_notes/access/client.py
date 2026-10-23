@@ -8,11 +8,11 @@ from typing import Any
 
 from openai import DefaultHttpx2Client, OpenAI
 
+from zotero_cli.ai_notes.errors import NoteAnalysisError
+from zotero_cli.ai_notes.payloads import build_request, request_bytes, user_content
 from zotero_cli.config import AiNoteConfig
 
 logger = logging.getLogger(__name__)
-
-_SYSTEM_PROMPT = "你是一位专业的科研文献分析助手，擅长深入分析学术论文并提取关键信息。"
 
 # 仅在模型拒绝图像输入时追加：所有文本/表格块仍会被分析，但未看到任何图像像素。
 TEXT_ONLY_NOTICE = "\n\n【图像说明】当前模型不支持图像输入，本次请求未附任何图片。图号与图注仍可作为文字证据；不得声称看过图内曲线、坐标、形貌或颜色。"
@@ -63,19 +63,17 @@ class AiClient:
         for m in getattr(self.config, "fallback_models", []):
             if m and m not in chain:
                 chain.append(m)
-        return chain or ["group/deepseek", "antigravity/gemini-3.8-flash"]
+        return chain or ["antigravity/gemini-3.8-flash", "group/deepseek"]
 
     def _user_content(self, prompt: str, figures: list[tuple[int, str]]) -> Any:
         """构造用户消息；提供图片时把图像作为 image 部分附上。"""
-        if not figures:
-            return prompt
-        content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
-        for number, data_url in figures:
-            content.append({"type": "text", "text": f"\n\n【图 {number}】"})
-            content.append({"type": "image_url", "image_url": {"url": data_url}})
-        return content
+        return user_content(prompt, figures)
 
     def _send(self, **kwargs: Any) -> str:
+        from zotero_cli.ai_notes.evidence import MAX_REQUEST_BYTES
+
+        if request_bytes(kwargs) > MAX_REQUEST_BYTES:
+            raise NoteAnalysisError("request body exceeds safe byte limit", code="validation_error", parkable=True)
         response = self._client.chat.completions.create(**kwargs)
         usage = getattr(response, "usage", None)
         self.last_usage = (
@@ -106,6 +104,7 @@ class AiClient:
         progress: Callable[[str, str], None] | None = None,
         figures: list[tuple[int, str]] | None = None,
         allowed_models: set[str] | None = None,
+        require_images: bool = False,
     ) -> str:
         models = [model for model in self.get_model_chain() if allowed_models is None or model in allowed_models]
         last_error: Exception | None = None
@@ -113,26 +112,14 @@ class AiClient:
         for idx, model in enumerate(models):
             # 能力限制按模型各自生效：此处拒绝图像，不能让链中后续的视觉模型也丢失图片。
             attempt_figures = figures or []
-            create_kwargs: dict[str, Any] = {
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": _SYSTEM_PROMPT},
-                    {"role": "user", "content": self._user_content(prompt, attempt_figures)},
-                ],
-                "temperature": self.config.temperature if temperature is None else temperature,
-            }
-            if self.config.max_tokens > 0:
-                create_kwargs["max_tokens"] = self.config.max_tokens
-            if getattr(self.config, "reasoning_effort", None):
-                create_kwargs["reasoning_effort"] = self.config.reasoning_effort
+            create_kwargs = build_request(prompt, attempt_figures, model, self.config, temperature)
 
             try:
                 return self._send(**create_kwargs)
             except Exception as error:
                 err_str = str(error).lower()
-                # 纯文本模型会拒绝图像部分；改用不带图片的方式重试该模型，
-                # 而不是让整次分析失败。
-                if attempt_figures and any(hint in err_str for hint in _IMAGE_REJECTION_HINTS):
+                # 可选图片请求可明确降级；视觉成稿要求图片时直接尝试下一路由。
+                if attempt_figures and not require_images and any(hint in err_str for hint in _IMAGE_REJECTION_HINTS):
                     msg = f"模型 {model} 不接受图片输入，改为纯文本重试"
                     logger.warning(msg)
                     if progress:

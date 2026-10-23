@@ -71,8 +71,8 @@ class PdfConfig:
 class AiNoteConfig:
     api_key: str = ""
     base_url: str = ""
-    model: str = "group/deepseek"
-    fallback_models: list[str] = field(default_factory=lambda: ["antigravity/gemini-3.8-flash"])
+    model: str = "antigravity/gemini-3.8-flash"
+    fallback_models: list[str] = field(default_factory=lambda: ["group/deepseek"])
     reasoning_effort: str = "max"
     temperature: float = 0.7
     max_tokens: int = 0

@@ -78,6 +78,7 @@ def analysis_inputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Ma
     writer.add_note.return_value = "NOTE1"
     ai_client = MagicMock()
     ai_client.config = AiNoteConfig()
+    ai_client.get_model_chain.return_value = ["group/deepseek"]
     return reader, writer, ai_client
 
 
@@ -136,6 +137,20 @@ def test_classification_network_failure_is_retryable_without_tagging(
     ai_client.chat.side_effect = [
         ConnectionError("temporary classification outage"),
         '{"paper_type": "research_article"}',
+        json.dumps(
+            {
+                "evidence": [
+                    {
+                        "source": "[PDF1 | main | PDF p.1]",
+                        "claim": "Current evidence",
+                        "conditions": "未知",
+                        "data": "未知",
+                        "figure_refs": [],
+                    }
+                ],
+                "unresolved": [],
+            }
+        ),
         json.dumps({"sections": [{"type": "paragraph", "text": "Evidence."}] * 12}),
     ]
 
@@ -150,7 +165,7 @@ def test_classification_network_failure_is_retryable_without_tagging(
 
     assert result["status"] == "ok"
     writer.add_note.assert_called_once()
-    assert ai_client.chat.call_count == 3
+    assert ai_client.chat.call_count == 4
 
 
 @pytest.mark.parametrize(
@@ -202,7 +217,7 @@ def test_structured_image_paths_never_read_outside_parse_assets(
         evidence = build_evidence([("ATT", "main", parsed)])
         plan = plan_request(evidence, "prompt", "group/deepseek")
         assert [number for number, _ in plan.images] == [1, 2]
-        assert reads.count(normal.resolve()) == 2
+        assert reads.count(normal.resolve()) == 1
     else:
         with pytest.raises(ValueError, match="escapes cache"):
             build_evidence([("ATT", "main", parsed)])
@@ -260,7 +275,24 @@ def test_analysis_without_renderable_body_never_writes_a_title_only_note(
 ) -> None:
     reader, writer, ai_client = analysis_inputs
     reader.get_item.return_value.item_type = "book"
-    ai_client.chat.return_value = json.dumps({"sections": sections})
+    ai_client.chat.side_effect = [
+        json.dumps(
+            {
+                "evidence": [
+                    {
+                        "source": "[PDF1 | main | PDF p.1]",
+                        "claim": "Current evidence",
+                        "conditions": "未知",
+                        "data": "未知",
+                        "figure_refs": [],
+                    }
+                ],
+                "unresolved": [],
+            }
+        ),
+        json.dumps({"sections": sections}),
+        json.dumps({"sections": sections}),
+    ]
 
     with pytest.raises(NoteAnalysisError) as caught:
         analyze_item(reader, writer, ai_client, "ITEM1", no_short_note=True)

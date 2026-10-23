@@ -47,9 +47,8 @@ figures lose the "required" status and get sampled away by the SI cap.
 
 What to check on a run: `pdf_count`, and that `main_images` is non-zero and roughly the
 number of panels you expect in the article. `omitted_images` should be zero except for
-SIs bigger than 30 panels (then it equals `si_candidates − si_images`), and
-`skipped_images` lists degenerate attachments under 1 kB or over 5 MB that were dropped
-with a prompt notice instead of failing the run.
+SIs that exceed the available context/byte budget (then it equals `si_candidates − si_images`), and
+`skipped_images` lists genuine 1x1 placeholders or unavailable SI images. Corrupt or uncompressible required main images fail before a note write. `image_manifest` records the decoded dimensions, lossless encoding, source/sent hashes and bytes.
 
 Known limits of the mechanism: a supplement that numbers its figures plainly *and* has no
 S-numbered table captions cannot be told apart from the article by numbering, and a pair
@@ -150,20 +149,19 @@ with pyzotero (see the SKILL.md snippet for the exact client construction).
 The note is built from MinerU `content_list.json`, not `document.md`: `image` and
 `chart` blocks become `【图 N】` markers **and** payload parts read from `raw/`, so a
 chart panel that Markdown never referenced is still attached. The request is
-budgeted as one preflighted call — `min(route context, 500k)` minus rendered text,
+budgeted as two main analysis calls — text evidence first, then evidence packet plus figures. The visual call uses `min(route context, 800k)` minus rendered text,
 output reserve and safety margin buys images at a per-image ceiling. **Every
-main-text image must fit or the run fails**; SI is capped at 30 and prioritised by
+main-text image must fit or the run fails**; SI has no fixed count cap and is prioritised by
 `Figure S<n>` references in the main text, and the prompt lists the SI numbers that
 were not sent so the model cannot describe those panels.
 
 Read `--dry-run`'s `main_images`, `si_images`, `si_candidates`,
 `estimated_tokens_upper_bound`, `request_bytes` and `budget_model` before trusting a
-run, and compare `estimate` with the provider's reported `usage` afterwards — the
+run; dry-run visual counts reserve the maximum evidence-packet length and are estimates, not the actual plan. Compare `estimate` with the provider's reported `usage` afterwards — the
 estimate is a conservative bound, not a tokenizer. A route without a verified
 context/image budget raises `validation_error` rather than guessing. A
 `finish_reason=length` answer is rejected (never written as a note); a
-capability-level image rejection drops all images but keeps every text/table block
-and appends an explicit "no images attached" notice. Main-text and supplementary
+image-capability rejection in the visual stage tries another eligible route with the same figures; it never saves a text-only downgrade. Main-text and supplementary
 document copies are deduped (longest copy kept) by original document text before
 numbering. `max_extracted_chars` is now a ceiling that fails the run instead of
 truncating evidence; its default is 250,000 chars, and `timeout_seconds`
@@ -171,14 +169,12 @@ defaults to 300 s (a 51-image, 201 k-char analysis call measured 106 s).
 Titles/authors/journal/date/DOI/full text are wrapped as untrusted data by the
 prompt templates; only the *short-note* prompt is still char-capped
 (220,000 after counting the template plus rendered metadata), while the analysis
-prompt is bounded by `max_extracted_chars` and the 500k image budget instead. A typed writer failure with `committed` set
+prompt is bounded by `max_extracted_chars` and per-stage 800k estimated budget instead. A typed writer failure with `committed` set
 means the note write may already have landed: verify before retrying, and remember
 `--force` appends notes instead of replacing them. Definite rejections
 (`validation_error`/`not_found`/auth) are non-committed and release the idempotency
 reservation; only committed/unknown outcomes keep it reserved.
-A text-only model in the fallback chain rejects the image parts, so retry that
-model without them instead of aborting; capability is per model, so an image
-rejection must not strip figures for a vision model tried next. Before repeating any judgement about plots, micrographs or axis
+The visual stage requires images: a rejection must not strip figures for a route tried next, and all routes rejecting pictures fails the run. Before repeating any judgement about plots, micrographs or axis
 readings, look for details that exist solely in the graphics — a scale bar, an
 axis range, an inset label. Commentary that matches the caption wording verbatim
 is consistent with captions only.
@@ -189,9 +185,7 @@ figures, asking for figure type, axis ranges and readable annotations, costs
 nothing in the library and settles whether images work at all.
 
 Two operational notes. There is no figure count cap any more: every main-text
-panel is mandatory and the run fails rather than dropping one, SI is capped at
-30, and a parse-retry resends the *same* image set (only an explicit
-image-capability rejection drops all images, keeping every text block). And a
+panel is mandatory and the run fails rather than dropping one (except decoded 1x1 placeholders). SI is selected by context and exact serialized request bytes, and a parse-retry resends the *same* image set with renewed preflight. And a
 `finish_reason=length` answer is rejected instead of being saved, so a truncated
 JSON note cannot land in the library — read the error rather than re-running.
 

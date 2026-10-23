@@ -113,6 +113,10 @@ def _print_human(result: dict[str, Any]) -> None:
         typer.echo(f"  类型：{result.get('paper_type')}")
         typer.echo(f"  模板：{result.get('template')}")
         typer.echo(f"  PDF：{result.get('pdf_count')} 个，正文 {result.get('chars')} 字符")
+        if result.get("visual_counts_are_estimates"):
+            typer.echo(
+                f"  视觉预检估算：正文 {result.get('main_images')}，SI {result.get('si_images')}/{result.get('si_candidates')} 张（已为文字证据包预留；实际可能不同）"
+            )
         typer.echo("  --- 将发给 AI 的输入预览 ---")
         typer.echo(result.get("prompt_preview", ""))
     elif status == "ok":
@@ -120,6 +124,10 @@ def _print_human(result: dict[str, Any]) -> None:
             f"已生成 note {result.get('note_key')}：类型 {result.get('paper_type')}，"
             f"{result.get('sections')} 个 section"
         )
+        if "main_images_sent" in result:
+            typer.echo(
+                f"  实际附图：正文 {result['main_images_sent']}，SI {result['si_images_sent']}/{result['si_candidates']} 张"
+            )
         _print_short_note(result)
     elif status == "short_note_only":
         typer.echo(f"已基于 note {result.get('note_key')} 生成简记")

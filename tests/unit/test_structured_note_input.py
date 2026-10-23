@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+from tests.support import jpeg_bytes
 
 from zotero_cli.ai_notes.analysis import analyze_item
 from zotero_cli.ai_notes.constants import PARSE_RETRY_SUFFIX, SPARSE_RETRY_SUFFIX
@@ -33,7 +34,7 @@ def _parse(tmp_path: Path, name: str, blocks: list[dict], *, image_count: int = 
     images = root / "raw" / "images"
     images.mkdir(parents=True)
     for i in range(image_count):
-        (images / f"{i}.jpg").write_bytes(b"\xff\xd8\xff" + b"a" * 5000)
+        (images / f"{i}.jpg").write_bytes(jpeg_bytes())
     return SimpleNamespace(root=root, content_list=blocks, fingerprint=name)
 
 
@@ -87,9 +88,9 @@ def test_more_than_thirty_si_images_are_sampled_not_only_the_front(tmp_path):
     )
     evidence = build_evidence([("SI", "supplementary", si)])
     plan = plan_request(evidence, "Prompt " + evidence.text, "group/deepseek")
-    assert len(plan.si_images) == 30
-    assert plan.si_images[-1][0] > 30
-    assert len(plan.images) == 30
+    assert len(plan.si_images) == 45
+    assert plan.si_images[-1][0] == 45
+    assert len(plan.images) == 45
     assert "未附图像" not in evidence.text
 
 
@@ -97,7 +98,7 @@ def test_plan_never_truncates_required_text_or_main_images(tmp_path):
     main = _parse(tmp_path, "m", [{"type": "chart", "img_path": "images/0.jpg", "page_idx": 0}], image_count=1)
     evidence = build_evidence([("MAIN", "main", main)])
     with pytest.raises(ValueError, match="required text"):
-        plan_request(evidence, "X" * 600_000, "group/deepseek")
+        plan_request(evidence, "X" * (REQUEST_CEILING + 1), "group/deepseek")
     (main.root / "raw" / "images" / "0.jpg").unlink()
     with pytest.raises(ValueError, match="main image"):
         plan_request(evidence, evidence.text, "group/deepseek")
@@ -202,9 +203,9 @@ def test_degenerate_spacer_image_is_skipped_and_reported_not_fatal(tmp_path):
     # 绝不能中断本可正常使用的分析。
     parsed = _parse(tmp_path, "m", [{"type": "image", "img_path": "images/0.jpg", "page_idx": 0}], image_count=0)
     normal = parsed.root / "raw" / "images" / "0.jpg"
-    normal.write_bytes(b"\xff\xd8\xff" + b"a" * 5000)
+    normal.write_bytes(jpeg_bytes())
     small = parsed.root / "raw" / "images" / "1.jpg"
-    small.write_bytes(b"\xff\xd8\xff" + b"a" * 200)
+    small.write_bytes(jpeg_bytes((1, 1)))
     parsed.content_list = [
         {"type": "image", "img_path": "images/0.jpg", "page_idx": 0},
         {"type": "image", "img_path": "images/1.jpg", "page_idx": 0},
@@ -227,8 +228,9 @@ def test_supplementary_images_referenced_by_main_are_prioritized(tmp_path):
         image_count=45,
     )
     evidence = build_evidence([("M", "main", main), ("SI", "supplementary", si)])
-    plan = plan_request(evidence, evidence.text, "group/deepseek")
-    assert len(plan.si_images) == 30
+    prompt = "x" * (REQUEST_CEILING - OUTPUT_RESERVE - SAFETY_RESERVE - 20 * 4096)
+    plan = plan_request(evidence, prompt, "group/deepseek")
+    assert len(plan.si_images) == 20
     assert {44, 45}.issubset({n for n, _ in plan.si_images})
 
 
@@ -273,6 +275,7 @@ def test_format_retry_rejects_over_budget_request_before_sending():
     assert model_supports_request("group/deepseek", prompt, 0)
     assert not model_supports_request("group/deepseek", prompt + PARSE_RETRY_SUFFIX, 0)
     client = MagicMock()
+    client.config = AiNoteConfig()
     client.chat.return_value = "无法解析的输出"
     with pytest.raises(NoteAnalysisError, match="重试.*预算"):
         _chat_with_retry(client, prompt, figures=[], allowed_models={"group/deepseek"}, progress=None)
@@ -284,6 +287,7 @@ def test_format_retry_filters_model_that_no_longer_fits():
     models = {"group/deepseek", "antigravity/claude-sonnet-4-6"}
     assert all(model_supports_request(model, prompt, 0) for model in models)
     client = MagicMock()
+    client.config = AiNoteConfig()
     client.chat.side_effect = ["无法解析的输出", '{"sections": [' + ",".join("{}" for _ in range(10)) + "]}"]
     sections = _chat_with_retry(client, prompt, figures=[], allowed_models=models, progress=None)
     assert len(sections) == 10
@@ -295,6 +299,7 @@ def test_sparse_retry_keeps_valid_result_when_retry_exceeds_budget():
     prompt = "x" * (REQUEST_CEILING - OUTPUT_RESERVE - SAFETY_RESERVE - 1)
     assert not model_supports_request("group/deepseek", prompt + SPARSE_RETRY_SUFFIX, 0)
     client = MagicMock()
+    client.config = AiNoteConfig()
     client.chat.return_value = '{"sections": [{"type": "paragraph", "text": "已有内容"}]}'
     sections = _chat_with_retry(client, prompt, figures=[], allowed_models={"group/deepseek"}, progress=None)
     assert sections == [{"type": "paragraph", "text": "已有内容"}]

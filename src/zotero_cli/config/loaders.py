@@ -86,6 +86,19 @@ def _parse_string(value: Any, label: str, default: str) -> str:
     return value
 
 
+def _parse_bool(value: Any, label: str, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    raise ConfigError(f"{label} 需要布尔值，实际为 {value!r}")
+
+
 def _parse_int(value: Any, label: str, default: int, *, minimum: int | None = None) -> int:
     if value is None:
         return default

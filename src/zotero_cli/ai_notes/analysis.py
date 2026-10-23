@@ -28,18 +28,23 @@ from zotero_cli.ai_notes.documents import (
 )
 from zotero_cli.ai_notes.errors import EvidenceBudgetError, NoteAnalysisError
 from zotero_cli.ai_notes.evidence import (
+    OUTPUT_RESERVE,
+    SAFETY_RESERVE,
     build_evidence,
     model_supports_request,
     plan_with_coverage,
 )
-from zotero_cli.ai_notes.generation import _chat_with_retry, build_analysis_prompt
+from zotero_cli.ai_notes.generation import _chat, _chat_with_retry, build_analysis_prompt
+from zotero_cli.ai_notes.payloads import build_request, request_bytes
 from zotero_cli.ai_notes.persistence import _writer_call, mark_short_note_failure, save_analysis_note, save_short_note
 from zotero_cli.ai_notes.rendering import render_note
 from zotero_cli.ai_notes.short_notes import _analyze_short_note_only, _generate_short_note
+from zotero_cli.ai_notes.stages import MAX_PACKET_CHARS, parse_text_packet, text_evidence_prompt, visual_note_prompt
 from zotero_cli.ai_notes.templates import (
     load_template,
 )
 from zotero_cli.ai_notes.text import join_spaced_digits, prepare
+from zotero_cli.config import AiNoteConfig
 from zotero_cli.pdf_rag import clean_html
 from zotero_cli.zotero.access.reader import ZoteroReader
 from zotero_cli.zotero.access.writer import ZoteroWriter
@@ -122,21 +127,45 @@ def analyze_item(
         )
 
     total_refs = evidence.main_count + evidence.si_count
-    # 在任何 Zotero 变更之前，对整个带来源标注的 prompt 做预先校验。
-    prompt = build_analysis_prompt(item, template, cleaned)
-    model = (ai_client.config.model if ai_client is not None else "") or "group/deepseek"
-    try:
-        plan, prompt, omitted_numbers = plan_with_coverage(evidence, prompt, model)
-    except ValueError as exc:
+    # 文字阶段只预检文字；视觉阶段另行规划原文对应的图片。
+    model = (ai_client.config.model if ai_client is not None else "") or "antigravity/gemini-3.8-flash"
+    ai_config = ai_client.config if ai_client is not None else AiNoteConfig()
+    metadata = f"条目：{item.title}\n类型：{item.item_type}\n日期：{item.date or '未知'}\nDOI：{item.doi or '未知'}"
+    text_prompt = text_evidence_prompt(metadata + "\n\n" + cleaned)
+    if not model_supports_request(model, text_prompt, 0, output_reserve=max(OUTPUT_RESERVE, ai_config.max_tokens)):
         raise NoteAnalysisError(
-            str(exc), code="validation_error", parkable=isinstance(exc, EvidenceBudgetError)
-        ) from exc
+            "required text exceeds the model budget; do not truncate evidence", code="validation_error", parkable=True
+        )
+    figure_index = "\n".join(
+        f"{evidence.figure_sources[number]}【图 {number}】{caption}" for number, caption in evidence.captions.items()
+    )
+    visual_template = build_analysis_prompt(item, template, "第一阶段文字证据与图像索引：\n" + figure_index)
+    preview_prompt = visual_note_prompt(visual_template, "文" * MAX_PACKET_CHARS if dry_run else "{}")
+    preview_kind = "reserved_packet_estimate"
+    try:
+        plan, preview_prompt, omitted_numbers = plan_with_coverage(evidence, preview_prompt, model, config=ai_config)
+    except EvidenceBudgetError as exc:
+        if not dry_run:
+            raise NoteAnalysisError(str(exc), code="validation_error", parkable=True) from exc
+        # 最大证据包只是预留，不是实际输入；空包也不合规才确认无法容纳正文。
+        preview_prompt = visual_note_prompt(visual_template, "{}")
+        try:
+            plan, preview_prompt, omitted_numbers = plan_with_coverage(
+                evidence, preview_prompt, model, config=ai_config
+            )
+        except ValueError as minimal_error:
+            raise NoteAnalysisError(
+                str(minimal_error), code="validation_error", parkable=isinstance(minimal_error, EvidenceBudgetError)
+            ) from minimal_error
+        preview_kind = "requires_smaller_evidence_packet"
+    except ValueError as exc:
+        raise NoteAnalysisError(str(exc), code="validation_error") from exc
     figures = plan.images
     chars_used = len(cleaned)
     if progress:
         progress(
             "figures",
-            f"正文 {evidence.main_count}/{evidence.main_count}，SI {len(plan.si_images)}/{evidence.si_count} 张随请求发送",
+            f"预检：正文 {len(plan.images) - len(plan.si_images)}/{evidence.main_count}，SI {len(plan.si_images)}/{evidence.si_count} 张；最终数量以第二阶段规划为准",
         )
 
     if dry_run:
@@ -155,24 +184,69 @@ def analyze_item(
             "si_candidates": evidence.si_count,
             "omitted_images": len(omitted_numbers),
             "skipped_images": plan.skipped,
-            "estimated_tokens_upper_bound": plan.estimated_tokens,
+            "estimated_tokens_upper_bound": max(
+                plan.estimated_tokens, len(text_prompt) + OUTPUT_RESERVE + SAFETY_RESERVE
+            ),
             "request_bytes": plan.request_bytes,
             "budget_model": plan.model,
-            "prompt_preview": prompt[:1200],
+            "prompt_preview": text_prompt[:1200],
+            "visual_counts_are_estimates": True,
+            "visual_prompt_preview": preview_prompt[:1200],
+            "visual_preview_kind": preview_kind,
+            "text_request_bytes": request_bytes(build_request(text_prompt, [], model, ai_config)),
+            "image_manifest": plan.image_manifest,
+            "omitted_reasons": plan.omitted_reasons,
+            "visual_request_bytes_estimate": plan.request_bytes,
         }
 
     client = _require_ai_client(ai_client)
-    # 初始方案只覆盖主路由。备用模型必须能在已核实的限制下接收这同一份
-    # 最终 prompt 与图片集合。
-    allowed_models = {
-        candidate for candidate in client.get_model_chain() if model_supports_request(candidate, prompt, len(figures))
-    }
-    if progress:
-        progress("analyze", f"paper_type={paper_type}")
     if writer is None:
         raise NoteAnalysisError("写入凭证未配置", code="auth_missing")
-
-    sections = _chat_with_retry(client, prompt, figures=figures, allowed_models=allowed_models, progress=progress)
+    text_models = {
+        candidate
+        for candidate in client.get_model_chain()
+        if model_supports_request(candidate, text_prompt, 0, output_reserve=max(OUTPUT_RESERVE, ai_config.max_tokens))
+    }
+    if not text_models:
+        raise NoteAnalysisError("文字证据请求超出模型预算", code="validation_error", parkable=True)
+    if progress:
+        progress("evidence", "第一阶段：提取文字证据")
+    try:
+        packet = parse_text_packet(
+            _chat(client, text_prompt, figures=[], allowed_models=text_models, progress=progress),
+            source_text=cleaned,
+            figure_numbers=set(evidence.captions),
+        )
+    except NoteAnalysisError:
+        raise
+    except Exception as exc:
+        raise NoteAnalysisError(f"文字证据生成失败: {type(exc).__name__}: {exc}") from exc
+    final_prompt = visual_note_prompt(visual_template, packet)
+    try:
+        plan, final_prompt, omitted_numbers = plan_with_coverage(evidence, final_prompt, model, config=ai_config)
+    except ValueError as exc:
+        raise NoteAnalysisError(
+            str(exc), code="validation_error", parkable=isinstance(exc, EvidenceBudgetError)
+        ) from exc
+    figures = plan.images
+    allowed_models = {
+        candidate
+        for candidate in client.get_model_chain()
+        if model_supports_request(
+            candidate, final_prompt, len(figures), output_reserve=max(OUTPUT_RESERVE, ai_config.max_tokens)
+        )
+    }
+    if not allowed_models:
+        raise NoteAnalysisError("视觉请求超出模型预算", code="validation_error", parkable=True)
+    if progress:
+        main_count = len(plan.images) - len(plan.si_images)
+        si_count = len(plan.si_images)
+        mb = plan.request_bytes / (1024 * 1024)
+        progress(
+            "analyze",
+            f"paper_type={paper_type}，第二阶段：正在核对图像（正文 {main_count} + SI {si_count} 张，载荷约 {mb:.1f} MB）",
+        )
+    sections = _chat_with_retry(client, final_prompt, figures=figures, allowed_models=allowed_models, progress=progress)
 
     # 非法或为空的 JSON 列表也可能只渲染出生成的标题。
     if not sections or not clean_html(render_note(sections, title="")).strip():
@@ -198,6 +272,13 @@ def analyze_item(
         "note_key": note_key,
         "paper_type": paper_type,
         "sections": len(sections),
+        "main_images_sent": len(plan.images) - len(plan.si_images),
+        "si_images_sent": len(plan.si_images),
+        "si_candidates": evidence.si_count,
+        "omitted_images": omitted_numbers,
+        "omitted_reasons": plan.omitted_reasons,
+        "image_manifest": plan.image_manifest,
+        "visual_request_bytes": plan.request_bytes,
         "short_note": short_note_status,
         "short_note_error": short_note_error,
     }

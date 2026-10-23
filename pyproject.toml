@@ -18,6 +18,7 @@ dependencies = [
     "requests>=2.31",
     "qdrant-client>=1.19.0",
     "typer>=0.27.3",
+    "pillow>=11,<13",
 ]
 
 [project.scripts]

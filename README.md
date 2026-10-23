@@ -49,8 +49,8 @@ AI 笔记相关配置（`[ai_notes]`）：
 [ai_notes]
 api_key = ""
 base_url = "http://127.0.0.1:3425/v1"
-model = "group/deepseek"
-fallback_models = ["antigravity/gemini-3.8-flash"]
+model = "antigravity/gemini-3.8-flash"
+fallback_models = ["group/deepseek"]
 reasoning_effort = "max"
 temperature = 0.7
 max_tokens = 0
@@ -227,8 +227,10 @@ uv run zot ai-note ITEMKEY --idempotency-key analyze-ITEMKEY-001
 - `--dry-run` 不调用分类模型：`paper_type` 是条目类型默认值（book 类型映射 book，其余 research_article）；它仍会按缓存/云端解析 PDF，只是跳过生成 note 的模型调用和所有写入。它也会预览已打 `ai/noted` 的条目（不因已分析而提前返回）。
 - note 按条目类型/分类选择模板（研究论文 / 综述 / 书籍），模板位于 `src/zotero_cli/ai_notes/templates/`。
 - 标题、作者、期刊、日期、DOI 和正文作为不可信数据用定界符包裹后进入 prompt，模板声明指令层级，降低论文内容注入风险；正文长度超过 `max_extracted_chars` 或整份请求超过已验证的模型预算时会报错，不截断证据（标题在渲染前先转纯文本再转义）。
-- `content_list.json` 的文字、表格、图像和图注按附件、正文/SI、PDF 页码标记。重复 PDF 跨整条目去重后编号；所有正文图像必须纳入请求，SI 最多选 30 张并优先选择正文引用的图。未发送的图号在 prompt 中列明；请求体上限 20 MiB。
-- 模型返回“不支持图片输入”类错误时只对图片/vision 能力相关提示回退到纯文本模型，不会把 payload 过大等普通错误误判为能力问题。
+- note 采用两个主分析阶段：第一阶段仅发送完整结构化文字、表格、图注，生成带附件/页码/图号和实验条件的文字证据包；第二阶段发送证据包、由程序附加的原来源片段、图像索引和图片，核查后输出原有 `sections` 笔记。分类、关键词简记与失败重试可增加实际 API 请求次数。来源或图号不在原输入中的证据包被拒绝；claim/data/conditions 中的小数若在全部原始输入找不到则拒绝继续；跨页命中会附原始页码片段供模型核查，不自动当成样品/条件对应已验证。此检查不代表数值语义与整数等内容全部验证。两阶段之间不写入 Zotero。
+- `content_list.json` 的文字、表格、图像和图注按附件、正文/SI、PDF 页码标记。重复 PDF 去重后编号；全部有效正文图必须发送，SI 不设固定张数上限，按上下文与请求体预算尽量多选，正文引用优先，其余覆盖前中后区域。未发送图号与原因明确报告；真正的 1x1 占位图单独标记，损坏正文图直接失败。
+- 单图 5 MiB、每请求 20 MiB 均为本项目预检阈值；发送前优先保留原图，超限时仅尝试保持分辨率与解码像素的无损 PNG 重编码，不缩小、不降低 JPEG 质量。原始缓存不修改，输出记录尺寸、编码、源/发送哈希和字节数。无损候选仍放不下正文图时失败；压缩不会按比例减少模型图片 token。规划与发送共用 JSON 构造，最终客户端再检查精确 UTF-8 请求体大小。
+- 视觉成稿及其重试不允许退化为纯文本；图像能力被拒绝时尝试下一条满足同组图片预算的路由，全部失败则不写笔记。`--dry-run` 不调模型，视觉计数是为证据包预留字符量后的估算，实际计数以第二阶段结果为准。
 - 渲染前统一处理上下标与中英文间距（`MnO₂` → `MnO2`，`Zn²⁺` → `Zn2+`，`g⁻¹` → `g^-1`）。
 - 关键词简记写入条目 Extra 的 `short-note` 字段；校验在 CJK 间距补齐之后执行，长度上限 500 字符。
 - 写入失败返回类型化错误：确定性拒绝（validation/not_found/auth 等，肯定未写入）`committed=false`，只有可能已提交的失败才标记 `committed` 并保留幂等预留，避免盲目重试造成重复 note；`--force` 只追加，不删除旧 note。

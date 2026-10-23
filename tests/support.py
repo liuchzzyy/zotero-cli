@@ -10,11 +10,13 @@ import json
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
 from hashlib import sha256
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 from click.testing import CliRunner, Result
+from PIL import Image
 
 from zotero_cli.ai_pdf import MinerUParseResult
 from zotero_cli.cli import main
@@ -36,6 +38,13 @@ ISOLATED_ENV: dict[str, str] = {
     "ZOT_RERANK_KEY": "",
     "ZOT_RERANK_MODEL": "",
 }
+
+
+def jpeg_bytes(size: tuple[int, int] = (400, 300)) -> bytes:
+    """真实可解码的科学图夹具；路径与预算测试不能使用伪 JPEG。"""
+    output = BytesIO()
+    Image.new("RGB", size, (120, 130, 140)).save(output, format="JPEG", quality=95)
+    return output.getvalue()
 
 
 def invoke_cli(

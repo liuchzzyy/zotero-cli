@@ -56,8 +56,8 @@ bm25_weight = 0.2
 [ai_notes]
 api_key = ""
 base_url = "http://127.0.0.1:3425/v1"
-model = "group/deepseek"
-fallback_models = ["antigravity/gemini-3.8-flash"]
+model = "antigravity/gemini-3.8-flash"
+fallback_models = ["group/deepseek"]
 reasoning_effort = "max"
 temperature = 0.7
 max_tokens = 0
