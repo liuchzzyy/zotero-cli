@@ -9,7 +9,9 @@ import pytest
 from tests.support import invoke_cli
 
 from zotero_cli.ai_notes.errors import NoteAnalysisError
+from zotero_cli.ai_notes.persistence import save_short_note
 from zotero_cli.config import AiNoteConfig
+from zotero_cli.zotero.access.errors import ZoteroWriteError
 from zotero_cli.zotero.access.idempotency import PendingMutationError
 from zotero_cli.zotero.models import Note
 
@@ -129,6 +131,27 @@ class TestAiNoteCLI:
         analyze.assert_not_called()
         assert json.loads(res.output) == cached
 
+    def test_failed_short_note_does_not_claim_no_keywords_tag(self):
+        result = {
+            "status": "ok",
+            "item_key": "ABC123",
+            "note_key": "NOTE1",
+            "paper_type": "research_article",
+            "sections": 12,
+            "short_note": "failed",
+            "short_note_error": "tag 写入失败，状态待核对",
+        }
+        with (
+            patch("zotero_cli.ai_notes.execution.analyze_item", return_value=result),
+            patch("zotero_cli.ai_notes.execution.ZoteroReader"),
+            patch("zotero_cli.ai_notes.execution.ZoteroWriter"),
+            patch("zotero_cli.ai_notes.execution.AiClient"),
+        ):
+            res = self._run(["ai-note", "ABC123", "--no-json"])
+        assert res.exit_code == 0, res.output
+        assert "简记（short-note）：失败" in res.output
+        assert "tag ai/no_keywords" not in res.output
+
     def test_idempotency_success_is_stored(self):
         result = {
             "status": "ok",
@@ -198,6 +221,35 @@ class TestAiNoteCLI:
         assert res.exit_code == 1
         release.assert_not_called()
         assert json.loads(res.output)["error"]["retryable"] is False
+
+    def test_keyword_tag_failure_does_not_cache_success_or_release_reservation(self):
+        writer = MagicMock()
+        writer.add_tags.side_effect = ZoteroWriteError("tag outcome unknown", code="network_error", committed=True)
+
+        def analyze(_reader, _writer, _client, key, **_kwargs):
+            save_short_note(writer, key, "体系A | 机制B | 性能C | 疑问：未解问题")
+
+        with (
+            patch("zotero_cli.ai_notes.execution.store_cached") as store,
+            patch("zotero_cli.ai_notes.execution.release_rejected_mutation") as release,
+            patch("zotero_cli.ai_notes.execution.analyze_item", side_effect=analyze) as analyze_call,
+            patch("zotero_cli.ai_notes.execution.ZoteroReader"),
+            patch("zotero_cli.ai_notes.execution.ZoteroWriter"),
+            patch("zotero_cli.ai_notes.execution.AiClient"),
+        ):
+            res = self._run(["ai-note", "ABC123", "--idempotency-key", "k1"])
+            retried = self._run(["ai-note", "ABC123", "--idempotency-key", "k1"])
+
+        assert res.exit_code == 5, res.output
+        error = json.loads(res.output)["error"]
+        assert error["committed"] is True
+        assert error["retryable"] is False
+        assert retried.exit_code == 6, retried.output
+        assert json.loads(retried.output)["error"]["code"] == "conflict"
+        assert analyze_call.call_count == 1
+        writer.update_short_note.assert_called_once()
+        store.assert_not_called()
+        release.assert_not_called()
 
     def test_idempotency_pending_conflict(self):
         with (

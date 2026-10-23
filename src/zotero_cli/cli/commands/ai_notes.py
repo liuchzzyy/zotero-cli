@@ -141,6 +141,6 @@ def _print_short_note(result: dict) -> None:
     if status == "ok":
         typer.echo("  简记（short-note）：已写入 Extra，tag ai/keywords")
     elif status == "failed":
-        typer.echo(f"  简记（short-note）：失败，tag ai/no_keywords（{result.get('short_note_error', '')}）")
+        typer.echo(f"  简记（short-note）：失败（{result.get('short_note_error', '')}）")
     else:
         typer.echo("  简记（short-note）：跳过")

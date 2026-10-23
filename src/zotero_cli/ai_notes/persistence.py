@@ -54,12 +54,17 @@ def save_analysis_note(writer: ZoteroWriter, key: str, html_note: str, *, no_tag
 
 
 def save_short_note(writer: ZoteroWriter, key: str, short_note: str) -> tuple[str, str]:
-    """写入简记后打标，标签失败时保留已完成的简记。"""
+    """写入简记后打标；标签失败时保留已写入状态并要求核对。"""
     _writer_call("写入 Extra short-note", writer.update_short_note, key, short_note)
     try:
         _writer_call("写入 tag ai/keywords", writer.add_tags, key, [KEYWORDS_TAG])
     except NoteAnalysisError as error:
-        return "failed", f"short-note 已写入，但 ai/keywords tag 写入失败：{error}"[:160]
+        raise NoteAnalysisError(
+            f"short-note 已写入（item {key}），但 ai/keywords tag 写入失败：{error}；请勿直接重跑，先核对远端 tag",
+            code=error.code,
+            retryable=False,
+            committed=True,
+        ) from error
     return "ok", ""
 
 

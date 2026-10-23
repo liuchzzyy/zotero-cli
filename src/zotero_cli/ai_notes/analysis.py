@@ -277,6 +277,8 @@ def analyze_item(
             short_note = _generate_short_note(client, _sections_to_text(sections), progress)
             short_note_status, short_note_error = save_short_note(writer, key, short_note)
         except NoteAnalysisError as error:
+            if error.committed:
+                raise
             short_note_status = "failed"
             short_note_error = mark_short_note_failure(writer, key, error)
 
