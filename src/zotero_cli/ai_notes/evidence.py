@@ -79,7 +79,9 @@ def build_evidence(documents: list[tuple[str, str, Any]]) -> Evidence:
             page = block.get("page_idx")
             label = f"[{key} | {kind} | PDF p.{page + 1 if type(page) is int else '?'}"
             text = str(block.get("text") or "").strip()
-            if isinstance(block.get("text_level"), int) and text:
+            if typ == "ref_text":
+                section = "References"
+            elif isinstance(block.get("text_level"), int) and text:
                 section = text
             if section:
                 label += f" | {section}"

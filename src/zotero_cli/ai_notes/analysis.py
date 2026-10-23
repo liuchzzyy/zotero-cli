@@ -39,7 +39,13 @@ from zotero_cli.ai_notes.payloads import build_request, request_bytes
 from zotero_cli.ai_notes.persistence import _writer_call, mark_short_note_failure, save_analysis_note, save_short_note
 from zotero_cli.ai_notes.rendering import render_note
 from zotero_cli.ai_notes.short_notes import _analyze_short_note_only, _generate_short_note
-from zotero_cli.ai_notes.stages import MAX_PACKET_CHARS, parse_text_packet, text_evidence_prompt, visual_note_prompt
+from zotero_cli.ai_notes.stages import (
+    MAX_PACKET_CHARS,
+    extract_references_text,
+    parse_text_packet,
+    text_evidence_prompt,
+    visual_note_prompt,
+)
 from zotero_cli.ai_notes.templates import (
     load_template,
 )
@@ -139,8 +145,11 @@ def analyze_item(
     figure_index = "\n".join(
         f"{evidence.figure_sources[number]}【图 {number}】{caption}" for number, caption in evidence.captions.items()
     )
+    references_text = extract_references_text(cleaned)
     visual_template = build_analysis_prompt(item, template, "第一阶段文字证据与图像索引：\n" + figure_index)
-    preview_prompt = visual_note_prompt(visual_template, "文" * MAX_PACKET_CHARS if dry_run else "{}")
+    preview_prompt = visual_note_prompt(
+        visual_template, "文" * MAX_PACKET_CHARS if dry_run else "{}", references_text=references_text
+    )
     preview_kind = "reserved_packet_estimate"
     try:
         plan, preview_prompt, omitted_numbers = plan_with_coverage(evidence, preview_prompt, model, config=ai_config)
@@ -148,7 +157,7 @@ def analyze_item(
         if not dry_run:
             raise NoteAnalysisError(str(exc), code="validation_error", parkable=True) from exc
         # 最大证据包只是预留，不是实际输入；空包也不合规才确认无法容纳正文。
-        preview_prompt = visual_note_prompt(visual_template, "{}")
+        preview_prompt = visual_note_prompt(visual_template, "{}", references_text=references_text)
         try:
             plan, preview_prompt, omitted_numbers = plan_with_coverage(
                 evidence, preview_prompt, model, config=ai_config
@@ -221,7 +230,7 @@ def analyze_item(
         raise
     except Exception as exc:
         raise NoteAnalysisError(f"文字证据生成失败: {type(exc).__name__}: {exc}") from exc
-    final_prompt = visual_note_prompt(visual_template, packet)
+    final_prompt = visual_note_prompt(visual_template, packet, references_text=references_text)
     try:
         plan, final_prompt, omitted_numbers = plan_with_coverage(evidence, final_prompt, model, config=ai_config)
     except ValueError as exc:

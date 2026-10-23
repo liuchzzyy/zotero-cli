@@ -7,7 +7,13 @@ import json
 import pytest
 
 from zotero_cli.ai_notes.errors import NoteAnalysisError
-from zotero_cli.ai_notes.stages import MAX_PACKET_CHARS, parse_text_packet, text_evidence_prompt, visual_note_prompt
+from zotero_cli.ai_notes.stages import (
+    MAX_PACKET_CHARS,
+    extract_references_text,
+    parse_text_packet,
+    text_evidence_prompt,
+    visual_note_prompt,
+)
 
 
 def _packet(source="[ATT1 | main | PDF p.1]", refs=None, data="未知", claim="原文"):
@@ -86,3 +92,25 @@ def test_source_excerpt_extracts_surrounding_window_for_late_page_content():
     result = json.loads(parse_text_packet(packet, source_text=page_text, figure_numbers=set()))
     excerpt = result["evidence"][0]["source_excerpt"]
     assert "SpecialKeyTermX" in excerpt
+
+
+def test_extract_references_text_captures_labeled_references():
+    source = (
+        "[ATT1 | main | PDF p.10 | Conclusion] We concluded the work.\n"
+        "[ATT1 | main | PDF p.11 | References] 1. Author A, Title 1, Journal A (2024).\n"
+        "[ATT1 | main | PDF p.11 | References] 2. Author B, Title 2, Journal B (2025).\n"
+        "[ATT1 | main | PDF p.12 | References] 3. Author C, Title 3, Journal C (2026).\n"
+    )
+    refs = extract_references_text(source)
+    assert "1. Author A, Title 1" in refs
+    assert "2. Author B, Title 2" in refs
+    assert "3. Author C, Title 3" in refs
+    assert "[ATT1" not in refs  # 标签前缀已清理，条目干净
+
+
+def test_visual_note_prompt_injects_references_block_when_provided():
+    prompt = visual_note_prompt("template", _packet(), references_text="1. Sample Reference Item")
+    assert "<untrusted-original-references>" in prompt
+    assert "1. Sample Reference Item" in prompt
+    assert "</untrusted-original-references>" in prompt
+    assert "Adv. Funct. Mater. 2025, 35, 2417179." in prompt
