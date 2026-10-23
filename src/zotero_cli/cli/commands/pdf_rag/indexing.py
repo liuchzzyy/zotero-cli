@@ -56,7 +56,7 @@ from zotero_cli.zotero.models import Item
 
 # 为每个条目存进索引 metadata；当 chunk 切分方式或 MinerU 流水线变化时递增它，
 # 使增量重建索引能识别该变化。
-_RAG_PIPELINE_VERSION = "mineru-json-v1"
+_RAG_PIPELINE_VERSION = "mineru-json-v2"
 
 _ITEM_HINT = "Use 'zot pdf-rag list' to see available pdf_rags"
 

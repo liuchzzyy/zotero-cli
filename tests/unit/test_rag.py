@@ -157,6 +157,23 @@ class TestChunking:
         assert chunks[1].block_type == "text"
         assert "Journal banner" not in "\n".join(chunk.content for chunk in chunks)
 
+    def test_mineru_chart_caption_and_table_are_searchable(self):
+        content = [
+            {"type": "chart", "chart_caption": ["Figure 2. Capacity at 0.1 A g-1"], "page_idx": 1},
+            {
+                "type": "table",
+                "table_caption": ["Table 1"],
+                "table_body": "<table><tr><td>Na &amp; Zn</td><td>230 mAh</td></tr></table>",
+                "page_idx": 2,
+            },
+        ]
+        chunks = chunk_mineru_content(content, "Paper")
+        assert [chunk.block_type for chunk in chunks] == ["chart", "table"]
+        assert chunks[0].page == 2
+        assert "Capacity at 0.1 A g-1" in chunks[0].content
+        assert "Na & Zn\t230 mAh" in chunks[1].content
+        assert "<table>" not in chunks[1].content
+
     def test_short_text_single_chunk(self):
         chunks = chunk_text("Short text.", "Paper Title", max_tokens=500)
         assert len(chunks) == 1

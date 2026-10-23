@@ -275,11 +275,15 @@ def _mineru_block_text(block: dict[str, Any]) -> str:
         "table_footnote",
         "image_caption",
         "image_footnote",
+        "chart_caption",
+        "chart_footnote",
         "equation",
         "latex",
     ):
         value = block.get(key)
         rendered = _render_mineru_value(value)
+        if key == "table_body":
+            rendered = clean_html(rendered)
         if rendered:
             values.append(rendered)
     return "\n".join(dict.fromkeys(values))
