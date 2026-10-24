@@ -6,6 +6,7 @@ import json
 
 import typer
 
+from zotero_cli.cli.app.context import resolve_limit
 from zotero_cli.cli.app.group import TieredGroup
 from zotero_cli.cli.commands.zotero.items import app
 from zotero_cli.cli.renderers import format_items
@@ -40,7 +41,7 @@ def trash_list_cmd(ctx: typer.Context, limit: int | None = typer.Option(None, he
     library_id = resolve_library_id(db_path, ctx.obj)
     reader = ZoteroReader(db_path, library_id=library_id)
     try:
-        limit = limit if limit is not None else ctx.obj.get("limit", config.default_limit)
+        limit = resolve_limit(limit, ctx, config)
         items = reader.get_trash_items(limit=limit)
         if not items:
             if ctx.obj.get("json"):

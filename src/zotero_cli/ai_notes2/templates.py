@@ -15,6 +15,7 @@ from typing import Any
 from zotero_cli.ai_notes.generation import wrap_untrusted
 from zotero_cli.ai_notes2.errors import AiNote2Error
 from zotero_cli.ai_notes2.models import RECORD_TABLES, SCHEMA_VERSION, note2_json_schema
+from zotero_cli.config.runtime import section
 
 _MISSING = "未知"
 
@@ -33,7 +34,8 @@ def templates_dir() -> Path:
     return Path(__file__).resolve().parent / "templates"
 
 
-def template_path(name: str = "evidence-chain") -> Path:
+def template_path(name: str | None = None) -> Path:
+    name = str(section("ai_notes2")["template"]) if name is None else name
     """解析模板路径；名称可省略后缀或使用别名。"""
     filename = _TEMPLATE_ALIASES.get(name, name)
     if not filename.endswith(".md"):
@@ -46,7 +48,7 @@ def template_path(name: str = "evidence-chain") -> Path:
     return candidate
 
 
-def load_template(name: str = "evidence-chain") -> str:
+def load_template(name: str | None = None) -> str:
     """读取模板原文；不做任何占位符替换。"""
     return template_path(name).read_text(encoding="utf-8")
 
@@ -98,7 +100,7 @@ def build_prompt(
     source_note_key: str,
     source_note: str,
     blocks: str,
-    template_name: str = "evidence-chain",
+    template_name: str | None = None,
 ) -> str:
     """构造唯一一次分析请求的提示词，所有论文内容按不可信数据包裹。"""
     template = load_template(template_name)

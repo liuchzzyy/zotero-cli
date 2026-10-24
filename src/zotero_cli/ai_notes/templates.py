@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from zotero_cli.ai_notes.constants import MAX_PROMPT_CHARS, PROMPT_RESERVE_CHARS
+from zotero_cli.ai_notes import constants as note_constants
 
 
 def _candidate_template_dirs() -> list[Path]:
@@ -72,7 +72,7 @@ def format_template(
 
 def fit_text_to_prompt(template: str, text: str) -> str:
     """截断不可信的 prompt 文本，使模板加文本不超过硬上限。"""
-    budget = MAX_PROMPT_CHARS - len(template) - PROMPT_RESERVE_CHARS
+    budget = note_constants.MAX_PROMPT_CHARS - len(template) - note_constants.PROMPT_RESERVE_CHARS
     if budget <= 0:
         return ""
     return text[:budget]

@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from zotero_cli.config.runtime import section
 from zotero_cli.pdf_rag.metadata import clean_html
 
 _SUPPLEMENTARY_LABEL_RE = re.compile(
@@ -141,11 +142,14 @@ def _split_supplementary_sections(heading: str, section_text: str) -> list[tuple
     return sections or [(heading, text)]
 
 
-def chunk_text(text: str, paper_title: str, max_tokens: int = 500, overlap: int = 50) -> list[str]:
+def chunk_text(text: str, paper_title: str, max_tokens: int | None = None, overlap: int | None = None) -> list[str]:
     """以正的 token 预算和按字符数计算的重叠量切分文本。
 
     重叠仅作用于过长且无法断开 token 的字符级回退切分；按章节、段落和句子对齐的 chunk 保持连续。
     """
+    policy = section("semantic_search")
+    max_tokens = policy["chunk_tokens"] if max_tokens is None else max_tokens
+    overlap = policy["chunk_overlap"] if overlap is None else overlap
     if type(max_tokens) is not int or max_tokens <= 0:
         raise ValueError("max_tokens must be a positive integer")
     max_chars = max_tokens * 4
@@ -203,10 +207,13 @@ class MinerUStructuredChunk:
 def chunk_mineru_content(
     content_list: Any,
     paper_title: str,
-    max_tokens: int = 500,
-    overlap: int = 50,
+    max_tokens: int | None = None,
+    overlap: int | None = None,
 ) -> list[MinerUStructuredChunk]:
     """从 MinerU JSON 构建 RAG chunk，并保留章节、页码和块类型。"""
+    policy = section("semantic_search")
+    max_tokens = policy["chunk_tokens"] if max_tokens is None else max_tokens
+    overlap = policy["chunk_overlap"] if overlap is None else overlap
     if type(max_tokens) is not int or max_tokens <= 0:
         raise ValueError("max_tokens must be a positive integer")
     max_chars = max_tokens * 4

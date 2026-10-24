@@ -22,6 +22,7 @@ from typing import Any
 
 from . import paths
 from .errors import ConfigError
+from .runtime import resolve_settings
 from .sections import (
     AiNoteConfig,
     AppConfig,
@@ -223,8 +224,8 @@ def load_config(path: Path | None = None, profile: str | None = None) -> AppConf
         profile_data = profiles[profile_name]
         if not isinstance(profile_data, dict):
             raise ConfigError(f"Invalid config: [profile.{profile_name}] must be a table")
-        output = _require_table(profile_data, "output")
-        export = _require_table(profile_data, "export")
+        output = {**_require_table(data, "output"), **_require_table(profile_data, "output")}
+        export = {**_require_table(data, "export"), **_require_table(profile_data, "export")}
         integrations = _require_table(profile_data, "integrations")
         crossref = profile_data.get("crossref_mailto", integrations.get("crossref_mailto", ""))
         return AppConfig(
@@ -274,6 +275,8 @@ def load_embedding_config(
         section_value,
         env_active="ZOT_EMBEDDING_ACTIVE" if apply_env_overrides else "",
     )
+    resolved, _ = resolve_settings(path, profile=profile, environment=None if apply_env_overrides else {})
+    emb = {**resolved["embedding"], **emb}
     config = EmbeddingConfig(
         active=_parse_string(emb.get("active"), "embedding.active", defaults.active),
         provider=_parse_string(emb.get("provider"), "embedding.provider", defaults.provider),
@@ -281,6 +284,9 @@ def load_embedding_config(
         api_key=_parse_string(emb.get("api_key"), "embedding.api_key", defaults.api_key),
         model=_parse_string(emb.get("model"), "embedding.model", defaults.model),
         batch_size=_parse_int(emb.get("batch_size"), "embedding.batch_size", defaults.batch_size, minimum=1),
+        timeout_seconds=_parse_float(
+            emb.get("timeout_seconds"), "embedding.timeout_seconds", defaults.timeout_seconds, minimum=0.001
+        ),
     )
     if apply_env_overrides:
         config.active = _parse_string(_env_value("ZOT_EMBEDDING_ACTIVE"), "ZOT_EMBEDDING_ACTIVE", config.active)
@@ -307,6 +313,8 @@ def load_rerank_config(
         section_value,
         env_active="ZOT_RERANK_ACTIVE" if apply_env_overrides else "",
     )
+    resolved, _ = resolve_settings(path, profile=profile, environment=None if apply_env_overrides else {})
+    rerank = {**resolved["rerank"], **rerank}
     config = RerankConfig(
         active=_parse_string(rerank.get("active"), "rerank.active", defaults.active),
         provider=_parse_string(rerank.get("provider"), "rerank.provider", defaults.provider),
@@ -314,6 +322,9 @@ def load_rerank_config(
         api_key=_parse_string(rerank.get("api_key"), "rerank.api_key", defaults.api_key),
         model=_parse_string(rerank.get("model"), "rerank.model", defaults.model),
         batch_size=_parse_int(rerank.get("batch_size"), "rerank.batch_size", defaults.batch_size, minimum=1),
+        timeout_seconds=_parse_float(
+            rerank.get("timeout_seconds"), "rerank.timeout_seconds", defaults.timeout_seconds, minimum=0.001
+        ),
     )
     if apply_env_overrides:
         config.active = _parse_string(_env_value("ZOT_RERANK_ACTIVE"), "ZOT_RERANK_ACTIVE", config.active)
@@ -357,13 +368,16 @@ def _select_provider_config(section: Any, *, env_active: str = "") -> dict[str, 
 
 def load_pdf_config(path: Path | None = None, *, apply_env_overrides: bool = True) -> PdfConfig:
     defaults = PdfConfig()
-    data = read_config_data(path)
-    pdf = _require_table(data, "pdf")
+    pdf, _ = resolve_settings(path, environment=None if apply_env_overrides else {})
+    pdf = pdf["pdf"]
     config = PdfConfig(
         mineru_token=_parse_string(pdf.get("mineru_token"), "pdf.mineru_token", defaults.mineru_token),
         mineru_model_version=_parse_string(
             pdf.get("mineru_model_version"), "pdf.mineru_model_version", defaults.mineru_model_version
         ),
+        mineru=pdf["mineru"],
+        limits=pdf["limits"],
+        cache=pdf["cache"],
     )
     if apply_env_overrides:
         config.mineru_token = _parse_string(_env_value("ZOT_MINERU_TOKEN"), "ZOT_MINERU_TOKEN", config.mineru_token)
@@ -410,7 +424,9 @@ def _split_models(value: Any) -> list[str] | None:
         value = value.split(",")
     if not isinstance(value, list):
         return None
-    return [m.strip() for m in map(str, value) if m.strip()] or None
+    if not all(isinstance(m, str) for m in value):
+        raise ConfigError("Invalid ai_notes.fallback_models: expected strings")
+    return [m.strip() for m in value if m.strip()] or None
 
 
 def load_ai_note_config(path: Path | None = None, *, apply_env_overrides: bool = True) -> AiNoteConfig:
@@ -421,13 +437,13 @@ def load_ai_note_config(path: Path | None = None, *, apply_env_overrides: bool =
     指向其他端点或模型。
     """
     config = AiNoteConfig()
-    data = read_config_data(path)
-    ai_notes = _require_table(data, "ai_notes")
+    resolved, _ = resolve_settings(path, environment=None if apply_env_overrides else {})
+    ai_notes = resolved["ai_notes"]
     config = AiNoteConfig(
         api_key=_parse_string(ai_notes.get("api_key"), "ai_notes.api_key", config.api_key),
         base_url=_parse_string(ai_notes.get("base_url"), "ai_notes.base_url", config.base_url),
         model=_parse_string(ai_notes.get("model"), "ai_notes.model", config.model),
-        fallback_models=_split_models(ai_notes.get("fallback_models")) or config.fallback_models,
+        fallback_models=list(ai_notes["fallback_models"]),
         reasoning_effort=_parse_string(
             ai_notes.get("reasoning_effort"), "ai_notes.reasoning_effort", config.reasoning_effort
         ),
@@ -440,13 +456,20 @@ def load_ai_note_config(path: Path | None = None, *, apply_env_overrides: bool =
             ai_notes.get("timeout_seconds"), "ai_notes.timeout_seconds", config.timeout_seconds, minimum=0.001
         ),
         max_retries=_parse_int(ai_notes.get("max_retries"), "ai_notes.max_retries", config.max_retries, minimum=0),
+        budget=ai_notes["budget"],
+        images=ai_notes["images"],
+        routes=ai_notes["routes"],
     )
 
     if apply_env_overrides:
         config.api_key = _parse_string(_env_value("ZOT_AI_API_KEY"), "ZOT_AI_API_KEY", config.api_key)
         config.base_url = _parse_string(_env_value("ZOT_AI_BASE_URL"), "ZOT_AI_BASE_URL", config.base_url)
         config.model = _parse_string(_env_value("ZOT_AI_MODEL"), "ZOT_AI_MODEL", config.model)
-        config.fallback_models = _split_models(_env_value("ZOT_AI_FALLBACK_MODELS") or "") or config.fallback_models
+        config.fallback_models = (
+            list(ai_notes["fallback_models"])
+            if _env_value("ZOT_AI_FALLBACK_MODELS") is not None
+            else config.fallback_models
+        )
         config.reasoning_effort = _parse_string(
             _env_value("ZOT_AI_REASONING_EFFORT"), "ZOT_AI_REASONING_EFFORT", config.reasoning_effort
         )

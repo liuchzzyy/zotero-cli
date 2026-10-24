@@ -10,17 +10,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from zotero_cli.ai_notes import constants as note_constants
+from zotero_cli.ai_notes import evidence as evidence_budget
 from zotero_cli.ai_notes.access.client import AiClient
 from zotero_cli.ai_notes.classification import (
     BOOK_ITEM_TYPES,
-    CLASSIFY_CHARS,
     TEMPLATE_BY_TYPE,
     _classify,
-)
-from zotero_cli.ai_notes.constants import (
-    ANALYZED_TAG,
-    NOT_ANALYZED_TAG,
-    NOTE_TITLE_PREFIX,
 )
 from zotero_cli.ai_notes.documents import (
     _sections_to_text,
@@ -28,7 +24,6 @@ from zotero_cli.ai_notes.documents import (
 )
 from zotero_cli.ai_notes.errors import EvidenceBudgetError, NoteAnalysisError
 from zotero_cli.ai_notes.evidence import (
-    SAFETY_RESERVE,
     build_evidence,
     model_supports_request,
     plan_with_coverage,
@@ -39,7 +34,6 @@ from zotero_cli.ai_notes.persistence import _writer_call, mark_short_note_failur
 from zotero_cli.ai_notes.rendering import render_note
 from zotero_cli.ai_notes.short_notes import _analyze_short_note_only, _generate_short_note
 from zotero_cli.ai_notes.stages import (
-    MAX_PACKET_CHARS,
     extract_references_text,
     parse_text_packet,
     text_evidence_prompt,
@@ -90,7 +84,7 @@ def analyze_item(
         return _analyze_short_note_only(reader, writer, ai_client, item, key, progress, dry_run=dry_run)
 
     # 试运行是只读预览：即使条目已分析过也必须预览，而不是短路返回 already_analyzed。
-    if not dry_run and ANALYZED_TAG in item.tags and not force:
+    if not dry_run and note_constants.ANALYZED_TAG in item.tags and not force:
         return {"status": "already_analyzed", "item_key": key, "item_type": item.item_type}
 
     structured_docs = collect_documents(reader, key, progress)
@@ -105,13 +99,13 @@ def analyze_item(
     if dry_run:
         paper_type = "book" if item.item_type in BOOK_ITEM_TYPES else "research_article"
     else:
-        classify_sample = (evidence.main_text or evidence.text)[:CLASSIFY_CHARS]
+        classify_sample = (evidence.main_text or evidence.text)[: note_constants.CLASSIFY_CHARS]
         paper_type = _classify(item, classify_sample, _require_ai_client(ai_client), progress)
     if paper_type == "uncertain":
         if not dry_run and not no_tag:
             if writer is None:
                 raise NoteAnalysisError("写入凭证未配置", code="auth_missing")
-            _writer_call("写入 tag ai/uncertain", writer.add_tags, key, [NOT_ANALYZED_TAG])
+            _writer_call("写入 tag ai/uncertain", writer.add_tags, key, [note_constants.NOT_ANALYZED_TAG])
         return {"status": "uncertain", "item_key": key, "paper_type": paper_type}
     if paper_type not in TEMPLATE_BY_TYPE:
         paper_type = "research_article"
@@ -162,7 +156,9 @@ def analyze_item(
     visual_template = build_analysis_prompt(item, template, "第一阶段文字证据与图像索引：\n" + figure_index)
 
     if dry_run:
-        preview_prompt = visual_note_prompt(visual_template, "文" * MAX_PACKET_CHARS, references_text=references_text)
+        preview_prompt = visual_note_prompt(
+            visual_template, "文" * note_constants.MAX_PACKET_CHARS, references_text=references_text
+        )
         preview_kind = "reserved_packet_estimate"
         try:
             plan, preview_prompt, omitted_numbers = plan_with_coverage(
@@ -203,7 +199,7 @@ def analyze_item(
             "omitted_images": len(omitted_numbers),
             "skipped_images": plan.skipped,
             "estimated_tokens_upper_bound": max(
-                plan.estimated_tokens, len(text_prompt) + max(0, ai_config.max_tokens) + SAFETY_RESERVE
+                plan.estimated_tokens, len(text_prompt) + max(0, ai_config.max_tokens) + evidence_budget.SAFETY_RESERVE
             ),
             "request_bytes": plan.request_bytes,
             "budget_model": plan.model,
@@ -263,7 +259,7 @@ def analyze_item(
     if not sections or not clean_html(render_note(sections, title="")).strip():
         raise NoteAnalysisError(f"条目 '{key}' 的 AI 分析未能生成任何有效章节内容", code="runtime_error")
 
-    note_title = NOTE_TITLE_PREFIX + prepare(_plain_title(item.title))
+    note_title = note_constants.NOTE_TITLE_PREFIX + prepare(_plain_title(item.title))
     html_note = render_note(sections, title=note_title)
     note_key = save_analysis_note(writer, key, html_note, no_tag=no_tag)
 

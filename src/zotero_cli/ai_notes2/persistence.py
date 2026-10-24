@@ -9,16 +9,27 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from zotero_cli.ai_notes2.errors import AiNote2Error
 from zotero_cli.config import state_dir
+from zotero_cli.config.runtime import section
 from zotero_cli.zotero.access.errors import ZoteroWriteError
 from zotero_cli.zotero.access.writer import ZoteroWriter
 
-EVIDENCE_TAG = "ai/evidence"
+
+def __getattr__(name: str) -> Any:
+    if name == "EVIDENCE_TAG":
+        return section("ai_notes2")["evidence_tag"]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _evidence_tag() -> str:
+    return str(getattr(sys.modules[__name__], "EVIDENCE_TAG"))
+
 
 STATUS_PREPARED = "prepared"
 STATUS_GENERATED = "generated"
@@ -354,9 +365,9 @@ def publish_document(
     try:
         item = writer.read_item(item_key)
         existing = {tag.get("tag") for tag in item.get("data", {}).get("tags", [])}
-        tagged = EVIDENCE_TAG in existing
+        tagged = _evidence_tag() in existing
         if not tagged:
-            writer.add_tags(item_key, [EVIDENCE_TAG])
+            writer.add_tags(item_key, [_evidence_tag()])
             item = writer.read_item(item_key)
             existing = {tag.get("tag") for tag in item.get("data", {}).get("tags", [])}
     except ZoteroWriteError as exc:
@@ -374,7 +385,7 @@ def publish_document(
             committed=True,
             hint_key="tag_unknown",
         ) from exc
-    if EVIDENCE_TAG not in existing:
+    if _evidence_tag() not in existing:
         update_run(
             scope,
             run_number,
@@ -384,7 +395,7 @@ def publish_document(
             data={"tag_verified": False},
         )
         raise AiNote2Error(
-            f"note {note_key} 已创建，但标签 {EVIDENCE_TAG} 回读缺失；请核对远端",
+            f"note {note_key} 已创建，但标签 {_evidence_tag()} 回读缺失；请核对远端",
             code="runtime_error",
             committed=True,
             hint_key="tag_unknown",
@@ -401,7 +412,7 @@ def publish_document(
             "item_key": item_key,
             "run_number": run_number,
             "note_key": note_key,
-            "tag": EVIDENCE_TAG,
+            "tag": _evidence_tag(),
             "tagged": True,
             "verified": True,
             "needs_reconcile": False,

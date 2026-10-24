@@ -7,12 +7,15 @@ import json
 import re
 import shutil
 import sqlite3
+import sys
 import tempfile
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from difflib import SequenceMatcher
 from pathlib import Path
+from typing import Any
 
+from zotero_cli.config.runtime import section
 from zotero_cli.zotero.access.errors import ZoteroSchemaError
 from zotero_cli.zotero.models import (
     Attachment,
@@ -245,6 +248,24 @@ _EXCLUDED_TYPE_NAMES = ("attachment", "note", "annotation")
 _ITEM_BATCH_SIZE = 900
 
 
+def _policy(name: str) -> Any:
+    value = getattr(sys.modules[__name__], name)
+    return int(value) if name.startswith("_FULLTEXT") else float(value)
+
+
+def __getattr__(name: str) -> Any:
+    keys = {
+        "_FULLTEXT_CACHE_MAX_FILES": "fulltext_cache_max_files",
+        "_FULLTEXT_CACHE_MAX_BYTES_PER_FILE": "fulltext_cache_max_bytes_per_file",
+        "_FULLTEXT_CACHE_MAX_TOTAL_BYTES": "fulltext_cache_max_total_bytes",
+        "_READ_SQLITE_TIMEOUT": "read_sqlite_timeout_seconds",
+    }
+    key = keys.get(name)
+    if key is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return section("zotero")[key]
+
+
 MIN_SCHEMA_VERSION = 100
 
 
@@ -252,15 +273,6 @@ MAX_SCHEMA_VERSION = 200
 
 
 _FULLTEXT_CACHE_FILENAME = ".zotero-ft-cache"
-
-
-_FULLTEXT_CACHE_MAX_FILES = 4000
-
-
-_FULLTEXT_CACHE_MAX_BYTES_PER_FILE = 8 * 1024 * 1024
-
-
-_FULLTEXT_CACHE_MAX_TOTAL_BYTES = 256 * 1024 * 1024
 
 
 class ZoteroReader(CitationExportMixin):
@@ -302,7 +314,7 @@ class ZoteroReader(CitationExportMixin):
             conn = sqlite3.connect(
                 f"file:{uri_path}?mode=ro&immutable=1",
                 uri=True,
-                timeout=5.0,
+                timeout=_policy("_READ_SQLITE_TIMEOUT"),
             )
             conn.row_factory = sqlite3.Row
             conn.execute("SELECT 1 FROM items LIMIT 1")
@@ -403,7 +415,7 @@ class ZoteroReader(CitationExportMixin):
             except OSError:
                 scratch.unlink(missing_ok=True)
                 raise
-        conn = sqlite3.connect(str(tmp), timeout=5.0)
+        conn = sqlite3.connect(str(tmp), timeout=_policy("_READ_SQLITE_TIMEOUT"))
         conn.row_factory = sqlite3.Row
         try:
             conn.execute("SELECT 1 FROM items LIMIT 1")
@@ -698,7 +710,7 @@ class ZoteroReader(CitationExportMixin):
             rows = conn.execute(
                 "SELECT ia.parentItemID AS parent_id, att.key AS attachment_key "
                 f"{base_join} ORDER BY ft.itemID LIMIT ?",
-                (*excl_params, *lib_params, _FULLTEXT_CACHE_MAX_FILES),
+                (*excl_params, *lib_params, _policy("_FULLTEXT_CACHE_MAX_FILES")),
             ).fetchall()
         except sqlite3.Error:
             return set(), False
@@ -712,13 +724,13 @@ class ZoteroReader(CitationExportMixin):
                 if not cache_path.is_file():
                     continue
                 with cache_path.open("rb") as handle:
-                    data = handle.read(_FULLTEXT_CACHE_MAX_BYTES_PER_FILE)
+                    data = handle.read(_policy("_FULLTEXT_CACHE_MAX_BYTES_PER_FILE"))
             except OSError:
                 continue
             scanned_bytes += len(data)
             if needle in data.decode("utf-8", errors="ignore").casefold():
                 matched.add(row["parent_id"])
-            if scanned_bytes >= _FULLTEXT_CACHE_MAX_TOTAL_BYTES:
+            if scanned_bytes >= _policy("_FULLTEXT_CACHE_MAX_TOTAL_BYTES"):
                 limited = limited or position + 1 < len(rows)
                 break
         return matched, limited

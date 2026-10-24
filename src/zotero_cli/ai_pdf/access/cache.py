@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import shutil
+import sys
 import tempfile
 import time
 import uuid
@@ -30,6 +31,7 @@ from zotero_cli.ai_pdf.access.requests import _as_mineru_error, _validated_model
 from zotero_cli.ai_pdf.errors import MinerUError
 from zotero_cli.ai_pdf.models import MinerUParseResult, ProgressCallback
 from zotero_cli.config import load_pdf_config
+from zotero_cli.config.runtime import section
 from zotero_cli.pdf_rag.store import mineru_cache_dir
 
 _CACHE_SCHEMA_VERSION = 1
@@ -39,14 +41,24 @@ _LOGGER = logging.getLogger(__name__)
 # 已死的持有者立即回收；确认存活的持有者只等待到超时，不能仅凭年龄抢锁。
 # 无法探测存活性时才按过期窗口回收，该窗口保持在最大等待时间之内。
 _LOCK_DIRNAME = ".locks"
-_LOCK_POLL_SECONDS = 0.2
-_LOCK_TIMEOUT_SECONDS = 1800.0
-_LOCK_STALE_SECONDS = 900.0
-assert _LOCK_STALE_SECONDS <= _LOCK_TIMEOUT_SECONDS
+_CACHE_KEYS = {
+    "_LOCK_POLL_SECONDS": "lock_poll_seconds",
+    "_LOCK_TIMEOUT_SECONDS": "lock_timeout_seconds",
+    "_LOCK_STALE_SECONDS": "lock_stale_seconds",
+    "_STAGING_STALE_SECONDS": "staging_stale_seconds",
+}
 
-# 早于此时长的隐藏 .{model}-<random> 暂存目录是被中断写入的残留，
-# 会在下次解析前清扫。
-_STAGING_STALE_SECONDS = 24 * 60 * 60.0
+
+def __getattr__(name: str) -> Any:
+    key = _CACHE_KEYS.get(name)
+    if key is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return section("pdf")["cache"][key]
+
+
+def _policy(name: str) -> float:
+    """经模块属性读取，使测试的 monkeypatch 与 TOML 覆盖都生效。"""
+    return float(getattr(sys.modules[__name__], name))
 
 
 def file_sha256(path: Path) -> str:
@@ -256,7 +268,7 @@ class MinerUParseCache:
     def _cleanup_stale_staging(self, fingerprints: Sequence[str]) -> int:
         """删除这些指纹下被中断写入留下的隐藏暂存目录。"""
         removed = 0
-        cutoff = time.time() - _STAGING_STALE_SECONDS
+        cutoff = time.time() - _policy("_STAGING_STALE_SECONDS")
         for fingerprint in sorted(set(fingerprints)):
             fingerprint_dir = self.root / fingerprint
             if fingerprint_dir.is_symlink() or not fingerprint_dir.is_dir():
@@ -286,9 +298,9 @@ class MinerUParseCache:
                 stack.enter_context(
                     _exclusive_lock(
                         lock_dir / f"{fingerprint}.lock",
-                        timeout=_LOCK_TIMEOUT_SECONDS,
-                        poll=_LOCK_POLL_SECONDS,
-                        stale=_LOCK_STALE_SECONDS,
+                        timeout=_policy("_LOCK_TIMEOUT_SECONDS"),
+                        poll=_policy("_LOCK_POLL_SECONDS"),
+                        stale=_policy("_LOCK_STALE_SECONDS"),
                     )
                 )
             yield

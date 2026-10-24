@@ -94,7 +94,11 @@ ZOT_RERANK_*（ACTIVE/PROVIDER/URL/KEY/MODEL/BATCH_SIZE）
 
 配置相关说明：
 
-- 配置解析顺序：CLI flag > 环境变量 > 当前 profile > 默认值；`config show` 同样遵循 `--profile` / `ZOT_PROFILE`。
+- 配置解析顺序：显式 CLI > 环境变量 > 当前 profile > 顶层 TOML > 内置默认值；`config show` 同样遵循 `--profile` / `ZOT_PROFILE`。
+- 内置默认值只有一个来源：随包发布的 `src/zotero_cli/config/defaults.toml`；`.zot/config.example.toml` 由它生成并列出全部可调键。业务模块、CLI 与脚本不再各自写默认值。
+- 显式 `[]`、`0`、`false` 会被保留，不会被默认值替换；`fallback_models = []` 表示关闭备用模型。模型链为空时报 `configuration_error`，不会自动补模型。
+- `config show` 输出 `effective`：每个可调键的最终值、来源（default/toml/profile/env/cli）、单位与 0/空值语义；API key 与 token 只显示是否设置。
+- 未知或拼错的键直接报 `configuration_error` 并给出键路径，不会被静默忽略。
 - profile 可以覆盖 `[embedding]`、`[rerank]`、`[semantic_search]`、`[vector_store]` 的键（`[profile.<name>.<section>]` 优先，缺省键回退到顶层同名 section）；未知 profile 返回 `configuration_error`（exit 3）。
 - `config init` 和 `config profile set` 会合并并保留所有已存在 section 与 active profile，原子写入并保留 `.bak`；配置文件权限 0600、目录 0700。无变化的保存会跳过重写/备份；`--config-path` 指向 symlink 时写穿到目标且保留 symlink，`.bak` 建在真实目标旁。TOML 写出支持日期/时间、inf/nan、数组的 inline table 表示；不支持的值返回可操作的 `configuration_error`。
 - `config init` 的 JSON `profile` 字段报告生效的 active profile；无效/空白的默认 profile 会直接失败（`configuration_error`，exit 3），不会回退到旧式 `[zotero]`；`config profile list` 对这类配置同样报告 `configuration_error`。修复方式：`zot config profile set NAME` 或 `zot config init --profile NAME`。

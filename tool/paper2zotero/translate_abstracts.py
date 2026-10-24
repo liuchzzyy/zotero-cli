@@ -30,6 +30,7 @@ import zh_text
 from pyzotero.zotero_errors import ResourceNotFoundError
 
 from zotero_cli.config import load_config, resolve_write_credentials, state_dir
+from zotero_cli.config.runtime import section
 from zotero_cli.zotero.access.writer import ZoteroWriter
 
 _DEFAULT_SCIENTIST_HOME = Path.home() / ".hermes" / "profiles" / "scientist"
@@ -220,7 +221,7 @@ def translate_batch(batch: list[dict[str, str]]) -> dict[str, str]:
                     ],
                     capture_output=True,
                     text=True,
-                    timeout=300,
+                    timeout=float(section("tools")["paper2zotero"]["abstract_timeout_seconds"]),
                     env={**os.environ, "HERMES_HOME": str(SCIENTIST_HOME)},
                 )
                 if result.returncode != 0:
@@ -271,10 +272,12 @@ def stage_translations(
     candidates: list[dict[str, str]],
     path: Path,
     *,
-    batch_size: int = 3,
+    batch_size: int | None = None,
     custom_translator: Any = None,
 ) -> list[dict[str, Any]]:
     """Stage translations before making remote mutations, with resumption support."""
+    if batch_size is None:
+        batch_size = int(section("tools")["paper2zotero"]["abstract_batch_size"])
     if batch_size < 1:
         raise AbstractTranslationError("batch_size 必须为正整数")
     state_map = {row["key"]: row for row in load_state(path)}
@@ -357,7 +360,7 @@ def run_abstract_translation(
     path: Path,
     *,
     dry_run: bool = True,
-    batch_size: int = 3,
+    batch_size: int | None = None,
     custom_translator: Any = None,
 ) -> dict[str, int]:
     """Execute the translation stage and atomic remote mutation."""

@@ -53,6 +53,8 @@
 
 - 命令风险等级由 `src/zotero_cli/cli/app/safety.py` 定义。`collection reorganize` 属于 destructive：整体替换计划内条目的全部旧集合归属（包含计划外集合），不删除条目和旧集合；执行前须 `--yes` 或交互确认，dry-run 必须说明替换范围。不要改成合并语义。
 - `search` / `list` 未知 `--type` 报 `validation_error`；附件 `storage:` / `attachments:` 的相对路径必须受各自根目录约束，检查 Windows 路径伪装和 symlink 越界。
+- 运行策略默认值只在 `src/zotero_cli/config/defaults.toml` 定义；模块、CLI、provider 与脚本读取 `config.runtime.section()`，不得再写第二份默认值。优先级：显式 CLI > env > profile > 顶层 TOML > 内置默认。
+- 未知配置键、空模型链、错误类型必须报 `configuration_error`；显式 `[]`/`0`/`false` 不得被 `or` 回退覆盖。`config show` 必须列出每个键的值、来源与单位（凭据脱敏）。
 - AI Note 共用预算不设固定输出预留；仅将明确配置的 `max_tokens` 计入预算，`0` 时不发送该 API 参数，不等于无限输出。
 - AI Note 第一阶段只检查 JSON 结构、必要字段、来源标签、图号和预算；不得加入具体数值或文本内容的字面硬阻断。来源合法不能证明数值、样品或实验条件已验证。
 - AI Note 写回不是整体事务。note 已创建后标签失败、Extra 已写入后关键词标签失败，都须保留 `committed=True` 并要求核对远端；不得缓存为成功或盲目补写 `ai/no_keywords`。只有确定未写入的失败才释放相应幂等预留。

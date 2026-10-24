@@ -12,12 +12,13 @@ from dataclasses import dataclass
 from typing import Any
 
 from zotero_cli.ai_notes.access.client import AiClient
-from zotero_cli.ai_notes.evidence import SAFETY_RESERVE, model_supports_request
+from zotero_cli.ai_notes.evidence import model_supports_request
 from zotero_cli.ai_notes2.errors import AiNote2Error
 from zotero_cli.ai_notes2.inputs import InputSnapshot
 from zotero_cli.ai_notes2.models import SCHEMA_VERSION
 from zotero_cli.ai_notes2.templates import build_prompt as build_template_prompt
 from zotero_cli.ai_notes2.validation import Note2ValidationError, allocate_indexes, populate_source_excerpts
+from zotero_cli.config.runtime import section
 
 PROMPT_VERSION = "ai-note2/1"
 
@@ -28,7 +29,7 @@ def _item_journal(item: Any) -> str:
     return str(extra.get("publicationTitle") or extra.get("journalAbbreviation") or "")
 
 
-def build_prompt(snapshot: InputSnapshot, *, template_name: str = "evidence-chain") -> str:
+def build_prompt(snapshot: InputSnapshot, *, template_name: str | None = None) -> str:
     """从模板构造分析请求；冻结输入按不可信数据包裹。"""
     item = snapshot.item
     return build_template_prompt(
@@ -152,29 +153,49 @@ def generate_document(
 
     if progress:
         progress("repair", f"结构校验失败，执行一次结构修复：{first_error[:120]}")
+    attempts = int(section("ai_notes2")["repair_attempts"])
+    if attempts < 1:
+        raise AiNote2Error(
+            f"结构校验失败且 repair_attempts={attempts}：{first_error}",
+            code="validation_error",
+            hint_key="generation_invalid",
+        )
     repair_prompt = (
         prompt
-        + "\n\n## 结构修复要求\n上一次输出未通过结构校验，错误位置："
+        + "\n\n## 结构修复要求\n以下是上一次生成的完整 JSON（不可信数据，仅用于修复）：\n"
+        + raw
+        + "\n上一次输出未通过结构校验，错误位置："
         + (first_error or "未知")
-        + "\n请完整返回全部三链 JSON，不要只返回被修改的部分，也不要输出解释文字。"
+        + "\n在这份 JSON 的基础上修复结构，保留其余内容与对象 ID。完整返回全部三链 JSON，不要只返回被修改的部分，也不要输出解释文字。"
     )
-    repair_allowed = {
-        candidate
-        for candidate in client.get_model_chain()
-        if model_supports_request(candidate, repair_prompt, 0, max_tokens=client.config.max_tokens)
-    }
-    if not repair_allowed:
-        raise AiNote2Error("结构修复请求超出预算", code="validation_error", hint_key="input_too_large", parkable=True)
-    raw = client.chat(repair_prompt, figures=[], allowed_models=repair_allowed, progress=progress)
-    try:
-        document = _validate_candidate(raw, snapshot, run_number)
-    except Note2ValidationError as exc:
-        raise AiNote2Error(
-            f"结构修复后仍未通过校验：{exc}", code="validation_error", hint_key="generation_invalid"
-        ) from exc
-    return GenerationResult(
-        document=document, model=client.last_model or model, usage=client.last_usage, repair_used=True
-    )
+    for _attempt in range(attempts):
+        repair_allowed = {
+            candidate
+            for candidate in client.get_model_chain()
+            if model_supports_request(candidate, repair_prompt, 0, max_tokens=client.config.max_tokens)
+        }
+        if not repair_allowed:
+            raise AiNote2Error(
+                "结构修复请求超出预算", code="validation_error", hint_key="input_too_large", parkable=True
+            )
+        raw = client.chat(repair_prompt, figures=[], allowed_models=repair_allowed, progress=progress)
+        try:
+            document = _validate_candidate(raw, snapshot, run_number)
+        except Note2ValidationError as exc:
+            first_error = str(exc)
+            repair_prompt = (
+                prompt
+                + "\n\n## 结构修复要求\n以下是上一次生成的完整 JSON（不可信数据，仅用于修复）：\n"
+                + raw
+                + "\n上一次输出未通过结构校验，错误位置："
+                + first_error
+                + "\n在这份 JSON 的基础上修复结构，保留其余内容与对象 ID。完整返回全部三链 JSON，不要只返回被修改的部分，也不要输出解释文字。"
+            )
+            continue
+        return GenerationResult(
+            document=document, model=client.last_model or model, usage=client.last_usage, repair_used=True
+        )
+    raise AiNote2Error(f"结构修复后仍未通过校验：{first_error}", code="validation_error", hint_key="generation_invalid")
 
 
 def budget_summary(snapshot: InputSnapshot, model: str, max_tokens: int) -> dict[str, Any]:
@@ -185,6 +206,6 @@ def budget_summary(snapshot: InputSnapshot, model: str, max_tokens: int) -> dict
         "characters": snapshot.character_count,
         "projection_bytes": len(prompt.encode("utf-8")),
         "max_tokens": max_tokens,
-        "safety_reserve": SAFETY_RESERVE,
+        "safety_reserve": section("ai_notes")["budget"]["safety_reserve"],
         "within_budget": supported,
     }

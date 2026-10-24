@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import re
+import sys
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any
+
+from zotero_cli.config.runtime import section
 
 # 用于识别补充材料文档的封面/页眉。它们只在文本顶部附近的*行首*进行匹配，
 # 因此仅仅提到“Supporting Information”的普通正文不会触发分类。
@@ -133,10 +136,22 @@ _CAPTION_LABEL_RE = re.compile(
 )
 _CAPTION_FIELDS = {"image": "image_caption", "chart": "chart_caption", "table": "table_caption"}
 
+
 # 排版后的论文前置信息。这是唯一优先级高于题注编号的信号，因为把主体正文
 # 降级为补充材料是代价高昂的错误：其插图随后会变成可选并被采样丢弃。
-_FRONT_MATTER_ABSTRACT_CHARS = 6000
-_FRONT_MATTER_INTRO_CHARS = 12_000
+def __getattr__(name: str) -> Any:
+    keys = {
+        "_FRONT_MATTER_ABSTRACT_CHARS": "front_matter_abstract_chars",
+        "_FRONT_MATTER_INTRO_CHARS": "front_matter_intro_chars",
+    }
+    key = keys.get(name)
+    if key is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return section("semantic_search")[key]
+
+
+def _policy(name: str) -> int:
+    return int(getattr(sys.modules[__name__], name))
 
 
 @dataclass(frozen=True)
@@ -227,7 +242,10 @@ def caption_counts(blocks: Any) -> CaptionCounts:
 
 def _has_front_matter(markdown: str) -> bool:
     low = markdown.lower()
-    return "abstract" in low[:_FRONT_MATTER_ABSTRACT_CHARS] and "introduction" in low[:_FRONT_MATTER_INTRO_CHARS]
+    return (
+        "abstract" in low[: _policy("_FRONT_MATTER_ABSTRACT_CHARS")]
+        and "introduction" in low[: _policy("_FRONT_MATTER_INTRO_CHARS")]
+    )
 
 
 def _kinds(documents: Sequence[PdfDocument], supplements: Sequence[str]) -> dict[str, str]:

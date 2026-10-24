@@ -4,14 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from zotero_cli.ai_notes import constants as note_constants
 from zotero_cli.ai_notes.access.client import AiClient
-from zotero_cli.ai_notes.constants import MAX_ABSTRACT_CHARS, MAX_TITLE_CHARS
 from zotero_cli.ai_notes.errors import NoteAnalysisError
 from zotero_cli.ai_notes.generation import _chat, extract_json_object, wrap_untrusted
 from zotero_cli.ai_notes.templates import load_template
 from zotero_cli.zotero.models import Item
 
-CLASSIFY_CHARS = 4000
 BOOK_ITEM_TYPES = {"book", "bookSection"}
 # 每个分类结果对应的模板；其他结果回退到 research_article。
 TEMPLATE_BY_TYPE = {
@@ -28,8 +27,8 @@ def _cap_metadata(text: str, limit: int) -> str:
 def build_classify_prompt(item: Item, sample_text: str) -> str:
     """构造分类 prompt，并用分隔标记包裹不可信的 Zotero/PDF 文本。"""
     template = load_template("classify-item")
-    title = _cap_metadata(item.title or "", MAX_TITLE_CHARS)
-    abstract = _cap_metadata(item.abstract or "", MAX_ABSTRACT_CHARS)
+    title = _cap_metadata(item.title or "", note_constants.MAX_TITLE_CHARS)
+    abstract = _cap_metadata(item.abstract or "", note_constants.MAX_ABSTRACT_CHARS)
     return (
         template
         + "\n\n## 待判定的条目\n\n"

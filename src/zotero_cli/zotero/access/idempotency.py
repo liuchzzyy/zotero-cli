@@ -15,16 +15,28 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import sys
 import time
 from contextlib import closing
 from pathlib import Path
+from typing import Any
 
 import httpx
 import httpx2
 
 from zotero_cli.config import state_dir
+from zotero_cli.config.runtime import section
 
-TTL_SECONDS = 24 * 60 * 60
+
+def __getattr__(name: str) -> Any:
+    if name == "TTL_SECONDS":
+        return float(section("zotero")["idempotency_ttl_seconds"])
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _ttl() -> float:
+    return float(getattr(sys.modules[__name__], "TTL_SECONDS"))
+
 
 # 能够证明服务端拒绝了写入的状态码；此时可以安全解除预留。
 # 其他情况（5xx、超时、412）使结果保持未知，因此保留预留。
@@ -104,7 +116,7 @@ def _connect() -> sqlite3.Connection:
         "scope TEXT NOT NULL, key TEXT NOT NULL, created_at INTEGER NOT NULL, "
         "PRIMARY KEY (scope, key))"
     )
-    conn.execute("DELETE FROM cache WHERE created_at < ?", (int(time.time()) - TTL_SECONDS,))
+    conn.execute("DELETE FROM cache WHERE created_at < ?", (int(time.time()) - _ttl(),))
     conn.commit()
     return conn
 
@@ -117,7 +129,7 @@ def _cached_value(conn: sqlite3.Connection, scope: str, key: str) -> dict | None
     if row is None:
         return None
     value_json, created_at = row
-    if int(time.time()) - created_at > TTL_SECONDS:
+    if int(time.time()) - created_at > _ttl():
         return None
     try:
         loaded = json.loads(value_json)

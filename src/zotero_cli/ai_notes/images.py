@@ -3,15 +3,22 @@
 from __future__ import annotations
 
 import hashlib
+import sys
 import warnings
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
+from typing import Any
 
 from PIL import Image, ImageOps
 
-MAX_PIXELS = 50_000_000
-MAX_SOURCE_BYTES = 80 * 1024 * 1024
+from zotero_cli.config.runtime import section
+
+_POLICY_KEYS = {
+    "MAX_PIXELS": "max_pixels",
+    "MAX_SOURCE_BYTES": "max_source_bytes",
+    "MAX_DIMENSION": "max_dimension",
+}
 _FORMATS = {".jpg": "JPEG", ".jpeg": "JPEG", ".png": "PNG", ".webp": "WEBP"}
 
 
@@ -39,9 +46,21 @@ class EncodedImage:
         }
 
 
+def __getattr__(name: str) -> Any:
+    key = _POLICY_KEYS.get(name)
+    if key is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return section("ai_notes")["images"][key]
+
+
+def _policy(name: str) -> int:
+    """经模块属性读取，使测试的 monkeypatch 与 TOML 覆盖都生效。"""
+    return int(getattr(sys.modules[__name__], name))
+
+
 def encode_image(path: Path, max_bytes: int, *, force: bool = False) -> EncodedImage | None:
     """验证解码后选取原图或无损候选；不降低分辨率或 JPEG 质量。"""
-    if path.stat().st_size > MAX_SOURCE_BYTES:
+    if path.stat().st_size > _policy("MAX_SOURCE_BYTES"):
         return None
     raw = path.read_bytes()
     try:
@@ -50,7 +69,7 @@ def encode_image(path: Path, max_bytes: int, *, force: bool = False) -> EncodedI
             with Image.open(BytesIO(raw)) as source:
                 if source.format != _FORMATS.get(path.suffix.lower()) or getattr(source, "n_frames", 1) != 1:
                     return None
-                if source.width * source.height > MAX_PIXELS or max(source.size) > 50_000:
+                if source.width * source.height > _policy("MAX_PIXELS") or max(source.size) > _policy("MAX_DIMENSION"):
                     return None
                 source.load()
                 # 真正的 1x1 退化产物单独识别；不能用文件字节数误删小而有效的图。

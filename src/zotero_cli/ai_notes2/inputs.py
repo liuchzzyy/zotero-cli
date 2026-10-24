@@ -19,12 +19,22 @@ from zotero_cli.ai_notes2.errors import AiNote2Error
 from zotero_cli.ai_pdf import MinerUError, MinerUParseCache, MinerUTokenMissingError
 from zotero_cli.ai_pdf.access.cache import file_sha256
 from zotero_cli.ai_pdf.parsing import PdfParsingService
+from zotero_cli.config.runtime import section
 from zotero_cli.pdf_rag import PdfDocument, resolve_pdf_kinds
 from zotero_cli.zotero.access.reader import ZoteroReader
 from zotero_cli.zotero.models import Attachment, Item, Note
 
+
 # 本功能生成的笔记标题前缀，用于避免把自己的输出递归当作旧分析输入。
-NOTE2_TITLE_PREFIX = "框架分析 - "
+def _note2_title_prefix() -> str:
+    return str(section("ai_notes2")["note_title_prefix"])
+
+
+def __getattr__(name: str) -> Any:
+    if name == "NOTE2_TITLE_PREFIX":
+        return _note2_title_prefix()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 # 首版只支持期刊论文；综述、书籍、会议论文等不套用该三链模板。
 SUPPORTED_ITEM_TYPE = "journalArticle"
@@ -92,7 +102,7 @@ def is_legacy_ai_note(content: str) -> bool:
 
 def is_note2_output(content: str) -> bool:
     """判断是否为 ai-note2 自己的输出，避免递归输入。"""
-    return first_heading(content).startswith(NOTE2_TITLE_PREFIX)
+    return first_heading(content).startswith(_note2_title_prefix())
 
 
 def _select_source_note(notes: list[Note], explicit_key: str | None) -> SourceNote:

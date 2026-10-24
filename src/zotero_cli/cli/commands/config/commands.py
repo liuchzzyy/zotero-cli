@@ -19,6 +19,7 @@ from zotero_cli.config import (
     resolve_config_path,
     write_config_data,
 )
+from zotero_cli.config.runtime import effective_settings
 from zotero_cli.output.envelope import envelope_ok
 from zotero_cli.output.exit_codes import emit_error
 
@@ -180,6 +181,7 @@ def show_command(
         "database_path": str(db_file),
         "data_dir_exists": data_dir_exists,
         "database_ok": database_ok,
+        "effective": effective_settings(path, profile=profile),
     }
     if json_out:
         typer.echo(json.dumps(envelope_ok(data), indent=2, ensure_ascii=False))
@@ -200,6 +202,12 @@ def show_command(
     typer.echo(f"Format:     {config.default_format}")
     typer.echo(f"Limit:      {config.default_limit}")
     typer.echo(f"Export:     {config.default_export_style}")
+
+    typer.echo("\n生效运行策略（值 · 来源 · 单位）：")
+    for name, entry in data["effective"].items():
+        value = entry["value"]
+        shown = "(set)" if isinstance(value, dict) else json.dumps(value, ensure_ascii=False)
+        typer.echo(f"  {name:<46} {shown:<22} {entry['source']:<10} {entry['unit']}")
 
     if not data_dir_exists:
         typer.echo(typer.style(f"\nWARNING: Data directory not found: {data_dir}", fg="yellow"))

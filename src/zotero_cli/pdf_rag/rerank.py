@@ -6,6 +6,7 @@ import sys
 from collections.abc import Callable
 
 from zotero_cli.config import RerankConfig
+from zotero_cli.config.runtime import section
 from zotero_cli.pdf_rag.providers.gitee import GiteeRerankerProvider
 
 RankedChunk = tuple[int, float, dict]
@@ -23,9 +24,11 @@ def rerank_chunks(
     candidates: list[RankedChunk],
     config: RerankConfig,
     *,
-    top_n: int = 50,
+    top_n: int | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
 ) -> list[RankedChunk] | None:
+    if top_n is None:
+        top_n = int(section("semantic_search")["query"]["rerank_top_n"])
     if not candidates or not config.is_configured or top_n <= 0:
         return None
 
@@ -41,6 +44,7 @@ def rerank_chunks(
         url=config.url,
         model=config.model,
         batch_size=config.batch_size,
+        timeout=config.timeout_seconds,
     )
     try:
         scores = provider.score(query, [str(chunk["content"]) for _cid, _score, chunk in selected], progress_callback)

@@ -9,6 +9,8 @@ import re
 import sqlite3
 from pathlib import Path
 
+from zotero_cli.config.runtime import section
+
 _QUERY_TOKEN_RE = re.compile(r"[^\w\u4e00-\u9fff]+", re.UNICODE)
 
 
@@ -27,9 +29,10 @@ class RagIndex:
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(db_path), timeout=60.0)
+        timeout = float(section("semantic_search")["sqlite_timeout_seconds"])
+        self._conn = sqlite3.connect(str(db_path), timeout=timeout)
         self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA busy_timeout = 60000")
+        self._conn.execute(f"PRAGMA busy_timeout = {int(timeout * 1000)}")
         self._create_tables()
 
     def _create_tables(self) -> None:

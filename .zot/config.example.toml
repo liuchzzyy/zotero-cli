@@ -1,6 +1,12 @@
+# zotero-cli 示例配置：列出全部可调运行策略，取值与内置默认一致。
+# 用户 config.toml 中的键覆盖内置默认；未出现的键使用包内 defaults.toml。
+# 查看生效值、来源、单位：zot config show（--json 可脚本化）。
+# 显式 [] / 0 / false 会被保留，不会被默认值替换。
+
 [default]
 profile = "main"
 
+[profile]
 [profile.main]
 data_dir = "/Users/your-name/Zotero"
 library_id = ""
@@ -11,51 +17,67 @@ prefs_js_path = "/Users/your-name/Library/Application Support/Zotero/Profiles/<p
 [integrations]
 crossref_mailto = ""
 
-[output]
-default_format = "table"
-limit = 50
-
-[export]
-default_style = "bibtex"
-
 [pdf]
-mineru_token = ""
 mineru_model_version = "vlm"
+mineru_token = ""
+
+[pdf.mineru]
+api_base = "https://mineru.net/api/v4"
+rate_limit = 50
+rate_window_seconds = 60.0
+batch_size = 50
+api_timeout_seconds = 30.0
+upload_timeout_seconds = 600.0
+download_timeout_seconds = 300.0
+retry_attempts = 3
+poll_attempts = 360
+poll_interval_seconds = 5.0
+redirect_limit = 30
+body_retries = 1
+
+[pdf.limits]
+max_file_bytes = 209715200
+max_archive_bytes = 536870912
+max_archive_member_bytes = 209715200
+max_archive_total_bytes = 1073741824
+max_archive_entries = 10000
+
+[pdf.cache]
+lock_timeout_seconds = 1800.0
+lock_poll_seconds = 0.2
+lock_stale_seconds = 900.0
+staging_stale_seconds = 86400.0
 
 [embedding]
-active = "api.gitee"
-
-[embedding.api.gitee]
 provider = "gitee"
 url = "https://ai.gitee.com/v1"
-api_key = ""
 model = "bge-m3"
 batch_size = 50
-
-[rerank]
+timeout_seconds = 120.0
 active = "api.gitee"
 
-[rerank.api.gitee]
+[embedding.api]
+[embedding.api.gitee]
+api_key = ""
+
+[rerank]
 provider = "gitee"
 url = "https://ai.gitee.com/v1/rerank"
-api_key = ""
 model = "bge-reranker-v2-m3"
 batch_size = 16
+timeout_seconds = 60.0
+active = "api.gitee"
 
-[vector_store]
-provider = "qdrant_local"
-path = ".zot/pdf_rag/_qdrant"
-
-[semantic_search]
-candidate_k = 150
-top_k = 20
-rrf_k = 60
-semantic_weight = 0.8
-bm25_weight = 0.2
+[rerank.api]
+[rerank.api.gitee]
+api_key = ""
 
 [ai_notes]
-api_key = ""
-base_url = "http://127.0.0.1:3425/v1"
+analyzed_tag = "ai/noted"
+not_analyzed_tag = "ai/uncertain"
+keywords_tag = "ai/keywords"
+no_keywords_tag = "ai/no_keywords"
+note_title_prefix = "AI条目分析 - "
 model = "antigravity/gemini-3.8-flash"
 fallback_models = ["group/deepseek"]
 reasoning_effort = "max"
@@ -64,3 +86,162 @@ max_tokens = 0
 max_extracted_chars = 250000
 timeout_seconds = 300.0
 max_retries = 2
+classification_chars = 4000
+max_packet_chars = 120000
+max_references_chars = 80000
+max_prompt_chars = 220000
+prompt_reserve_chars = 2000
+min_sections = 10
+short_note_max_chars = 500
+short_note_min_segments = 3
+max_title_chars = 2000
+max_abstract_chars = 20000
+max_authors_chars = 10000
+max_journal_chars = 1000
+max_date_chars = 100
+max_doi_chars = 500
+api_key = ""
+base_url = "http://127.0.0.1:3425/v1"
+
+[ai_notes.budget]
+request_ceiling = 800000
+safety_reserve = 50000
+max_request_bytes = 20971520
+
+[ai_notes.images]
+max_image_bytes = 5242880
+max_source_bytes = 83886080
+max_pixels = 50000000
+max_dimension = 50000
+
+[ai_notes.routes]
+[ai_notes.routes."group/deepseek"]
+context = 1000000
+per_image = 4096
+
+[ai_notes.routes."antigravity/gemini-3.8-flash"]
+context = 1048576
+per_image = 4096
+
+[ai_notes.routes."antigravity/claude-sonnet-4-6"]
+context = 250000
+per_image = 4096
+
+[ai_notes.routes."antigravity/claude-opus-4-6-thinking"]
+context = 250000
+per_image = 4096
+
+[zotero]
+api_timeout_seconds = 30.0
+read_sqlite_timeout_seconds = 5.0
+fulltext_cache_max_files = 4000
+fulltext_cache_max_bytes_per_file = 8388608
+fulltext_cache_max_total_bytes = 268435456
+idempotency_ttl_seconds = 86400
+data_dir = ""
+library_id = ""
+api_key = ""
+
+[zotero.crossref]
+request_timeout_seconds = 15.0
+max_attempts = 3
+retry_backoff_seconds = 0.5
+
+[zotero.semantic_scholar]
+request_timeout_seconds = 15.0
+rate_delay_no_key_seconds = 3.0
+rate_delay_with_key_seconds = 1.0
+
+[output]
+default_format = "table"
+limit = 50
+detail = "standard"
+
+[export]
+default_style = "bibtex"
+
+[vector_store]
+provider = "qdrant_local"
+path = ".zot/pdf_rag/_qdrant"
+lock_timeout_seconds = 5.0
+prune_lock_timeout_seconds = 1.0
+scroll_batch_size = 10000
+
+[semantic_search]
+candidate_k = 150
+top_k = 20
+rrf_k = 60
+semantic_weight = 0.8
+bm25_weight = 0.2
+chunk_tokens = 500
+sqlite_timeout_seconds = 60.0
+chunk_overlap = 50
+front_matter_abstract_chars = 6000
+front_matter_intro_chars = 12000
+
+[semantic_search.embed]
+batch_size = 50
+limit = 0
+max_retries = 5
+retry_sleep_seconds = 10.0
+deadline_seconds = 120.0
+heartbeat_seconds = 15.0
+probe_limit = 2
+probe_retries = 2
+
+[semantic_search.query]
+mode = "auto"
+pdf_kind = "any"
+rerank = false
+rerank_top_n = 50
+preview_chars = 500
+
+[ai_notes2]
+template = "evidence-chain"
+repair_attempts = 1
+note_title_prefix = "框架分析 - "
+evidence_tag = "ai/evidence"
+
+[ai_notes2.appearance]
+min_width = 1000
+min_height = 520
+branch_spacing = 320
+core_spacing = 220
+
+[app]
+[app.update_check]
+enabled = true
+interval_seconds = 86400
+timeout_seconds = 3.0
+
+[tools]
+[tools.paperrag]
+workspace = "00_收件箱"
+collections = "00 | 收件箱"
+scan_limit = 100000
+progress_every = 100
+embed_batch_size = 10
+embed_limit = 0
+embed_max_retries = 8
+embed_retry_sleep_seconds = 10.0
+embed_heartbeat_seconds = 15.0
+query_top_k = 8
+query_rerank_top_n = 50
+
+[tools.ainote]
+max_attempts = 3
+budget_seconds = 3000.0
+children_limit = 100
+
+[tools.paper2zotero]
+title_batch_size = 5
+title_timeout_seconds = 240
+abstract_batch_size = 3
+abstract_timeout_seconds = 300
+metadata_batch_size = 6
+metadata_workers = 6
+write_workers = 4
+translation_temperature = 0.2
+network_timeout_seconds = 5.0
+
+[units]

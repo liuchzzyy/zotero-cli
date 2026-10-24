@@ -22,6 +22,7 @@ from typing import Any
 import zh_text
 
 from zotero_cli.config import load_config, resolve_write_credentials, state_dir
+from zotero_cli.config.runtime import section
 from zotero_cli.zotero.access.writer import ZoteroWriter
 
 _DEFAULT_SCIENTIST_HOME = Path.home() / ".hermes" / "profiles" / "scientist"
@@ -123,7 +124,7 @@ def translate_batch(batch: list[dict[str, str]]) -> dict[str, str]:
                     ],
                     capture_output=True,
                     text=True,
-                    timeout=240,
+                    timeout=float(section("tools")["paper2zotero"]["title_timeout_seconds"]),
                     env={**os.environ, "HERMES_HOME": str(SCIENTIST_HOME)},
                 )
                 if result.returncode:
@@ -190,8 +191,10 @@ def update_one(api: Any, writer: ZoteroWriter, row: dict[str, str], title_zh: st
     return "updated"
 
 
-def stage_translations(items: list[dict], path: Path, *, batch_size: int = 5) -> list[dict[str, str]]:
+def stage_translations(items: list[dict], path: Path, *, batch_size: int | None = None) -> list[dict[str, str]]:
     """Stage every missing translation before any remote mutation; resume safely."""
+    if batch_size is None:
+        batch_size = int(section("tools")["paper2zotero"]["title_batch_size"])
     if batch_size < 1:
         raise BackfillError("batch_size 必须为正整数")
     saved: Any = []

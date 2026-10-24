@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import heapq
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -13,28 +14,39 @@ from zotero_cli.ai_notes.images import EncodedImage, encode_image
 from zotero_cli.ai_notes.models import Evidence, RequestPlan
 from zotero_cli.ai_notes.payloads import build_request, request_bytes
 from zotero_cli.config import AiNoteConfig
+from zotero_cli.config.runtime import section
 
-# 这是保守的预检，不是服务商的 tokenizer。启用其他路由前，必须先
-# 对照实际代理核实其路由限制与图片上限。
-# 当前清单中的四个路由均支持图像；上下文上限来自 Magpie /v1/models 元数据。
-# 每图 4_096 是保守的预检估计值，不代表实际 tokenizer 或服务端图片限制。
-_ROUTE_LIMITS = {
-    "group/deepseek": (1_000_000, 4_096),
-    "antigravity/gemini-3.8-flash": (1_048_576, 4_096),
-    "antigravity/claude-sonnet-4-6": (250_000, 4_096),
-    "antigravity/claude-opus-4-6-thinking": (250_000, 4_096),
+# 预检参数不是服务商承诺：路由容量与每图估计值来自 `[ai_notes.routes]`，
+# 单请求上限与安全余量来自 `[ai_notes.budget]`。启用其他路由前仍须核对
+# 实际代理的限制与图片上限。
+_POLICY_KEYS = {
+    "REQUEST_CEILING": ("budget", "request_ceiling"),
+    "SAFETY_RESERVE": ("budget", "safety_reserve"),
+    "MAX_REQUEST_BYTES": ("budget", "max_request_bytes"),
+    "MAX_IMAGE_BYTES": ("images", "max_image_bytes"),
 }
-# 单请求的字符上限（不是 target）：图多的综述正文 + 50–90 张正文插图会超过
-# 500k 的文本+图像合计上界，而按 4096/图的保守估算它们在 1M 上下文路由里仍然安全。
-# 800k 是按实测样本留出余量后的单请求上限（XIPR4NR6：91 张正文图 + 172k 字符 prompt
-# = 627,745 估算单位），仍远低于 1M 上下文路由与 20 MiB 请求体。
-REQUEST_CEILING = 800_000
-SAFETY_RESERVE = 50_000
-MAX_REQUEST_BYTES = 20 * 1024 * 1024
-# 图片有效性以解码为准，1x1 占位图单独声明；不能仅用文件字节数丢图。
-MAX_IMAGE_BYTES = 5 * 1024 * 1024
 _IMAGE_TYPES = {"image", "chart"}
 _SKIP_TYPES = {"header", "footer", "page_number", "page_footnote", "aside_text"}
+
+
+def __getattr__(name: str) -> Any:
+    target = _POLICY_KEYS.get(name)
+    if target is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    group, key = target
+    return section("ai_notes")[group][key]
+
+
+def _policy(name: str) -> int:
+    """经模块属性读取，使测试的 monkeypatch 与 TOML 覆盖都生效。"""
+    return int(getattr(sys.modules[__name__], name))
+
+
+def _route_limits() -> dict[str, tuple[int, int]]:
+    return {
+        model: (int(route["context"]), int(route["per_image"]))
+        for model, route in section("ai_notes")["routes"].items()
+    }
 
 
 def _blocks(content: Any) -> list[dict[str, Any]]:
@@ -201,13 +213,14 @@ def plan_request(
     excluded_reasons: dict[int, str] | None = None,
 ) -> RequestPlan:
     """全部有效正文图为必需项；SI 由上下文与最终 JSON 字节共同决定。"""
-    if model not in _ROUTE_LIMITS:
+    routes = _route_limits()
+    if model not in routes:
         raise ValueError(f"unverified context/image budget for model {model}")
-    context, per_image = _ROUTE_LIMITS[model]
+    context, per_image = routes[model]
     reserve = max(0, config.max_tokens) if config else 0
-    limit = min(context, REQUEST_CEILING)
+    limit = min(context, _policy("REQUEST_CEILING"))
     text_bound = len(prompt)
-    image_allowance = limit - text_bound - reserve - SAFETY_RESERVE
+    image_allowance = limit - text_bound - reserve - _policy("SAFETY_RESERVE")
     if image_allowance <= 0:
         raise EvidenceBudgetError("required text exceeds the model budget; do not truncate evidence")
     cache = prepared if prepared is not None else {}
@@ -223,7 +236,7 @@ def plan_request(
             return None
         key = (path, force)
         if key not in cache:
-            cache[key] = encode_image(path, MAX_IMAGE_BYTES, force=force)
+            cache[key] = encode_image(path, _policy("MAX_IMAGE_BYTES"), force=force)
         image = cache[key]
         if image is None:
             if main:
@@ -246,7 +259,7 @@ def plan_request(
         raise EvidenceBudgetError("required main images exceed model budget")
     payload = [_image_record(n, image) for n, image in chosen.items()]
     # 正文图整体超限时，逐张尝试无损重编码，不能只压最后一张。
-    if _payload_bytes(prompt, payload, model, config) > MAX_REQUEST_BYTES:
+    if _payload_bytes(prompt, payload, model, config) > _policy("MAX_REQUEST_BYTES"):
         for number, path in sorted(
             evidence.main_images,
             key=lambda candidate: -chosen[candidate[0]].source_bytes if candidate[0] in chosen else 0,
@@ -257,7 +270,7 @@ def plan_request(
             if image is not None and len(image.data) < len(chosen[number].data):
                 chosen[number] = image
         payload = [_image_record(n, image) for n, image in chosen.items()]
-    if _payload_bytes(prompt, payload, model, config) > MAX_REQUEST_BYTES:
+    if _payload_bytes(prompt, payload, model, config) > _policy("MAX_REQUEST_BYTES"):
         raise EvidenceBudgetError("request body exceeds safe byte limit with required main images")
     image_paths = dict(evidence.main_images + evidence.si_candidates)
     si_numbers: set[int] = set()
@@ -273,7 +286,7 @@ def plan_request(
             skipped.append(number)
             continue
         record = _image_record(number, image)
-        if _payload_bytes(prompt, [*payload, record], model, config) > MAX_REQUEST_BYTES:
+        if _payload_bytes(prompt, [*payload, record], model, config) > _policy("MAX_REQUEST_BYTES"):
             # 当前 SI 放不下时也回收已选图片的无损编码空间。
             for chosen_number, chosen_image in list(chosen.items()):
                 smaller_chosen = load(chosen_number, image_paths[chosen_number], False, force=True)
@@ -284,7 +297,7 @@ def plan_request(
             if smaller is not None and len(smaller.data) < len(image.data):
                 image = smaller
                 record = _image_record(number, image)
-        if _payload_bytes(prompt, [*payload, record], model, config) > MAX_REQUEST_BYTES:
+        if _payload_bytes(prompt, [*payload, record], model, config) > _policy("MAX_REQUEST_BYTES"):
             reasons[number] = "request_bytes"
             # 未选候选不保留整份字节，避免大量 SI 积累成无界缓存。
             cache.pop((path, False), None)
@@ -342,10 +355,10 @@ def plan_with_coverage(
 
 def model_supports_request(model: str, prompt: str, image_count: int, *, max_tokens: int = 0) -> bool:
     """备用路由须容纳文本、图片和明确配置的输出额度；不额外固定预留。"""
-    route = _ROUTE_LIMITS.get(model)
+    route = _route_limits().get(model)
     if route is None:
         return False
     context, per_image = route
-    limit = min(context, REQUEST_CEILING)
-    text_and_reserve = len(prompt) + max(0, max_tokens) + SAFETY_RESERVE
+    limit = min(context, _policy("REQUEST_CEILING"))
+    text_and_reserve = len(prompt) + max(0, max_tokens) + _policy("SAFETY_RESERVE")
     return text_and_reserve < limit and text_and_reserve + image_count * per_image <= limit

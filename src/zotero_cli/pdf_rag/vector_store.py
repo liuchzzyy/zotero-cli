@@ -5,15 +5,18 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sys
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
 from zotero_cli.config import VectorStoreConfig, data_root
+from zotero_cli.config.runtime import section
 
 try:  # pragma: no cover - availability depends on platform
     import fcntl
@@ -21,7 +24,17 @@ except ImportError:  # pragma: no cover - Windows
     fcntl = None  # type: ignore[assignment]
 
 _LOCK_SUFFIX = ".prune.lock"
-_LOCK_TIMEOUT = 5.0
+
+
+def __getattr__(name: str) -> Any:
+    if name == "_LOCK_TIMEOUT":
+        return float(section("vector_store")["lock_timeout_seconds"])
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _policy(name: str) -> float:
+    return float(getattr(sys.modules[__name__], name))
+
 
 # 本 CLI 在打开/创建本地 store 时写入的所有权标记。
 MANAGED_STORE_MARKER = ".zot-vector-store"
@@ -60,13 +73,15 @@ def _lock_path(store_path: Path) -> Path:
 
 
 @contextmanager
-def store_lock(store_path: Path, *, timeout: float = _LOCK_TIMEOUT) -> Generator[bool]:
+def store_lock(store_path: Path, *, timeout: float | None = None) -> Generator[bool]:
     """保护 store 创建、清理与 collection 删除的尽力而为的咨询锁。
 
     锁文件位于 store 旁边（pdf_rag 根目录内），这样删除 store 不会使锁文件本身失效。
     获取到锁时产出 True；在超时内未能获取（或平台不支持咨询锁）时产出 False。
     """
     lock_path = _lock_path(store_path)
+    if timeout is None:
+        timeout = _policy("_LOCK_TIMEOUT")
     try:
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
@@ -149,7 +164,7 @@ def drop_collection(store_path: Path, collection: str, *, prune_empty: bool = Fa
     if not looks_like_store or foreign:
         return False
     removed = False
-    with store_lock(store_path, timeout=1.0) as acquired:
+    with store_lock(store_path, timeout=float(section("vector_store")["prune_lock_timeout_seconds"])) as acquired:
         if acquired:
             looks_like_store, foreign = _inspect_store_dir(store_path)
             if not looks_like_store or foreign:
@@ -192,7 +207,7 @@ def prune_empty_store(store_path: Path) -> bool:
     looks_like_store, foreign = _inspect_store_dir(store_path)
     if not looks_like_store or foreign:
         return False
-    with store_lock(store_path, timeout=1.0) as acquired:
+    with store_lock(store_path, timeout=float(section("vector_store")["prune_lock_timeout_seconds"])) as acquired:
         if not acquired:
             return False
         looks_like_store, foreign = _inspect_store_dir(store_path)
@@ -220,7 +235,7 @@ class QdrantVectorStore:
 
     def __init__(self, path: Path, collection: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        with store_lock(path, timeout=_LOCK_TIMEOUT):
+        with store_lock(path, timeout=_policy("_LOCK_TIMEOUT")):
             path.mkdir(parents=True, exist_ok=True)
             self._client = QdrantClient(path=str(path))
             _write_store_marker(path)
@@ -232,7 +247,7 @@ class QdrantVectorStore:
         return self._collection
 
     def _ensure_collection(self, vector_size: int) -> None:
-        with store_lock(self._path, timeout=_LOCK_TIMEOUT) as acquired:
+        with store_lock(self._path, timeout=_policy("_LOCK_TIMEOUT")) as acquired:
             if not acquired:  # pragma: no cover - defensive
                 raise RuntimeError("could not lock the local vector store")
             if not self._client.collection_exists(self._collection):

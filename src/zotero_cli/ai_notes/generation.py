@@ -6,17 +6,9 @@ import json
 import re
 from collections.abc import Callable
 
+from zotero_cli.ai_notes import constants as note_constants
 from zotero_cli.ai_notes.access.client import AiClient
-from zotero_cli.ai_notes.constants import (
-    MAX_AUTHORS_CHARS,
-    MAX_DATE_CHARS,
-    MAX_DOI_CHARS,
-    MAX_JOURNAL_CHARS,
-    MAX_TITLE_CHARS,
-    MIN_SECTIONS,
-    PARSE_RETRY_SUFFIX,
-    SPARSE_RETRY_SUFFIX,
-)
+from zotero_cli.ai_notes.constants import PARSE_RETRY_SUFFIX, SPARSE_RETRY_SUFFIX
 from zotero_cli.ai_notes.documents import _item_authors, _item_journal
 from zotero_cli.ai_notes.errors import NoteAnalysisError
 from zotero_cli.ai_notes.evidence import model_supports_request
@@ -83,7 +75,7 @@ def _chat_with_retry(
             ) from retry_error
     if not isinstance(sections, list):
         sections = []
-    if len(sections) < MIN_SECTIONS:
+    if len(sections) < note_constants.MIN_SECTIONS:
         if progress:
             progress("retry", f"输出过简略（{len(sections)} 个 block），追加内容充实度要求重试一次")
         retry_prompt = prompt + SPARSE_RETRY_SUFFIX
@@ -111,11 +103,11 @@ def build_analysis_prompt(item: Item, template: str, fulltext: str) -> str:
     wrapped_fulltext = wrap_untrusted(fulltext, "document")
     return format_template(
         template,
-        title=_wrap_field(item.title, "title", MAX_TITLE_CHARS),
-        authors=_wrap_field(_item_authors(item), "authors", MAX_AUTHORS_CHARS),
-        journal=_wrap_field(_item_journal(item), "journal", MAX_JOURNAL_CHARS),
-        date=_wrap_field(item.date or "", "date", MAX_DATE_CHARS),
-        doi=_wrap_field(item.doi or "", "doi", MAX_DOI_CHARS),
+        title=_wrap_field(item.title, "title", note_constants.MAX_TITLE_CHARS),
+        authors=_wrap_field(_item_authors(item), "authors", note_constants.MAX_AUTHORS_CHARS),
+        journal=_wrap_field(_item_journal(item), "journal", note_constants.MAX_JOURNAL_CHARS),
+        date=_wrap_field(item.date or "", "date", note_constants.MAX_DATE_CHARS),
+        doi=_wrap_field(item.doi or "", "doi", note_constants.MAX_DOI_CHARS),
         fulltext=wrapped_fulltext,
     )
 

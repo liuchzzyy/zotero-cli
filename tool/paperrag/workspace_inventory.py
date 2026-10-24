@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from zotero_cli.config import get_data_dir, get_prefs_js_path, load_config, load_vector_store_config
+from zotero_cli.config.runtime import section
 from zotero_cli.pdf_rag.index import RagIndex
 from zotero_cli.pdf_rag.store import (
     PdfRag,
@@ -28,8 +29,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Inventory Zotero PDFs and pdf-rag index state.")
     parser.add_argument("--workspace", "--pdf-rag", dest="workspace", required=True, help="PDF RAG 工作区名称")
     parser.add_argument("--profile", default=None, help="Configuration profile name")
-    parser.add_argument("--scan-limit", type=int, default=100_000)
-    parser.add_argument("--progress-every", type=int, default=100)
+    parser.add_argument("--scan-limit", type=int, default=None, help="默认取 [tools.paperrag].scan_limit")
+    parser.add_argument("--progress-every", type=int, default=None, help="默认取 [tools.paperrag].progress_every")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--collection", action="append", default=[])
     parser.add_argument("--dry-run", action="store_true")
@@ -38,6 +39,11 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    tool_defaults = section("tools")["paperrag"]
+    if args.scan_limit is None:
+        args.scan_limit = int(tool_defaults["scan_limit"])
+    if args.progress_every is None:
+        args.progress_every = int(tool_defaults["progress_every"])
     if args.scan_limit <= 0:
         raise SystemExit("--scan-limit must be greater than 0")
     if args.progress_every <= 0:

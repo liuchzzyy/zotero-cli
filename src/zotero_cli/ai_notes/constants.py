@@ -1,32 +1,51 @@
-"""AI note 分析流水线各模块共用的常量。"""
+"""AI note 分析流水线各模块共用的常量。
+
+数值策略不在本模块写死：名称在访问时才从统一运行策略
+（``config/defaults.toml`` 加用户 ``config.toml``）解析，因此 TOML 覆盖会生效。
+"""
 
 from __future__ import annotations
 
-ANALYZED_TAG = "ai/noted"
-NOT_ANALYZED_TAG = "ai/uncertain"
-KEYWORDS_TAG = "ai/keywords"
-NO_KEYWORDS_TAG = "ai/no_keywords"
-NOTE_TITLE_PREFIX = "AI条目分析 - "
+from typing import Any
 
-MIN_SECTIONS = 10
+from zotero_cli.config.runtime import section
 
-# *short-note* prompt 的硬上限（模板 + 被压缩的 AI note）。
-# 分析 prompt 改用 `[ai_notes].max_extracted_chars` 限界
-# （默认 250,000，0 表示不限），并受 `ai_notes/evidence.py`
-# 中 800k 估算单位的单请求预算约束；两处限制相互独立。
-MAX_PROMPT_CHARS = 220_000
-PROMPT_RESERVE_CHARS = 2_000
+# 常量名 -> 生效配置键
+_POLICY_KEYS = {
+    "ANALYZED_TAG": "analyzed_tag",
+    "NOT_ANALYZED_TAG": "not_analyzed_tag",
+    "KEYWORDS_TAG": "keywords_tag",
+    "NO_KEYWORDS_TAG": "no_keywords_tag",
+    "NOTE_TITLE_PREFIX": "note_title_prefix",
+    "MIN_SECTIONS": "min_sections",
+    "MAX_PROMPT_CHARS": "max_prompt_chars",
+    "PROMPT_RESERVE_CHARS": "prompt_reserve_chars",
+    "MAX_TITLE_CHARS": "max_title_chars",
+    "MAX_ABSTRACT_CHARS": "max_abstract_chars",
+    "MAX_AUTHORS_CHARS": "max_authors_chars",
+    "MAX_JOURNAL_CHARS": "max_journal_chars",
+    "MAX_DATE_CHARS": "max_date_chars",
+    "MAX_DOI_CHARS": "max_doi_chars",
+    "CLASSIFY_CHARS": "classification_chars",
+    "MAX_PACKET_CHARS": "max_packet_chars",
+    "MAX_REFERENCES_CHARS": "max_references_chars",
+    "SHORT_NOTE_MAX_CHARS": "short_note_max_chars",
+    "SHORT_NOTE_MIN_SEGMENTS": "short_note_min_segments",
+}
 
-# 逐字段上限，避免刻意构造或异常的 Zotero 元数据在（可截断的）全文
-# 之前就耗尽 prompt 预算。
-MAX_TITLE_CHARS = 2_000
-MAX_ABSTRACT_CHARS = 20_000
-MAX_AUTHORS_CHARS = 10_000
-MAX_JOURNAL_CHARS = 1_000
-MAX_DATE_CHARS = 100
-MAX_DOI_CHARS = 500
 
-# 模型输出不可用时追加到 prompt 末尾的重试指令。
+def __getattr__(name: str) -> Any:
+    key = _POLICY_KEYS.get(name)
+    if key is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return section("ai_notes")[key]
+
+
+def __dir__() -> list[str]:
+    return sorted([*globals(), *_POLICY_KEYS])
+
+
+# 模型输出不可用时追加到 prompt 末尾的重试指令（协议文本，不是运行策略）。
 PARSE_RETRY_SUFFIX = (
     "\n\n[输出格式要求（必须遵守）]"
     "上一次输出无法解析为 JSON。请重新输出，且只输出一个 json 代码块："

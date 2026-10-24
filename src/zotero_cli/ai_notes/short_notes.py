@@ -10,11 +10,9 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 
+from zotero_cli.ai_notes import constants as note_constants
 from zotero_cli.ai_notes.access.client import AiClient
-from zotero_cli.ai_notes.constants import (
-    NOTE_TITLE_PREFIX,
-    PARSE_RETRY_SUFFIX,
-)
+from zotero_cli.ai_notes.constants import PARSE_RETRY_SUFFIX
 from zotero_cli.ai_notes.errors import NoteAnalysisError
 from zotero_cli.ai_notes.generation import _chat, extract_json_object, wrap_untrusted
 from zotero_cli.ai_notes.persistence import mark_short_note_failure, save_backfilled_short_note
@@ -29,8 +27,6 @@ from zotero_cli.zotero.access.reader import ZoteroReader
 from zotero_cli.zotero.access.writer import ZoteroWriter
 from zotero_cli.zotero.models import Item
 
-_SHORT_NOTE_MAX_CHARS = 500
-_SHORT_NOTE_MIN_SEGMENTS = 3
 # 分段符两侧的空白，用于把 `Zn || MnO2` 还原成 `Zn||MnO2` 后再切分。
 _PIPE_GAP = re.compile(r"[ \t]*\|[ \t]*")
 # 双竖线在切分前的占位符：`Zn||MnO2` 是电池记法，不是两个空段。
@@ -58,8 +54,8 @@ def validate_short_note(text: str) -> str | None:
     value = (text or "").strip()
     if not value:
         return "empty short_note"
-    if len(value) > _SHORT_NOTE_MAX_CHARS:
-        return f"too long ({len(value)} > {_SHORT_NOTE_MAX_CHARS})"
+    if len(value) > note_constants.SHORT_NOTE_MAX_CHARS:
+        return f"too long ({len(value)} > {note_constants.SHORT_NOTE_MAX_CHARS})"
     if "\n" in value or "\r" in value:
         return "contains newline"
     if any(ch in value for ch in "[]" + chr(96)):
@@ -70,8 +66,8 @@ def validate_short_note(text: str) -> str | None:
     parts = [part.strip() for part in value.replace("||", _LITERAL_PIPE_PAIR).split("|")]
     if any(not part for part in parts):
         return "empty pipe segment"
-    if len(parts) < _SHORT_NOTE_MIN_SEGMENTS:
-        return f"fewer than {_SHORT_NOTE_MIN_SEGMENTS} segments"
+    if len(parts) < note_constants.SHORT_NOTE_MIN_SEGMENTS:
+        return f"fewer than {note_constants.SHORT_NOTE_MIN_SEGMENTS} segments"
     if not parts[-1].startswith("疑问："):
         return "last segment must start with 疑问："
     return None
@@ -126,7 +122,7 @@ def _analyze_short_note_only(
         raise NoteAnalysisError(f"条目 '{key}' 没有可用的 AI 笔记", code="validation_error")
     # reader.get_notes 按创建顺序返回；标题前缀命中 AI 条目的笔记中选最新一条（我们的工作流总是后创建），
     # 避免旧版工作流的同名笔记（可能更长）抢走选择。
-    ai_notes = [n for n in notes if NOTE_TITLE_PREFIX in (n.content or "")]
+    ai_notes = [n for n in notes if note_constants.NOTE_TITLE_PREFIX in (n.content or "")]
     if ai_notes:
         chosen = ai_notes[-1]
     else:

@@ -8,18 +8,27 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from zotero_cli.config.runtime import section
 from zotero_cli.zotero.models import Attachment
 
 ProgressCallback = Callable[[str, int, int, int], None]
 
-# 本地输入/输出限制。MinerU 拒绝大于 200 MB 的 PDF；返回的归档在缓冲或
-# 解压之前就设上限，使恶意或异常响应无法耗尽内存或磁盘。
-_MAX_FILE_BYTES = 200 * 1024 * 1024
-_MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
-_MAX_ARCHIVE_MEMBER_BYTES = 200 * 1024 * 1024
-_MAX_ARCHIVE_TOTAL_BYTES = 1024 * 1024 * 1024
-_MAX_ARCHIVE_ENTRIES = 10_000
+# 本地输入/输出限制来自 `[pdf.limits]`；服务商自身上限不能被本地配置提高。
+_LIMIT_KEYS = {
+    "_MAX_FILE_BYTES": "max_file_bytes",
+    "_MAX_ARCHIVE_BYTES": "max_archive_bytes",
+    "_MAX_ARCHIVE_MEMBER_BYTES": "max_archive_member_bytes",
+    "_MAX_ARCHIVE_TOTAL_BYTES": "max_archive_total_bytes",
+    "_MAX_ARCHIVE_ENTRIES": "max_archive_entries",
+}
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
+
+
+def __getattr__(name: str) -> Any:
+    key = _LIMIT_KEYS.get(name)
+    if key is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return section("pdf")["limits"][key]
 
 
 @dataclass(frozen=True)

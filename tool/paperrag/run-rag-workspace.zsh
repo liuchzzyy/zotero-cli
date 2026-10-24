@@ -10,13 +10,13 @@ source "$SCRIPT_DIR/zotero-workflow-common.zsh"
 workspace_name="${PAPERRAG_WORKSPACE:-00_收件箱}"
 collections_csv="${PAPERRAG_COLLECTIONS:-00 | 收件箱}"
 profile_name=""
-scan_limit=100000
-progress_every=100
-embed_batch_size=10
-embed_limit=0
-embed_max_retries=8
-embed_retry_sleep=10
-embed_heartbeat_seconds=15
+scan_limit=""
+progress_every=""
+embed_batch_size=""
+embed_limit=""
+embed_max_retries=""
+embed_retry_sleep=""
+embed_heartbeat_seconds=""
 output_dir=""
 dry_run=false
 no_index=false
@@ -95,9 +95,11 @@ if [[ "$embed_only" == true && "$no_embed" == true ]]; then
   exit 2
 fi
 for numeric in "$scan_limit" "$progress_every" "$embed_batch_size"; do
+  [[ -z "$numeric" ]] && continue
   [[ "$numeric" == <-> && "$numeric" -gt 0 ]] || { print -u2 -- "Positive integer expected: $numeric"; exit 2; }
 done
 for numeric in "$embed_limit" "$embed_max_retries"; do
+  [[ -z "$numeric" ]] && continue
   [[ "$numeric" == <-> ]] || { print -u2 -- "Non-negative integer expected: $numeric"; exit 2; }
 done
 
@@ -127,9 +129,9 @@ fi
 
 inventory_cmd=(uv run python -u "$SCRIPT_DIR/workspace_inventory.py"
   --workspace "$workspace_name"
-  --scan-limit "$scan_limit"
-  --progress-every "$progress_every"
   --output "$inventory_path")
+[[ -n "$scan_limit" ]] && inventory_cmd+=(--scan-limit "$scan_limit")
+[[ -n "$progress_every" ]] && inventory_cmd+=(--progress-every "$progress_every")
 [[ -n "$profile_name" ]] && inventory_cmd+=(--profile "$profile_name")
 if [[ "$dry_run" == true ]]; then
   inventory_cmd+=(--dry-run)
@@ -173,15 +175,14 @@ run_embed() {
   local had_previous_batch_size=${+ZOT_EMBEDDING_BATCH_SIZE}
   local embed_cmd=(uv run zot)
   [[ -n "$profile_name" ]] && embed_cmd+=(--profile "$profile_name")
-  embed_cmd+=(pdf-rag embed "$workspace_name"
-    --batch-size "$embed_batch_size"
-    --max-retries "$embed_max_retries"
-    --retry-sleep "$embed_retry_sleep"
-    --heartbeat-seconds "$embed_heartbeat_seconds"
-    --progress-lines)
-  (( embed_limit > 0 )) && embed_cmd+=(--limit "$embed_limit")
+  embed_cmd+=(pdf-rag embed "$workspace_name" --progress-lines)
+  [[ -n "$embed_batch_size" ]] && embed_cmd+=(--batch-size "$embed_batch_size")
+  [[ -n "$embed_max_retries" ]] && embed_cmd+=(--max-retries "$embed_max_retries")
+  [[ -n "$embed_retry_sleep" ]] && embed_cmd+=(--retry-sleep "$embed_retry_sleep")
+  [[ -n "$embed_heartbeat_seconds" ]] && embed_cmd+=(--heartbeat-seconds "$embed_heartbeat_seconds")
+  [[ -n "$embed_limit" ]] && embed_cmd+=(--limit "$embed_limit")
   workflow_section "Embedding Backfill"
-  export ZOT_EMBEDDING_BATCH_SIZE="$embed_batch_size"
+  [[ -n "$embed_batch_size" ]] && export ZOT_EMBEDDING_BATCH_SIZE="$embed_batch_size"
   local embed_status=0
   if workflow_run_logged "$embed_log" "${embed_cmd[@]}"; then
     embed_status=0

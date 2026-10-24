@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 
 import typer
 
+from zotero_cli.cli.app.context import load_context_config, resolve_limit
 from zotero_cli.cli.commands.pdf_rag._output import (
     emit_result,
     emit_warning,
@@ -238,7 +239,7 @@ def pdf_rag_show(ctx: typer.Context, name: str) -> None:
     """显示 pdf_rag 中的条目。"""
     json_out = output_json(ctx)
     detail = ctx.obj.get("detail", "standard")
-    limit = ctx.obj.get("limit", 50)
+    limit = resolve_limit(None, ctx, load_context_config(ctx))
     pdf_rag = load_pdf_rag_or_exit(ctx, name, context="pdf_rag show")
     if not pdf_rag.items:
         emit_result(
@@ -440,7 +441,7 @@ def pdf_rag_search(ctx: typer.Context, query: str, pdf_rag_name: str) -> None:
     """在 pdf_rag 内按标题、作者或摘要搜索条目。"""
     json_out = output_json(ctx)
     detail = ctx.obj.get("detail", "standard")
-    limit = ctx.obj.get("limit", 50)
+    limit = resolve_limit(None, ctx, load_context_config(ctx))
     pdf_rag = load_pdf_rag_or_exit(ctx, pdf_rag_name, context="pdf_rag search")
     if not pdf_rag.items:
         emit_result(ctx, [], human_text=f"PdfRag '{pdf_rag_name}' is empty.", meta={"count": 0})

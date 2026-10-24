@@ -63,11 +63,17 @@ from zotero_cli.config import (  # noqa: E402
     resolve_write_credentials,
     state_dir,
 )
+from zotero_cli.config.runtime import section  # noqa: E402
 from zotero_cli.zotero.access.reader import ZoteroReader  # noqa: E402
 from zotero_cli.zotero.access.writer import ZoteroWriter  # noqa: E402
 
 PAPER2ZOTERO_STATE_SUBDIR = "paper2zotero"
 MANUAL_ABSTRACTS_ENV = "ZOT_PAPER2ZOTERO_MANUAL_ABSTRACTS"
+
+
+def _network_timeout() -> float:
+    return float(section("tools")["paper2zotero"]["network_timeout_seconds"])
+
 
 ABS_DONE = {"updated", "already_up_to_date"}
 TITLE_DONE = {"updated", "already_translated"}
@@ -130,7 +136,7 @@ def recover_missing_abstract(
         try:
             url = f"https://api.crossref.org/works/{urllib.parse.quote(doi)}"
             req = urllib.request.Request(url, headers={"User-Agent": user_agent})
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with urllib.request.urlopen(req, timeout=_network_timeout()) as resp:
                 data = json.loads(resp.read().decode())
                 raw_ab = data.get("message", {}).get("abstract", "")
                 if raw_ab and raw_ab.strip():
@@ -167,7 +173,7 @@ def recover_missing_abstract(
         try:
             url = f"https://api.openalex.org/works/https://doi.org/{urllib.parse.quote(doi)}"
             req = urllib.request.Request(url, headers={"User-Agent": user_agent})
-            with urllib.request.urlopen(req, timeout=5) as r:
+            with urllib.request.urlopen(req, timeout=_network_timeout()) as r:
                 d = json.loads(r.read())
                 inv = d.get("abstract_inverted_index")
                 if inv:
@@ -377,7 +383,10 @@ def translate_abstract_batch(batch: list[dict[str, Any]], ai_client: AiClient) -
     last: Exception | None = None
     for attempt in range(3):
         try:
-            parsed = parse_model_response(ai_client.chat(prompt, temperature=0.2), batch)
+            parsed = parse_model_response(
+                ai_client.chat(prompt, temperature=float(section("tools")["paper2zotero"]["translation_temperature"])),
+                batch,
+            )
             return {k: zh_text.normalize_abstract(parsed[k]) for k in keys}
         except Exception as e:
             last = e
@@ -394,7 +403,10 @@ def translate_title_batch(batch: list[dict[str, Any]], ai_client: AiClient) -> d
     last: Exception | None = None
     for attempt in range(3):
         try:
-            parsed = backfill.parse_translations(ai_client.chat(prompt, temperature=0.2), query)
+            parsed = backfill.parse_translations(
+                ai_client.chat(prompt, temperature=float(section("tools")["paper2zotero"]["translation_temperature"])),
+                query,
+            )
             return {k: zh_text.normalize(v) for k, v in parsed.items()}
         except Exception as e:
             last = e
@@ -408,14 +420,17 @@ def stage_translations(
     state_path: Path,
     ai_client: AiClient,
     *,
-    batch_size: int = 6,
-    max_workers: int = 6,
+    batch_size: int | None = None,
+    max_workers: int | None = None,
     with_titles: bool = False,
 ) -> list[dict[str, Any]]:
     """Translate abstracts and (optionally) titles, checkpointing after every batch.
 
     Existing translations in the state file are reused, so a rerun only fills gaps.
     """
+    policy = section("tools")["paper2zotero"]
+    batch_size = int(policy["metadata_batch_size"]) if batch_size is None else batch_size
+    max_workers = int(policy["metadata_workers"]) if max_workers is None else max_workers
     state_map = load_state_map(state_path)
     for cand in candidates:
         previous = state_map.get(cand["key"])
@@ -481,10 +496,12 @@ def apply_updates_from_state(
     state_path: Path,
     *,
     limit: int | None = None,
-    max_workers: int = 4,
+    max_workers: int | None = None,
     with_titles: bool = False,
 ) -> dict[str, int]:
     """Write the staged abstract (and optional title) to Zotero and verify each readback."""
+    if max_workers is None:
+        max_workers = int(section("tools")["paper2zotero"]["write_workers"])
     if not state_path.exists():
         raise AbstractTranslationError(f"暂存状态文件不存在: {state_path}")
 

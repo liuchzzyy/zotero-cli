@@ -67,7 +67,7 @@ def root(
     ctx: typer.Context,
     output_json: bool | None = typer.Option(None, "--json", help="以 JSON 输出；非 TTY 时自动启用。"),
     output_no_json: bool = typer.Option(False, "--no-json", help="即使非 TTY 也强制人类可读输出。"),
-    limit: int = typer.Option(50, help="结果上限。"),
+    limit: int | None = typer.Option(None, help="结果上限（省略时使用 TOML output.limit）。"),
     detail: str = typer.Option("standard", help="输出详情：minimal、standard 或 full。"),
     no_interaction: bool = typer.Option(False, "--no-interaction", help="自动化时禁用交互提示。"),
     verbose: bool = typer.Option(False, "--verbose", help="意外错误时输出回溯。"),

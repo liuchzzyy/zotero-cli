@@ -4,19 +4,33 @@ from __future__ import annotations
 
 import json
 import re
+import sys
+from typing import Any
 
+from zotero_cli.ai_notes import constants as note_constants
 from zotero_cli.ai_notes.errors import NoteAnalysisError
 from zotero_cli.ai_notes.generation import extract_json_object, wrap_untrusted
 
-MAX_PACKET_CHARS = 120_000
-MAX_REFERENCES_CHARS = 80_000
+
+def __getattr__(name: str) -> Any:
+    if name == "MAX_PACKET_CHARS":
+        return note_constants.MAX_PACKET_CHARS
+    if name == "MAX_REFERENCES_CHARS":
+        return note_constants.MAX_REFERENCES_CHARS
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _policy(name: str) -> int:
+    return int(getattr(sys.modules[__name__], name))
+
+
 _SOURCE = re.compile(r"\[([^\]|]+)\s*\|\s*(main|supplementary)\s*\|\s*PDF p\.(\d+|\?)")
 _REF_LABEL = re.compile(
     r"\[([^\]]+)\|\s*main\s*\|\s*PDF p\.\d+\s*\|\s*(?:References|REFERENCES|Bibliography|BIBLIOGRAPHY)\]"
 )
 
 
-def extract_references_text(source_text: str, max_chars: int = MAX_REFERENCES_CHARS) -> str:
+def extract_references_text(source_text: str, max_chars: int | None = None) -> str:
     """提取原文中末尾的参考文献列表文本；若未明确区分则安全返回空字符串。"""
     if not source_text:
         return ""
@@ -109,7 +123,7 @@ def parse_text_packet(
     if not isinstance(unresolved, list) or any(not isinstance(value, str) for value in unresolved):
         raise NoteAnalysisError("文字证据包未解问题列表无效", code="validation_error")
     result = json.dumps({"evidence": evidence, "unresolved": unresolved}, ensure_ascii=False)
-    if len(result) > MAX_PACKET_CHARS:
+    if len(result) > _policy("MAX_PACKET_CHARS"):
         raise NoteAnalysisError("文字证据包超过下一阶段预算", code="validation_error", parkable=True)
     return result
 

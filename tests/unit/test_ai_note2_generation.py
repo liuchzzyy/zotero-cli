@@ -193,6 +193,22 @@ def test_generation_repairs_at_most_once(document, monkeypatch):
     assert len(client.calls) == 2
 
 
+def test_repair_keeps_failed_json_in_the_correction_request(document, monkeypatch):
+    from zotero_cli.ai_notes2 import generation
+
+    monkeypatch.setattr(generation, "model_supports_request", lambda *args, **kwargs: True)
+    bad = _payload(document)
+    bad["thought"]["nodes"][0]["claim_kind"] = "invalid_enum"
+    raw = json.dumps(bad, ensure_ascii=False)
+    fixed = _payload(document)
+    fixed["thought"]["nodes"][0]["claim_kind"] = "描述"
+    client = FakeClient([raw, json.dumps(fixed, ensure_ascii=False)])
+    result = generation.generate_document(client, _snapshot(document), run_number=1)
+    assert result.repair_used
+    assert raw in client.calls[1]["prompt"]
+    assert "/thought/nodes/0/claim_kind" in client.calls[1]["prompt"]
+
+
 def test_generation_rejects_truncated_or_budget_overflow(document, monkeypatch):
     from zotero_cli.ai_notes2 import generation
 

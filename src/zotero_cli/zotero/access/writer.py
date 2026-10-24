@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import httpx2
 from pyzotero import zotero
 from pyzotero.zotero_errors import PyZoteroError, ResourceNotFoundError
 
+from zotero_cli.config.runtime import section
 from zotero_cli.zotero.access.errors import (
     ZoteroWriteError,
     _friendly_api_error,
@@ -32,11 +34,22 @@ def merge_short_note_into_extra(extra: str, short_note: str) -> str:
 SYNC_REMINDER = "Change saved. Run Zotero sync to update local database."
 
 
-API_TIMEOUT = 30.0  # 秒
+def __getattr__(name: str) -> Any:
+    if name == "API_TIMEOUT":
+        return float(section("zotero")["api_timeout_seconds"])
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 class ZoteroWriter:
-    def __init__(self, library_id: str, api_key: str, library_type: str = "user", timeout: float = API_TIMEOUT) -> None:
+    def __init__(
+        self,
+        library_id: str,
+        api_key: str,
+        library_type: str = "user",
+        timeout: float | None = None,
+    ) -> None:
+        if timeout is None:
+            timeout = float(section("zotero")["api_timeout_seconds"])
         self._zot = zotero.Zotero(library_id, library_type, api_key)
         if self._zot.client is not None:
             # pyzotero 1.16 使用 httpx2 客户端，其 timeout 必须是

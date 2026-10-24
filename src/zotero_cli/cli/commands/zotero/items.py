@@ -15,6 +15,7 @@ from typing import Any
 
 import typer
 
+from zotero_cli.cli.app.context import resolve_limit
 from zotero_cli.cli.app.group import TieredGroup
 from zotero_cli.cli.renderers import format_duplicates, format_item_detail, format_items
 from zotero_cli.config import (
@@ -80,7 +81,7 @@ def _create_reader(ctx: typer.Context) -> tuple[ZoteroReader, Any]:
 
 
 def _result_limit(limit: int | None, ctx: typer.Context, config: Any) -> int:
-    return limit if limit is not None else ctx.obj.get("limit", config.default_limit)
+    return resolve_limit(limit, ctx, config)
 
 
 def _validate_sort_options(sort: str | None, direction: str) -> None:
@@ -1284,7 +1285,7 @@ def duplicates(
     library_id = resolve_library_id(db_path, ctx.obj)
     reader = ZoteroReader(db_path, library_id=library_id)
     try:
-        limit = limit if limit is not None else ctx.obj.get("limit", config.default_limit)
+        limit = _result_limit(limit, ctx, config)
         groups = reader.find_duplicates(strategy=strategy, threshold=threshold, limit=limit)
         if not groups:
             if ctx.obj.get("json"):
@@ -1517,7 +1518,7 @@ def relate(
                 hint="Run 'zot zotero search' to find valid item keys",
                 context="relate",
             )
-        limit = limit if limit is not None else ctx.obj.get("limit", 20)
+        limit = _result_limit(limit, ctx, config)
         items = reader.get_related_items(key, limit=limit)
         if not items:
             # 空结果是正常情况而非错误——以退出码 0 结束并给出友好提示。
@@ -1624,7 +1625,7 @@ def summary_cmd(
             return
 
         # 批量导出摘要
-        limit_val = limit if limit is not None else ctx.obj.get("limit", 10000)
+        limit_val = _result_limit(limit, ctx, config)
         detail = ctx.obj.get("detail", "standard")
         emit_progress(
             "start",
@@ -1695,7 +1696,7 @@ def publication_status_cmd(
         )
     config = load_config(profile=ctx.obj.get("profile"))
     json_out = ctx.obj.get("json", False)
-    limit_val = limit if limit is not None else ctx.obj.get("limit", 50)
+    limit_val = _result_limit(limit, ctx, config)
 
     api_key = resolve_semantic_scholar_api_key(config, explicit=ss_api_key)
     if not api_key and not json_out:

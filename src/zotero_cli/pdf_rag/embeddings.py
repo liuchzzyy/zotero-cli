@@ -48,6 +48,7 @@ def embed_texts(
         url=config.url,
         model=config.model,
         batch_size=config.batch_size,
+        timeout=config.timeout_seconds,
     )
     try:
         return provider.embed(texts, progress_callback, input_type=input_type)

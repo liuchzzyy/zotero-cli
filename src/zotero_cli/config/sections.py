@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .runtime import built_in_defaults
+
+_DEFAULTS = built_in_defaults()
+
 
 @dataclass
 class AppConfig:
@@ -12,9 +16,9 @@ class AppConfig:
     api_key: str = ""
     semantic_scholar_api_key: str = ""
     crossref_mailto: str = ""
-    default_format: str = "table"
-    default_limit: int = 50
-    default_export_style: str = "bibtex"
+    default_format: str = _DEFAULTS["output"]["default_format"]
+    default_limit: int = _DEFAULTS["output"]["limit"]
+    default_export_style: str = _DEFAULTS["export"]["default_style"]
     prefs_js_path: str = ""
 
 
@@ -24,8 +28,9 @@ class EmbeddingConfig:
     provider: str = "gitee"
     url: str = "https://ai.gitee.com/v1"
     api_key: str = ""
-    model: str = "bge-m3"
-    batch_size: int = 50
+    model: str = _DEFAULTS["embedding"]["model"]
+    batch_size: int = _DEFAULTS["embedding"]["batch_size"]
+    timeout_seconds: float = _DEFAULTS["embedding"]["timeout_seconds"]
 
     @property
     def is_configured(self) -> bool:
@@ -38,8 +43,9 @@ class RerankConfig:
     provider: str = "gitee"
     url: str = "https://ai.gitee.com/v1/rerank"
     api_key: str = ""
-    model: str = "bge-reranker-v2-m3"
-    batch_size: int = 16
+    model: str = _DEFAULTS["rerank"]["model"]
+    batch_size: int = _DEFAULTS["rerank"]["batch_size"]
+    timeout_seconds: float = _DEFAULTS["rerank"]["timeout_seconds"]
 
     @property
     def is_configured(self) -> bool:
@@ -48,34 +54,40 @@ class RerankConfig:
 
 @dataclass
 class VectorStoreConfig:
-    provider: str = "qdrant_local"
-    path: str = ".zot/pdf_rag/_qdrant"
+    provider: str = _DEFAULTS["vector_store"]["provider"]
+    path: str = _DEFAULTS["vector_store"]["path"]
 
 
 @dataclass
 class SemanticSearchConfig:
-    candidate_k: int = 150
-    top_k: int = 20
-    rrf_k: int = 60
-    semantic_weight: float = 0.8
-    bm25_weight: float = 0.2
+    candidate_k: int = _DEFAULTS["semantic_search"]["candidate_k"]
+    top_k: int = _DEFAULTS["semantic_search"]["top_k"]
+    rrf_k: int = _DEFAULTS["semantic_search"]["rrf_k"]
+    semantic_weight: float = _DEFAULTS["semantic_search"]["semantic_weight"]
+    bm25_weight: float = _DEFAULTS["semantic_search"]["bm25_weight"]
 
 
 @dataclass
 class PdfConfig:
     mineru_token: str = ""
-    mineru_model_version: str = "vlm"
+    mineru_model_version: str = _DEFAULTS["pdf"]["mineru_model_version"]
+    mineru: dict = field(default_factory=lambda: dict(_DEFAULTS["pdf"]["mineru"]))
+    limits: dict = field(default_factory=lambda: dict(_DEFAULTS["pdf"]["limits"]))
+    cache: dict = field(default_factory=lambda: dict(_DEFAULTS["pdf"]["cache"]))
 
 
 @dataclass
 class AiNoteConfig:
     api_key: str = ""
     base_url: str = ""
-    model: str = "antigravity/gemini-3.8-flash"
-    fallback_models: list[str] = field(default_factory=lambda: ["group/deepseek"])
-    reasoning_effort: str = "max"
-    temperature: float = 0.7
-    max_tokens: int = 0
-    max_extracted_chars: int = 250000
-    timeout_seconds: float = 300.0
-    max_retries: int = 2
+    model: str = _DEFAULTS["ai_notes"]["model"]
+    fallback_models: list[str] = field(default_factory=lambda: list(_DEFAULTS["ai_notes"]["fallback_models"]))
+    reasoning_effort: str = _DEFAULTS["ai_notes"]["reasoning_effort"]
+    temperature: float = _DEFAULTS["ai_notes"]["temperature"]
+    max_tokens: int = _DEFAULTS["ai_notes"]["max_tokens"]
+    max_extracted_chars: int = _DEFAULTS["ai_notes"]["max_extracted_chars"]
+    timeout_seconds: float = _DEFAULTS["ai_notes"]["timeout_seconds"]
+    max_retries: int = _DEFAULTS["ai_notes"]["max_retries"]
+    budget: dict = field(default_factory=lambda: dict(_DEFAULTS["ai_notes"]["budget"]))
+    images: dict = field(default_factory=lambda: dict(_DEFAULTS["ai_notes"]["images"]))
+    routes: dict = field(default_factory=lambda: dict(_DEFAULTS["ai_notes"]["routes"]))

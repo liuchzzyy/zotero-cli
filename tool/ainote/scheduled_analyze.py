@@ -21,15 +21,27 @@ from typing import Any
 from batch_analyze import load_state, save_state
 
 from zotero_cli.ai_notes.constants import NOTE_TITLE_PREFIX
+from zotero_cli.config.runtime import section
 from zotero_cli.pdf_rag.metadata import clean_html
 
 DONE_TAGS = {"ai/noted", "ai/uncertain"}
 DONE_STATUSES = {"ok", "already_analyzed", "uncertain"}
+
+
 # A non-committed failure that repeats is not transient: the input itself cannot
 # yield a note (structured text over `max_extracted_chars`, or more main figures
 # than the request budget allows). Park it after this many attempts so a nightly
 # run stops re-attempting it and stops reporting the same failure forever.
-MAX_ATTEMPTS = 3
+def __getattr__(name: str) -> Any:
+    if name == "MAX_ATTEMPTS":
+        return int(section("tools")["ainote"]["max_attempts"])
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _policy(name: str) -> Any:
+    return getattr(sys.modules[__name__], name)
+
+
 PARKED_STATUS = "unanalyzable"
 HALTED_STATUSES = DONE_STATUSES | {PARKED_STATUS}
 
@@ -49,7 +61,7 @@ def verify_result(api: Any, key: str, before: dict[str, Any], result: dict[str, 
         return {"verified": True, "tags": sorted(tags)}
     if result.get("status") != "ok":
         raise RuntimeError(f"Unexpected analysis status: {result.get('status')}")
-    notes = api.everything(api.children(key, limit=100))
+    notes = api.everything(api.children(key, limit=int(section("tools")["ainote"]["children_limit"])))
     note = next((n["data"] for n in notes if n["key"] == result.get("note_key")), None)
     if not note or note.get("parentItem") != key or note.get("itemType") != "note":
         raise RuntimeError("Expected child note not found")
@@ -91,7 +103,7 @@ def run_collection(
     state_path: Path,
     *,
     apply: bool = False,
-    budget_seconds: float = 3000,
+    budget_seconds: float | None = None,
     retry_parked: bool = False,
 ) -> dict[str, Any]:
     """Process only fresh candidates; all network/model boundaries are injectable.
@@ -100,9 +112,13 @@ def run_collection(
     from pre-scan failures. The time budget defers remaining candidates to future
     scheduled runs rather than claiming every item was analyzed in one tick.
     """
+    if budget_seconds is None:
+        budget_seconds = float(section("tools")["ainote"]["budget_seconds"])
     started = time.monotonic()
     local = {i.key: i for i in reader.get_collection_items(collection) if i.item_type not in {"note", "attachment"}}
-    remote_list = api.everything(api.collection_items(collection, limit=100))
+    remote_list = api.everything(
+        api.collection_items(collection, limit=int(section("tools")["ainote"]["children_limit"]))
+    )
     remote_keys = {v["key"] for v in remote_list if v["data"]["itemType"] not in {"note", "attachment"}}
     keys = sorted(set(local) | remote_keys)
     state = load_state(state_path)
@@ -140,7 +156,7 @@ def run_collection(
             if previous.get("status") in HALTED_STATUSES and not previous.get("dry_run"):
                 summary["skipped"].append({"key": key, "reason": f"checkpoint_{previous['status']}"})
                 continue
-            notes = api.everything(api.children(key, limit=100))
+            notes = api.everything(api.children(key, limit=int(section("tools")["ainote"]["children_limit"])))
             existing = [
                 n["key"]
                 for n in notes
@@ -178,7 +194,7 @@ def run_collection(
                 # pipeline's explicit, deterministic input-budget errors park.
                 parkable = not committed and bool(getattr(exc, "parkable", False))
                 budget_attempts = int(previous.get("budget_attempts", 0)) + 1 if parkable else 0
-                parked = budget_attempts >= MAX_ATTEMPTS
+                parked = budget_attempts >= _policy("MAX_ATTEMPTS")
                 state[key] = _checkpoint(
                     before,
                     status=PARKED_STATUS if parked else "failed",

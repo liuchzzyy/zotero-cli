@@ -21,6 +21,7 @@ from zotero_cli.cli.commands.pdf_rag.operations import (
     pdf_rag_show,
 )
 from zotero_cli.cli.commands.pdf_rag.query import pdf_rag_query
+from zotero_cli.config.runtime import section
 
 pdf_rag_app = typer.Typer(
     cls=TieredGroup,
@@ -154,25 +155,26 @@ def reindex(
 def embed(
     ctx: typer.Context,
     name: Annotated[str, typer.Argument()],
-    batch_size: Annotated[int, typer.Option("--batch-size")] = 50,
-    limit: Annotated[int, typer.Option("--limit")] = 0,
-    max_retries: Annotated[int, typer.Option("--max-retries")] = 5,
-    retry_sleep: Annotated[float, typer.Option("--retry-sleep")] = 10.0,
-    deadline_seconds: Annotated[float, typer.Option("--deadline-seconds")] = 120.0,
-    heartbeat_seconds: Annotated[float, typer.Option("--heartbeat-seconds")] = 15.0,
+    batch_size: Annotated[int | None, typer.Option("--batch-size")] = None,
+    limit: Annotated[int | None, typer.Option("--limit")] = None,
+    max_retries: Annotated[int | None, typer.Option("--max-retries")] = None,
+    retry_sleep: Annotated[float | None, typer.Option("--retry-sleep")] = None,
+    deadline_seconds: Annotated[float | None, typer.Option("--deadline-seconds")] = None,
+    heartbeat_seconds: Annotated[float | None, typer.Option("--heartbeat-seconds")] = None,
     progress_lines: Annotated[bool, typer.Option("--progress-lines")] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
 ) -> None:
-    """为工作区未嵌入切片批量计算向量。"""
+    """为工作区未嵌入切片批量计算向量（省略参数时用 TOML 生效值）。"""
+    defaults = section("semantic_search")["embed"]
     pdf_rag_embed(
         ctx,
         name,
-        batch_size,
-        limit,
-        max_retries,
-        retry_sleep,
-        heartbeat_seconds,
-        deadline_seconds,
+        defaults["batch_size"] if batch_size is None else batch_size,
+        defaults["limit"] if limit is None else limit,
+        defaults["max_retries"] if max_retries is None else max_retries,
+        defaults["retry_sleep_seconds"] if retry_sleep is None else retry_sleep,
+        defaults["heartbeat_seconds"] if heartbeat_seconds is None else heartbeat_seconds,
+        defaults["deadline_seconds"] if deadline_seconds is None else deadline_seconds,
         progress_lines,
         dry_run,
     )
@@ -184,10 +186,20 @@ def query(
     question: Annotated[str, typer.Argument()],
     pdf_rag_name: Annotated[str, typer.Option("--pdf-rag")],
     top_k: Annotated[int | None, typer.Option("--top-k", min=1)] = None,
-    mode: Annotated[str, typer.Option("--mode")] = "auto",
-    pdf_kind: Annotated[str, typer.Option("--pdf-kind")] = "any",
-    rerank: Annotated[bool, typer.Option("--rerank")] = False,
-    rerank_top_n: Annotated[int, typer.Option("--rerank-top-n")] = 50,
+    mode: Annotated[str | None, typer.Option("--mode")] = None,
+    pdf_kind: Annotated[str | None, typer.Option("--pdf-kind")] = None,
+    rerank: Annotated[bool | None, typer.Option("--rerank")] = None,
+    rerank_top_n: Annotated[int | None, typer.Option("--rerank-top-n")] = None,
 ) -> None:
-    """结合 BM25、语义向量与重排的多路混合检索问答。"""
-    pdf_rag_query(ctx, question, pdf_rag_name, top_k, mode, pdf_kind, rerank, rerank_top_n)
+    """结合 BM25、语义向量与重排的多路混合检索问答（省略参数时用 TOML 生效值）。"""
+    defaults = section("semantic_search")["query"]
+    pdf_rag_query(
+        ctx,
+        question,
+        pdf_rag_name,
+        top_k,
+        defaults["mode"] if mode is None else mode,
+        defaults["pdf_kind"] if pdf_kind is None else pdf_kind,
+        defaults["rerank"] if rerank is None else rerank,
+        defaults["rerank_top_n"] if rerank_top_n is None else rerank_top_n,
+    )

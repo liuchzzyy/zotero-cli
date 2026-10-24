@@ -12,8 +12,8 @@ workspace_name="${PAPERRAG_WORKSPACE:-rag-workspace}"
 profile_name=""
 mode="auto"
 pdf_kind="any"
-top_k=8
-rerank_top_n=50
+top_k=""
+rerank_top_n=""
 output_dir=""
 json_output=false
 no_rerank=false
@@ -69,8 +69,8 @@ done
 [[ -n "$question" ]] || { print -u2 -- "--question is required"; exit 2; }
 [[ "$mode" == (auto|bm25|semantic|hybrid) ]] || { print -u2 -- "Invalid --mode: $mode"; exit 2; }
 [[ "$pdf_kind" == (any|main|supplementary) ]] || { print -u2 -- "Invalid --pdf-kind: $pdf_kind"; exit 2; }
-[[ "$top_k" == <-> && "$top_k" -gt 0 ]] || { print -u2 -- "--top-k must be greater than 0"; exit 2; }
-[[ "$rerank_top_n" == <-> && "$rerank_top_n" -gt 0 ]] || { print -u2 -- "--rerank-top-n must be greater than 0"; exit 2; }
+[[ -z "$top_k" || ( "$top_k" == <-> && "$top_k" -gt 0 ) ]] || { print -u2 -- "--top-k must be greater than 0"; exit 2; }
+[[ -z "$rerank_top_n" || ( "$rerank_top_n" == <-> && "$rerank_top_n" -gt 0 ) ]] || { print -u2 -- "--rerank-top-n must be greater than 0"; exit 2; }
 
 repo_root="$(workflow_repo_root "$SCRIPT_PATH")"
 run_dir="$(workflow_output_dir "$repo_root" "$output_dir" "rag-evidence-search")"
@@ -90,8 +90,12 @@ workflow_setting "output" "$run_dir"
 query_cmd=(uv run zot)
 [[ -n "$profile_name" ]] && query_cmd+=(--profile "$profile_name")
 if [[ "$json_output" == true ]]; then query_cmd+=(--json); else query_cmd+=(--no-json); fi
-query_cmd+=(pdf-rag query "$question" --pdf-rag "$workspace_name" --mode "$mode" --top-k "$top_k" --pdf-kind "$pdf_kind")
-if [[ "$no_rerank" != true ]]; then query_cmd+=(--rerank --rerank-top-n "$rerank_top_n"); fi
+query_cmd+=(pdf-rag query "$question" --pdf-rag "$workspace_name" --mode "$mode" --pdf-kind "$pdf_kind")
+[[ -n "$top_k" ]] && query_cmd+=(--top-k "$top_k")
+if [[ "$no_rerank" != true ]]; then
+  query_cmd+=(--rerank)
+  [[ -n "$rerank_top_n" ]] && query_cmd+=(--rerank-top-n "$rerank_top_n")
+fi
 
 workflow_status="failed"
 trap 'workflow_finish "$workflow_status"' EXIT

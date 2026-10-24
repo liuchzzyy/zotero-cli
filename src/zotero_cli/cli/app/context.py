@@ -32,3 +32,13 @@ def option(ctx: typer.Context | Any, name: str, default: Any = None) -> Any:
     """读取根入口写入 ctx.obj 的全局选项。"""
     obj = getattr(ctx, "obj", None) or {}
     return obj.get(name, default)
+
+
+def resolve_limit(command_limit: Any, ctx: typer.Context | Any, config: Any) -> int:
+    """显式命令参数 > 根入口 --limit > TOML output.limit。"""
+    if command_limit is not None:
+        return int(command_limit)
+    root_limit = option(ctx, "limit")
+    if root_limit is not None:
+        return int(root_limit)
+    return int(config.default_limit)
