@@ -8,7 +8,7 @@
 - **远程写入**：通过 Zotero Web API，不直接修改 `zotero.sqlite`。
 - **Agent 接口**：稳定 JSON envelope、类型化退出码（0/1/2/3/4/5/6）、`--dry-run`、`--yes` 确认、`--idempotency-key`、`--stream` NDJSON 和运行时 `zot schema`。
 - **PDF 解析**：MinerU 云端解析、内容哈希缓存、结构化 `content_list.json`，下载/解压有大小与条目上限。
-- **AI 条目笔记**：`ai-note` 自动生成带插图的 HTML note 与关键词简记，写回 Zotero。
+- **AI 条目笔记**：`ai-note` 自动生成带插图的 HTML note 与关键词简记，写回 Zotero；`ai-note2` 基于旧 AI 笔记与 MinerU 文本生成三链框架分析笔记与鱼骨图。
 - **PDF RAG**：文献集全文检索（FTS5/BM25）加可选 embedding/rerank。
 
 ## 安装
@@ -242,6 +242,38 @@ uv run zot ai-note ITEMKEY --idempotency-key analyze-ITEMKEY-001
 
 同一条文本规则也适用于导入流程写入的中文标题与中文摘要（见「辅助工具」中的 `zh_text.py`）：不得含上下标，中英文之间加半角空格。
 
+## 三链框架分析笔记（ai-note2）
+
+`ai-note2` 在已有 AI 分析笔记的基础上，单阶段生成思维链、证据链与审查链，并渲染鱼骨状 SVG。没有可识别的旧 AI 分析笔记时正常跳过，不解析 PDF、不调用模型、不写 Zotero。
+
+```bash
+# 预览所选旧笔记、PDF 附件、输入范围与预算；不调用分析模型、不写 Zotero
+uv run zot ai-note2 ITEMKEY --dry-run
+
+# 只生成本地 analysis.json / note.md / note.html / tree.svg，不创建 writer
+uv run zot ai-note2 ITEMKEY --local-only
+
+# 生成并新增一份 child note，回读确认后为父条目追加 ai/evidence
+uv run zot ai-note2 ITEMKEY --source-note NOTEKEY
+
+# 限定 PDF 附件；多份旧笔记时必须显式指定
+uv run zot ai-note2 ITEMKEY --source-note NOTEKEY --attachment MSKEY --attachment SIKEY
+
+# 已有成功发布记录时追加一次新运行（不覆盖或删除旧 note）
+uv run zot ai-note2 ITEMKEY --force --idempotency-key RUNKEY
+```
+
+行为要点：
+
+- 旧笔记识别只检查首个标题是否带 `AI条目分析 - `；多份候选返回 `conflict` 并列出 key，不会自动选择“最新”或“最长”。本功能自己的 `框架分析 - ` 输出不会被递归当作输入。
+- PDF 按内容 SHA-256 去除字节相同的副本并保留附件别名；正文/支撑信息角色沿用启发式判定，并记录判定依据与“身份未明确”，不因附件唯一就宣称文献身份正确。
+- 发给模型的只有保留块类型、顺序、页码与 `block_id` 的文本 JSON 投影和旧笔记文本；图片路径、URL、base64 和像素都不进入请求。原文片段由程序从冻结块填入，区间越界或未知来源视为结构错误。
+- 正常成功路径只有一次分析请求；仅在 JSON 或结构校验失败时追加一轮结构修复。输入超出字符或上下文预算时明确失败，不静默截断。
+- 产物先写临时文件再原子替换。全局 index 形如 `ITEMKEY-0001-0001`，跨 TC/EC/RC 唯一；推理桥使用支持链 index 加 `.bridge`，不占新对象号。
+- 发布后必须回读 note 与父条目 `ai/evidence` 才记 `verified`。note 已创建但标签写入、回读或账本保存失败时保留 `committed=true` 与已知 note key，恢复时只补未完成步骤，不重复创建 note。
+- 账本位于配置状态根的 `ai_note2/`，与旧 `ai-note` 的幂等命名空间分离；进行中或结果未知时 `--force` 与新键都不能绕过对账。
+- 线型只表达该范围内的支持可靠性：有覆盖该关系的正向评议才用实线，缺少对应审查时默认虚线并标注待核；审查旁挂与排版底轨不冒充支持路径。
+
 ## 写入与安全操作
 
 写入/破坏性命令及子命令提供 `--dry-run` 预览（envelope 带 `dry_run` 标记），跳过计划中的变更，包括 `pdf-rag new/add/remove/import/index/reindex/embed/delete`、`zot zotero collection create/move/rename/delete/reorganize`、`config init/profile set/cache clear`、`zotero publication-status`。`ai-note --dry-run` 跳过笔记模型与 Zotero 写入，但缓存未命中时仍会调用 MinerU 并写入本地解析缓存。
@@ -261,7 +293,7 @@ uv run zot zotero update ITEMKEY \
   --title "New title" --idempotency-key update-001
 ```
 
-主要写入命令：`zot zotero add`、`zot zotero update`、`zot zotero attach`、`zot zotero note`、`zot zotero tag`、`ai-note`。`note --add` 空内容返回 `validation_error`；条目不存在与"条目存在但没有 note"分别返回带上下文的 `not_found`。
+主要写入命令：`zot zotero add`、`zot zotero update`、`zot zotero attach`、`zot zotero note`、`zot zotero tag`、`ai-note`、`ai-note2`。`note --add` 空内容返回 `validation_error`；条目不存在与"条目存在但没有 note"分别返回带上下文的 `not_found`。
 
 部分成功是正式契约：`zot zotero add --from-file`、多条目 `update`/`tag`/`delete`、`add --pdf`（条目已创建但附件上传失败）以及 `zot zotero publication-status --apply`（部分写入失败）都返回 `ok: "partial"` + `data` + `next`，并以非零退出码退出（`zotero publication-status` 全部失败为 network/rate 时 exit 5，否则 exit 1）。`add --pdf` 支持 `--idempotency-key`，在 partial 时保持预留，避免盲目重试重复创建条目；`add --from-file` 不接受 `--idempotency-key`，会显式返回 `validation_error`。`delete` 的 JSON `data` 带 `permanent: true`；确定性拒绝（validation/not_found/auth 等）会释放幂等预留，只有可能已提交的失败才保留预留。类型化写入错误的 error envelope 在可能已提交时带 `error.committed: true`。
 

@@ -11,6 +11,7 @@ from typer.main import get_command
 from zotero_cli import __version__
 from zotero_cli.cli.app.group import TieredGroup, install_error_boundary
 from zotero_cli.cli.commands.ai_notes import ai_note
+from zotero_cli.cli.commands.ai_notes2 import ai_note2
 from zotero_cli.cli.commands.ai_pdf import ai_pdf
 from zotero_cli.cli.commands.completions import completions_cmd
 from zotero_cli.cli.commands.config import app as config_app
@@ -49,6 +50,7 @@ app.add_typer(config_app, name="config", help="管理 zot 配置。")
 app.add_typer(pdf_rag_app, name="pdf-rag", help="管理本地工作区及其检索索引。")
 app.command(name="ai-pdf", help="通过 MinerU 解析 Zotero PDF。")(ai_pdf)
 app.command(name="ai-note", help="生成并写回 AI 分析笔记。")(ai_note)
+app.command(name="ai-note2", help="生成三链框架分析笔记与鱼骨图。")(ai_note2)
 app.command(name="completions", help="生成 shell 补全脚本。")(completions_cmd)
 app.command(name="schema", help="输出机器可读命令 schema。")(schema_cmd)
 

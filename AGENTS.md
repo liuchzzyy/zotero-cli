@@ -55,6 +55,7 @@
 - `search` / `list` 未知 `--type` 报 `validation_error`；附件 `storage:` / `attachments:` 的相对路径必须受各自根目录约束，检查 Windows 路径伪装和 symlink 越界。
 - AI Note 第一阶段只检查 JSON 结构、必要字段、来源标签、图号和预算；不得加入具体数值或文本内容的字面硬阻断。来源合法不能证明数值、样品或实验条件已验证。
 - AI Note 写回不是整体事务。note 已创建后标签失败、Extra 已写入后关键词标签失败，都须保留 `committed=True` 并要求核对远端；不得缓存为成功或盲目补写 `ai/no_keywords`。只有确定未写入的失败才释放相应幂等预留。
+- `ai-note2` 必须先检查旧 AI 分析笔记：没有则正常 `skipped`，不解析 PDF、不调用模型、不写 Zotero；多份候选是 conflict。发布须回读 note 与父条目 `ai/evidence` 才记 `verified`；note 已创建但标签、回读或账本失败时保留 `committed=True` 与已知 note key，恢复时只补未完成步骤。其账本位于状态根 `ai_note2/`，不复用 `ai-note` 的幂等命名空间。鱼骨图线型只表达审查范围内的支持可靠性，缺审查时默认虚线。
 - MinerU 缓存命中无需 token；缺失 token 使用 `MinerUTokenMissingError`，调用方按类型分类。确认存活的锁持有者不得仅按年龄回收；归档 GET（含重试）须 `stream=True`、有界读取并关闭响应，跨源跳转重新检查鉴权。
 - MinerU staging 到目标的替换不等于发布事务：删除旧目录后的失败可丢失旧缓存，按路径延迟读取也无快照保证。不要把它与 PDF RAG 候选索引的原子发布混为一谈。
 - 批量写入错误字段复用 `zotero/items.py::_write_error_fields()`；`apply_publication_updates()` 保留不含 `committed` 的三字段 `update_error`，不得因内部去重改变输出契约。

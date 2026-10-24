@@ -320,6 +320,32 @@ class ZoteroWriter:
         except PyZoteroError as error:
             raise _friendly_api_error(error) from error
 
+    # --- 发布回读 --------------------------------------------------------
+
+    def read_item(self, key: str) -> dict:
+        """读取条目快照，用于确认写入后的远端状态。"""
+        try:
+            return self._zot.item(key)
+        except ResourceNotFoundError:
+            raise ZoteroWriteError(f"Item '{key}' not found", code="not_found", retryable=False, committed=False)
+        except httpx2.HTTPError as error:
+            raise self._network_error(error) from error
+        except PyZoteroError as error:
+            raise _friendly_api_error(error) from error
+
+    def read_child_notes(self, parent_key: str, limit: int = 100) -> list[dict]:
+        """按父条目读取远端子注记，返回原始条目数据。"""
+        try:
+            return list(self._zot.children(parent_key, itemType="note", limit=limit))
+        except ResourceNotFoundError:
+            raise ZoteroWriteError(
+                f"Parent item '{parent_key}' not found", code="not_found", retryable=False, committed=False
+            )
+        except httpx2.HTTPError as error:
+            raise self._network_error(error) from error
+        except PyZoteroError as error:
+            raise _friendly_api_error(error) from error
+
     def add_tags(self, key: str, tags: list[str]) -> None:
         """为条目添加标签，并保留已有的标签名。"""
         try:

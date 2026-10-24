@@ -24,6 +24,10 @@ htmlcov/
 *.request-dump.json
 *.response-dump.json
 *.image-probe.json
+# 三链笔记的输入、模型响应和发布账本包含私人文献内容
+ai_note2/
+.ai-note2/
+*.ai-note2-run.json
 # MinerU 原始文本调试导出可能包含个人文献内容
 *.mineru-dump.json
 # 浏览器网络诊断文件可能包含 Authorization 及文档内容

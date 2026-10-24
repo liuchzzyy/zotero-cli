@@ -30,6 +30,7 @@ SAFETY_TIERS: dict[tuple[str, ...], str] = {
     ("zotero",): READ,
     ("ai-pdf",): READ,
     ("ai-note",): WRITE,
+    ("ai-note2",): WRITE,
     ("completions",): READ,
     ("pdf-rag",): READ,
     ("schema",): READ,
