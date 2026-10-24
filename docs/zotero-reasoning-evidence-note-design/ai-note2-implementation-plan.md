@@ -56,12 +56,12 @@ uv run zot ai-note2 ITEMKEY --reconcile
 | `--output-dir DIR` | 设置新的输出目录；默认在当前配置的 state 下 `ai_note2/<库>/<父条目>/<run_id>/`。不覆盖非本次文件，拒绝已有目标和不安全的路径 |
 | `--force` | 已有本功能发布记录时允许新建一次运行并追加新 note；不覆盖或删除旧 note，不消除未知写入结果 |
 | `--idempotency-key KEY` | 同一范围与输入的确认成功可重放；进行中或写入未知时拒绝重复创建。dry-run 忽略写入幂等键 |
-| `--reconcile` | 核对已创建的 note，只补未完成的标签/回读步骤；不重新生成或创建 note。用于 `committed=true` 后的恢复 |
+| `--reconcile` | 对已知 note 只补未完成的标签/回读步骤；创建响应未知时按运行标识查找远端子笔记，唯一匹配才继续。无匹配仍阻止重试，不重新生成或创建 note。用于 `committed=true` 后的恢复 |
 | `--progress-lines` | 进度走 stderr；JSON 模式 stdout 仅一个 envelope |
 
 沿用根命令的 `--profile`、库类型和 group 选项。模型配置和写入凭据的必需性检查放在笔记检查之后；无 AI 笔记时即使这些配置缺失也正常跳过。首版复用 `[ai_notes]` 与 `ZOT_AI_*` 模型配置，不新增重复凭据配置。`max_extracted_chars` 约束实际送入的来源文字与旧笔记文字总量；最终序列化请求仍独立检查上下文与字节预算。
 
-旧 AI 笔记识别读取首个标题及现有 `NOTE_TITLE_PREFIX`；不在全文任意位置搜索前缀，不选“最长笔记”，不从 itemID 顺序推断最新版本。自动候选排除 `ai-note2` 标题。显式选其他笔记时仍要求属于当前父条目、内容非空，且不能把本功能输出递归当作旧 AI 分析输入。
+旧 AI 笔记识别支持 ATX、Setext 与 HTML，只读取首个标题及现有 `NOTE_TITLE_PREFIX`；不在全文任意位置搜索前缀，不选“最长笔记”，不从 itemID 顺序推断最新版本。自动候选排除 `ai-note2` 标题。显式选其他笔记时仍要求属于当前父条目、内容非空，且不能把本功能输出递归当作旧 AI 分析输入。
 
 默认发布只新增一份 child note，标题为 `框架分析 - <父条目标题>`。note 回读确认后为父条目追加 `ai/evidence`，保留其他标签。该 tag 表示已生成三链笔记，不表示证据均可靠。首版不写 Extra 或关键词简记。是否已生成以本地发布账本和远端确切 note 为依据，不能复用 `ai/noted`。账本缺失或远端发现未登记的同类笔记时提示冲突核对，不自动以标题认同对象。
 
@@ -98,7 +98,7 @@ uv run zot ai-note2 ITEMKEY --reconcile
 `ai_notes2/verification.py` 分两层执行：
 
 1. 程序层：每个正式对象的每条来源定位必须指向本次冻结块，`text_excerpt` 与冻结块（含 span）逐字一致；`figure_refs` 必须在该附件图注中出现。不一致直接失败，不发布。派生记录（RC-A/RC-S 等）可以没有自己的定位，但必须引用其他已定位对象。
-2. 模型层：把对象清单与冻结文本块发给模型逐条复核，判定 `支持 / 部分支持 / 不支持 / 无法核对`；未知对象 ID 或非法状态视为核对结果无效。
+2. 模型层：把对象清单与冻结文本块发给模型逐条复核，判定 `支持 / 部分支持 / 不支持 / 无法核对`；未知对象 ID、遗漏、重复或非法状态视为核对结果无效。
 
 `不支持` 等结论不阻止发布，但写入 `run.json` 与笔记的“第二步核对”段，标记为待人工复核；核对只判断不改写三链内容。
 
@@ -128,7 +128,7 @@ JSON 无效、必要字段类型错、引用悬空、图循环或截断时不发
 
 ## 7. 单篇笔记与鱼骨图
 
-本地先生成 `analysis.json`、`note.md`、`note.html`、`tree.svg` 和 `run.json`。日志与清单不得含凭据；内容文件放受保护的 state 目录，不进入 Git。输入快照、提示词版本、实际调用信息与第二步核对结论在本地记录，不扩写用户已精简的可见元信息表。
+本地先生成 `analysis.json`、`note.md`、`note.html`、`tree.svg` 和 `run.json`。日志与清单不得含凭据；内容文件放受保护的 state 目录，不进入 Git。输入快照、提示词版本、实际调用信息与第二步核对结论在本地记录，不扩写用户已精简的可见元信息表。Markdown/HTML 显示可读字段，完整嵌套结构保存在 `analysis.json`，不将 JSON 代码块直接写入 Zotero 笔记。
 
 Markdown/HTML 使用当前展示顺序：元信息 → 核心论点 → 分论点 → 支持链、证据、用途、审查与下级理由 → 就地评议。共享论点与证据只定义一次，其他分支引用同一 ID。无可靠来源的占位草稿不能作为正式发布对象；有来源的候选可以展示。模型不得输出 HTML/CSS，程序负责转义和渲染。
 
@@ -226,4 +226,4 @@ uv run zot schema ai-note2
 
 已采用：两步纯文本生成、无可用 AI 笔记正常跳过、只接受 `journalArticle`、唯一旧 note 自动选择/多份显式指定、默认新增一份 note、本地生成可独立运行、写 `ai/evidence` 但不写 Extra、鱼骨图作为本地 SVG，完整历史对象编辑与跨运行身份对齐暂不实现。
 
-计划已实现并验证：`ruff check`、`ruff format --check`、`ty check`、`pytest`（2382 项）、`uv build` 均通过，`zot ai-note2 --help` 与 `zot schema ai-note2` 正常。真实服务验收（T10）尚未执行。
+本次审查后的检查：`ruff check`、`ruff format --check`、`ty check`、`pytest`（2399 项）、`uv build` 均通过，`zot ai-note2 --help` 与 `zot schema ai-note2` 正常。真实条目 `GFTEK9P6` 的 dry-run 已验证 Setext 旧笔记自动选择。真实服务验收（T10）已尝试，但尚未完成生成和发布；超时、预算不足和服务额度错误均不算通过。

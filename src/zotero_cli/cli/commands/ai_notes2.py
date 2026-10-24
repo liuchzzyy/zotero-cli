@@ -60,7 +60,9 @@ def ai_note2(
     output_dir: str | None = typer.Option(None, "--output-dir", help="本地输出目录；拒绝非空目录。"),
     force: bool = typer.Option(False, "--force", help="已有发布记录时新建一次运行并追加新 note；不覆盖或删除旧 note。"),
     reconcile: bool = typer.Option(
-        False, "--reconcile", help="核对已创建的 note，只补未完成的标签/回读步骤；不重新生成或创建 note。"
+        False,
+        "--reconcile",
+        help="对账已知 note；创建结果未知时查找远端同运行笔记，唯一匹配才补标签/回读；不创建 note。",
     ),
     idempotency_key: str | None = typer.Option(
         None, "--idempotency-key", help="同一范围与输入的成功结果可重放；进行中或结果未知时拒绝。"
@@ -93,7 +95,7 @@ def ai_note2(
             idempotency_key=idempotency_key,
             progress=progress,
         )
-        envelope = execution.cached_envelope or envelope_ok(execution.data)
+        envelope = envelope_ok(execution.data)
     except NoteAnalysisError as exc:
         committed = bool(getattr(exc, "committed", False))
         emit_error(

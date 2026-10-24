@@ -45,9 +45,9 @@
 ## 输出契约
 
 顶层 JSON 必须包含 `schema_version`、`parent_item_key`、`thought`、`evidence`、`review`。
-`run_number`、来源清单与 `object_registry` 由程序填写。
+`run_number`、`library_ref`、`inputs`、`source_blocks` 和 `object_registry` 由程序填写，模型不要返回。
+下面是从程序校验器生成的三链字段与类型约束；`$ref` 指向 `records` 或 `shared_types` 中同名定义。带 `required` 的字段都必须出现，不适用时按字段允许的 null 或空数组填写。
 
-可用顶层字段：
 {schema_fields}
 
 ## 已有 AI 分析笔记（辅助线索，不能代替 PDF 原文）

@@ -18,6 +18,7 @@ from zotero_cli.ai_notes2.persistence import (
     STATUS_VALIDATED,
     latest_run,
     publish_document,
+    reconcile_run,
     reserve_run,
     scope_id,
     update_run,
@@ -45,7 +46,6 @@ class Execution:
 
     data: dict[str, Any]
     replayed: bool = False
-    cached_envelope: dict[str, Any] | None = None
     ledger: dict[str, Any] = field(default_factory=dict)
 
 
@@ -74,7 +74,7 @@ def _resume_publication(
 ) -> Execution:
     """对账恢复：确认已知 note 后只补未完成步骤，绝不重新生成或创建 note。"""
     latest = latest_run(scope)
-    if latest is None or not latest.get("note_key"):
+    if latest is None or not latest.get("committed"):
         raise AiNote2Error("该条目没有可恢复的发布记录", code="not_found", hint_key="reconcile_missing")
     if latest["status"] == "verified":
         return Execution(
@@ -89,15 +89,13 @@ def _resume_publication(
     if not writer_library_id or not writer_api_key:
         raise AiNote2Error("写入凭证未配置", code="auth_missing", hint_key="write_credentials_missing")
     if progress:
-        progress("reconcile", f"核对已创建 note {latest['note_key']}，只补未完成步骤")
+        progress("reconcile", f"核对运行 #{latest['run_number']} 的远端 note，只补未完成步骤")
     writer = ZoteroWriter(library_id=writer_library_id, api_key=writer_api_key, library_type=library_type)
-    published = publish_document(
+    published = reconcile_run(
         writer,
         scope=scope,
         run_number=int(latest["run_number"]),
         item_key=key,
-        html_note="",
-        reconciled_note_key=str(latest["note_key"]),
     )
     return Execution(
         data={
@@ -223,41 +221,42 @@ def execute_ai_note2(
         force=force,
     )
     if reservation.replayed is not None:
-        return Execution(data=reservation.replayed, replayed=True, cached_envelope=reservation.replayed)
+        return Execution(data=reservation.replayed, replayed=True)
     run_number = reservation.run_number
 
     try:
         client = AiClient(ai_config)
         generated = generate_document(client, snapshot, run_number=run_number, progress=progress)
-    except AiNote2Error:
-        raise
-    except Exception as exc:  # noqa: BLE001 - 模型与网络错误统一按运行失败呈现
-        update_run(scope, run_number, status="failed", committed=False, data={"error": type(exc).__name__})
-        raise AiNote2Error(f"生成失败：{type(exc).__name__}: {str(exc)[:200]}", code="runtime_error") from exc
-
-    update_run(scope, run_number, status=STATUS_GENERATED, data={"model": generated.model})
-    document = validate_before_render(generated.document)
-
-    # 第二步：逐条核对生成内容能在冻结 PDF 文本中准确定位。
-    try:
+        update_run(scope, run_number, status=STATUS_GENERATED, data={"model": generated.model})
+        document = validate_before_render(generated.document)
         report = verify_document(document, snapshot, client=client, progress=progress)
-    except AiNote2Error as exc:
-        update_run(scope, run_number, status="failed", committed=False, data={"error": exc.hint_key})
-        raise
-    update_run(
-        scope,
-        run_number,
-        status=STATUS_VALIDATED,
-        data={"objects": len(document.to_dict()["object_registry"]), "verification": report.to_dict()["counts"]},
-    )
+        update_run(
+            scope,
+            run_number,
+            status=STATUS_VALIDATED,
+            data={"objects": len(document.to_dict()["object_registry"]), "verification": report.to_dict()["counts"]},
+        )
+    except Exception as exc:
+        if isinstance(exc, AiNote2Error) and exc.hint_key == "ledger_failed":
+            raise
+        update_run(scope, run_number, status="failed", committed=False, data={"error": type(exc).__name__})
+        if isinstance(exc, AiNote2Error):
+            raise
+        raise AiNote2Error(f"生成或核对失败：{type(exc).__name__}: {str(exc)[:200]}", code="runtime_error") from exc
 
     target_dir = (
         Path(output_dir).expanduser().resolve()
         if output_dir
         else state_dir() / "ai_note2" / str(library_id) / key / f"{run_number:04d}"
     )
-    if output_dir and target_dir.exists() and any(target_dir.iterdir()):
-        raise AiNote2Error("输出目录已存在非本次文件，拒绝覆盖", code="validation_error", hint_key="output_dir_exists")
+    try:
+        if output_dir and target_dir.exists() and any(target_dir.iterdir()):
+            raise AiNote2Error(
+                "输出目录已存在非本次文件，拒绝覆盖", code="validation_error", hint_key="output_dir_exists"
+            )
+    except AiNote2Error:
+        update_run(scope, run_number, status="failed", committed=False, data={"error": "output_dir_exists"})
+        raise
     manifest = {
         "schema_version": "ai-note2-run/1",
         "item_key": key,
@@ -276,7 +275,11 @@ def execute_ai_note2(
     }
     title = _document_title(snapshot)
     verification = report.to_dict()
-    digests = write_artifacts(target_dir, document, title=title, manifest=manifest, verification=verification)
+    try:
+        digests = write_artifacts(target_dir, document, title=title, manifest=manifest, verification=verification)
+    except Exception as exc:
+        update_run(scope, run_number, status="failed", committed=False, data={"error": type(exc).__name__})
+        raise
 
     result: dict[str, Any] = {
         "status": "local_only" if local_only else "ok",
@@ -293,6 +296,7 @@ def execute_ai_note2(
     }
 
     if local_only:
+        update_run(scope, run_number, status="local_only", data={"result": result})
         return Execution(data=result)
 
     writer = ZoteroWriter(library_id=writer_library_id, api_key=writer_api_key, library_type=library_type)
@@ -309,4 +313,5 @@ def execute_ai_note2(
         verified=published.verified,
         needs_reconcile=published.needs_reconcile,
     )
+    update_run(scope, run_number, data={"result": result})
     return Execution(data=result, ledger={"scope": scope, "run_number": run_number})

@@ -35,6 +35,12 @@ class FakeWriter:
             return {"data": {"itemType": "note", "parentItem": ITEM, "note": self.created[-1]}}
         return {"data": {"tags": [{"tag": tag} for tag in self.tags]}}
 
+    def read_child_notes(self, parent_key, limit=100):
+        return [
+            {"key": "NOTE1", "data": {"itemType": "note", "parentItem": ITEM, "note": content}}
+            for content in self.created
+        ]
+
     def add_tags(self, key, tags):
         if self.tag_error:
             raise self.tag_error
@@ -99,6 +105,81 @@ def test_unknown_creation_requires_reconcile_and_blocks_new_run(monkeypatch, tmp
     with pytest.raises(AiNote2Error) as blocked:
         persistence.reserve_run("user:1:ITEM1", input_digest="a" * 64, idempotency_key=None, force=False)
     assert blocked.value.hint_key == "pending_mutation"
+
+
+def test_force_cannot_bypass_uncertain_creation(monkeypatch, tmp_path):
+    reservation = _run(monkeypatch, tmp_path)
+    persistence.update_run(
+        "user:1:ITEM1",
+        reservation.run_number,
+        status=persistence.STATUS_RECONCILE,
+        committed=True,
+    )
+    with pytest.raises(AiNote2Error) as error:
+        persistence.reserve_run("user:1:ITEM1", input_digest="b" * 64, idempotency_key="NEW", force=True)
+    assert error.value.hint_key == "pending_mutation"
+    latest = persistence.latest_run("user:1:ITEM1")
+    assert latest is not None and latest["run_number"] == 1
+
+
+def test_same_key_cannot_delete_prepared_run(monkeypatch, tmp_path):
+    monkeypatch.setattr(persistence, "ledger_root", lambda: tmp_path / "ledger")
+    first = persistence.reserve_run("user:1:ITEM1", input_digest="a" * 64, idempotency_key="K1", force=False)
+    with pytest.raises(AiNote2Error) as error:
+        persistence.reserve_run("user:1:ITEM1", input_digest="a" * 64, idempotency_key="K1", force=False)
+    assert error.value.hint_key == "pending_mutation"
+    latest = persistence.latest_run("user:1:ITEM1")
+    assert latest is not None and latest["run_number"] == first.run_number
+
+
+def test_failed_retry_keeps_sequence_and_allocates_new_number(monkeypatch, tmp_path):
+    monkeypatch.setattr(persistence, "ledger_root", lambda: tmp_path / "ledger")
+    first = persistence.reserve_run("user:1:ITEM1", input_digest="a" * 64, idempotency_key="K1", force=False)
+    persistence.update_run("user:1:ITEM1", first.run_number, status=persistence.STATUS_FAILED, committed=False)
+    retry = persistence.reserve_run("user:1:ITEM1", input_digest="a" * 64, idempotency_key="K1", force=False)
+    assert retry.run_number == first.run_number + 1
+    latest = persistence.latest_run("user:1:ITEM1")
+    assert latest is not None and latest["run_number"] == retry.run_number
+
+
+def test_verified_replay_has_full_result(monkeypatch, tmp_path):
+    monkeypatch.setattr(persistence, "ledger_root", lambda: tmp_path / "ledger")
+    reservation = persistence.reserve_run("user:1:ITEM1", input_digest="a" * 64, idempotency_key="K1", force=False)
+    writer = FakeWriter()
+    result = persistence.publish_document(
+        writer,
+        scope="user:1:ITEM1",
+        run_number=reservation.run_number,
+        item_key=ITEM,
+        html_note="ITEM1-0001-0001 内容",
+    )
+    assert result.verified
+    replay = persistence.reserve_run("user:1:ITEM1", input_digest="a" * 64, idempotency_key="K1", force=False)
+    assert replay.replayed is not None
+    assert replay.replayed["note_key"] == "NOTE1"
+    assert replay.replayed["status"] == "ok"
+    assert len(writer.created) == 1
+
+
+def test_reconcile_unknown_creation_discovers_exact_remote_note(monkeypatch, tmp_path):
+    reservation = _run(monkeypatch, tmp_path)
+    writer = FakeWriter()
+    writer.add_note(ITEM, "ITEM1-0001-0001 内容")
+    persistence.update_run("user:1:ITEM1", reservation.run_number, status=persistence.STATUS_RECONCILE, committed=True)
+    recovered = persistence.reconcile_run(
+        writer, scope="user:1:ITEM1", run_number=reservation.run_number, item_key=ITEM
+    )
+    assert recovered.verified and recovered.note_key == "NOTE1"
+    assert len(writer.created) == 1
+
+
+def test_reconcile_unknown_creation_refuses_no_match(monkeypatch, tmp_path):
+    reservation = _run(monkeypatch, tmp_path)
+    persistence.update_run("user:1:ITEM1", reservation.run_number, status=persistence.STATUS_RECONCILE, committed=True)
+    with pytest.raises(AiNote2Error) as error:
+        persistence.reconcile_run(FakeWriter(), scope="user:1:ITEM1", run_number=reservation.run_number, item_key=ITEM)
+    assert error.value.committed is True
+    assert error.value.hint_key == "publish_unknown"
 
 
 def test_note_created_but_tag_failure_keeps_key_and_never_recreates(monkeypatch, tmp_path):
@@ -176,7 +257,8 @@ def test_reconcile_only_adds_missing_tag_without_creating_note(monkeypatch, tmp_
 
 
 def test_idempotency_conflict_on_different_input(monkeypatch, tmp_path):
-    _run(monkeypatch, tmp_path)
+    first = _run(monkeypatch, tmp_path)
+    persistence.update_run("user:1:ITEM1", first.run_number, status=persistence.STATUS_FAILED, committed=False)
     persistence.reserve_run("user:1:ITEM1", input_digest="a" * 64, idempotency_key="K1", force=True)
     with pytest.raises(AiNote2Error) as error:
         persistence.reserve_run("user:1:ITEM1", input_digest="b" * 64, idempotency_key="K1", force=True)

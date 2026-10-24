@@ -67,12 +67,56 @@ def test_svg_uses_solid_for_supported_and_dashed_by_default(allocated):
     assert "<script" not in svg
 
 
+def test_positive_assessment_of_node_does_not_certify_unreviewed_edge(allocated):
+    from zotero_cli.ai_notes2.rendering import _reliability
+
+    data = allocated.to_dict()
+    assessment = data["review"]["claim_assessments"][0]
+    assessment["reliability_statement"]["conclusion"] = "当前材料内支持较充分"
+    assessment["supporting_basis"] = [{"kind": "object", "target_id": "result"}]
+    # 仅改变结论不影响已检查覆盖的目标：它仍未指向该支持关系。
+    assert _reliability(allocated.__class__(data), data["thought"]["support_edges"][0]["index"])[0] == "dashed"
+
+
 def test_artifacts_are_written_atomically(allocated, tmp_path: Path):
     digests = write_artifacts(tmp_path, allocated, title="框架分析 - T", manifest={"run": 1})
     assert set(digests) == {"analysis.json", "note.md", "note.html", "tree.svg", "run.json"}
     assert not list(tmp_path.glob(".*.tmp"))
     assert json.loads((tmp_path / "analysis.json").read_text(encoding="utf-8"))["parent_item_key"] == "SYNITEM1"
     validate_document(json.loads((tmp_path / "analysis.json").read_text(encoding="utf-8")))
+
+
+def test_markdown_keeps_author_claims_out_of_second_stage_before_verdicts(allocated):
+    markdown = render_markdown(allocated)
+    assert markdown.count("[TC-N001｜") == 1
+    assert markdown.count("[TC-N002｜") == 1
+    assert markdown.count("[TC-N003｜") == 1
+    assert markdown.count("[TC-L001｜") == 1
+    assert markdown.count("[TC-L002｜") == 1
+    assert "[TC-C001｜" in markdown
+
+
+def test_markdown_places_evidence_and_review_by_support_edge(allocated):
+    markdown = render_markdown(allocated)
+    edge = markdown.index("[TC-L001｜")
+    evidence = markdown.index("[EC-E001｜")
+    mapping = markdown.index("[EC-M001｜")
+    assert edge < evidence < mapping
+    assert markdown.count("[EC-E001｜") == 1
+    assert "mapping_id：" not in markdown
+    assert "TC-L001｜" in markdown
+    assert ".bridge" in markdown
+    assert "```json" not in markdown
+
+
+def test_html_renders_records_as_readable_fields(allocated):
+    from zotero_cli.ai_notes2.rendering import render_html
+
+    html_text = render_html(allocated, title="Synthetic paper")
+    assert "```json" not in html_text
+    assert "&quot;record_meta&quot;" not in html_text
+    assert "EC-E001" in html_text
+    assert "reported_result" in html_text
 
 
 def test_html_escapes_model_text(allocated):

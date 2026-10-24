@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from zotero_cli.ai_notes2.errors import AiNote2Error
-from zotero_cli.ai_notes2.inputs import collect_inputs, first_heading, is_legacy_ai_note, is_note2_output
+from zotero_cli.ai_notes2.inputs import (
+    _freeze_blocks,
+    collect_inputs,
+    first_heading,
+    is_legacy_ai_note,
+    is_note2_output,
+)
 from zotero_cli.zotero.models import Creator, Item, Note
 
 pytestmark = pytest.mark.unit
@@ -53,6 +61,32 @@ def test_first_heading_only_accepts_leading_heading():
     assert first_heading("# AI条目分析 - T\n\nbody") == "AI条目分析 - T"
     assert first_heading("<h1>AI条目分析 - T</h1>") == "AI条目分析 - T"
     assert first_heading("正文提到 AI条目分析 - T") == ""
+
+
+@pytest.mark.parametrize("underline", ["===", "---"])
+def test_setext_heading_selects_legacy_note(underline):
+    from zotero_cli.ai_notes2.inputs import _select_source_note
+
+    content = f"\nAI条目分析 - T\n{underline}\n\n内容"
+    assert first_heading(content) == "AI条目分析 - T"
+    assert is_legacy_ai_note(content)
+    selected = _select_source_note([Note("N1", "ITEM1", content)], None)
+    assert selected.key == "N1"
+
+
+def test_setext_note2_output_is_rejected_as_recursive_input():
+    from zotero_cli.ai_notes2.inputs import _select_source_note
+
+    content = "框架分析 - T\n=======\n\n内容"
+    assert is_note2_output(content)
+    with pytest.raises(AiNote2Error) as error:
+        _select_source_note([Note("N1", "ITEM1", content)], "N1")
+    assert error.value.hint_key == "source_note_invalid"
+
+
+def test_plain_text_before_setext_title_is_not_a_leading_heading():
+    assert first_heading("普通正文\n\nAI条目分析 - T\n====") == ""
+    assert first_heading("AI条目分析 - T\n\n====") == ""
 
 
 def test_legacy_and_note2_prefixes_are_distinct():
@@ -110,6 +144,12 @@ def test_note_only_item_is_rejected_before_pdf_scan():
         collect_inputs(reader, "ITEM1")
     assert error.value.hint_key == "not_parent_item"
     assert reader.pdf_calls == 0
+
+
+def test_long_source_block_is_not_silently_truncated():
+    parsed = SimpleNamespace(content_list=[{"type": "text", "text": "X" * 6001, "page_idx": 0}])
+    blocks = _freeze_blocks(parsed, source_set_id="set-1", attachment_key="PDF1", pdf_role="MS")
+    assert len(blocks[0]["text"]) == 6001
 
 
 def test_missing_pdf_file_is_an_actionable_error(tmp_path):

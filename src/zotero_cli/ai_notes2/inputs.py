@@ -65,8 +65,9 @@ class InputSnapshot:
 
 
 def first_heading(content: str) -> str:
-    """返回 Markdown 或 HTML 笔记的首个标题文本。"""
-    for line in (content or "").splitlines():
+    """返回首个非空行的 ATX、Setext 或 HTML 标题文本。"""
+    lines = (content or "").splitlines()
+    for index, line in enumerate(lines):
         match = _HEADING_RE.match(line)
         if match:
             return match.group(1).strip()
@@ -76,6 +77,9 @@ def first_heading(content: str) -> str:
         html_match = re.match(r"<h[1-6][^>]*>(.*?)</h[1-6]>", text, re.IGNORECASE)
         if html_match:
             return html.unescape(re.sub(r"<[^>]+>", "", html_match.group(1))).strip()
+        # reader 将 h1/h2 转成 Setext；只认紧邻首行的下划线，不扫描后续正文。
+        if index + 1 < len(lines) and re.fullmatch(r" {0,3}(?:=+|-+)[ \t]*", lines[index + 1]):
+            return text
         # 首个非空行不是标题时，该笔记没有可识别的首标题。
         return ""
     return ""
@@ -185,9 +189,6 @@ def _join_text(value: Any) -> str:
     return "" if value is None else str(value)
 
 
-_BLOCK_LIMIT = 6_000
-
-
 def _freeze_blocks(
     parsed: Any,
     *,
@@ -226,8 +227,6 @@ def _freeze_blocks(
         text = text.strip()
         if not text:
             continue
-        if len(text) > _BLOCK_LIMIT:
-            text = text[:_BLOCK_LIMIT]
         page_idx = entry.get("page_idx")
         page = int(page_idx) + 1 if isinstance(page_idx, int) and page_idx >= 0 else None
         figure_ids = sorted({match.group(1) for match in _FIGURE_RE.finditer(text)})

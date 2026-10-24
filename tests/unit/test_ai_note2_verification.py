@@ -66,6 +66,18 @@ class Reader:
         return []
 
 
+def test_template_includes_all_record_contract_fields():
+    from zotero_cli.ai_notes2.models import RECORD_TABLES, note2_json_schema
+
+    contract = templates.schema_fields()
+    schema = note2_json_schema()
+    for _chain, _table, _identity, prefix in RECORD_TABLES:
+        assert prefix in contract
+        for field in schema["$defs"][prefix]["required"]:
+            assert field in contract
+    assert '"source_blocks"' not in contract
+
+
 def test_template_renamed_to_evidence_chain():
     assert templates.available_templates() == ["evidence-chain", "verification"]
     assert templates.template_path().name == "evidence-chain.md"
@@ -137,13 +149,22 @@ def test_model_verification_marks_unsupported_without_rewriting(allocated, docum
         last_usage = None
         config = type("Config", (), {"model": "m", "max_tokens": 0})()
 
-        def chat(self, prompt, *, figures=None, progress=None):
+        def get_model_chain(self):
+            return ["m"]
+
+        def chat(self, prompt, *, figures=None, progress=None, allowed_models=None):
             assert figures == []
             assert "<untrusted-document>" in prompt
             return json.dumps(
                 {
                     "verdicts": [
-                        {"object_id": "EC-E001", "status": "不支持", "source_block_ids": ["B001"], "note": "方向相反"}
+                        {
+                            "object_id": entry["object_id"],
+                            "status": "不支持" if entry["object_id"] == "EC-E001" else "支持",
+                            "source_block_ids": ["B001"],
+                            "note": "方向相反" if entry["object_id"] == "EC-E001" else "已核对",
+                        }
+                        for entry in allocated.to_dict()["object_registry"]
                     ]
                 }
             )
@@ -152,6 +173,36 @@ def test_model_verification_marks_unsupported_without_rewriting(allocated, docum
     assert report.model_used is True
     assert [item["object_id"] for item in report.unsupported] == ["EC-E001"]
     assert allocated.to_dict()["evidence"]["evidence_records"][0]["reported_result"]["statement"].startswith("任意原值")
+
+
+def test_model_verification_rejects_missing_and_duplicate_verdicts(allocated, document, monkeypatch):
+    snapshot = _snapshot(document)
+    monkeypatch.setattr(verification, "model_supports_request", lambda *args, **kwargs: True)
+
+    class Client:
+        last_model = "m"
+        last_usage = None
+        config = type("Config", (), {"model": "m", "max_tokens": 0})()
+        response = {"verdicts": []}
+
+        def get_model_chain(self):
+            return ["m"]
+
+        def chat(self, prompt, *, figures=None, progress=None, allowed_models=None):
+            return json.dumps(self.response)
+
+    client = Client()
+    with pytest.raises(Exception):
+        verification.verify_document(allocated, snapshot, client=client)
+    identifiers = [entry["object_id"] for entry in allocated.to_dict()["object_registry"]]
+    client.response = {
+        "verdicts": [
+            {"object_id": item, "status": "支持", "source_block_ids": [], "note": "已核对"} for item in identifiers
+        ]
+    }
+    client.response["verdicts"].append({"object_id": identifiers[0], "status": "支持"})
+    with pytest.raises(Exception):
+        verification.verify_document(allocated, snapshot, client=client)
 
 
 def test_model_verification_rejects_unknown_object_ids(allocated, document, monkeypatch):
@@ -163,7 +214,10 @@ def test_model_verification_rejects_unknown_object_ids(allocated, document, monk
         last_usage = None
         config = type("Config", (), {"model": "m", "max_tokens": 0})()
 
-        def chat(self, prompt, *, figures=None, progress=None):
+        def get_model_chain(self):
+            return ["m"]
+
+        def chat(self, prompt, *, figures=None, progress=None, allowed_models=None):
             return json.dumps({"verdicts": [{"object_id": "INVENTED", "status": "支持"}]})
 
     with pytest.raises(Exception):

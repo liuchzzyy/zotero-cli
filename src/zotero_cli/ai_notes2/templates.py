@@ -14,7 +14,7 @@ from typing import Any
 
 from zotero_cli.ai_notes.generation import wrap_untrusted
 from zotero_cli.ai_notes2.errors import AiNote2Error
-from zotero_cli.ai_notes2.models import SCHEMA_VERSION, note2_json_schema
+from zotero_cli.ai_notes2.models import RECORD_TABLES, SCHEMA_VERSION, note2_json_schema
 
 _MISSING = "未知"
 
@@ -57,10 +57,29 @@ def available_templates() -> list[str]:
 
 
 def schema_fields() -> str:
-    """给出紧凑的顶层字段提示；完整契约由校验器负责。"""
+    """发送模型需生成的三链字段和类型提示；来源由程序填充。"""
     schema = note2_json_schema()
-    keys = [key for key in schema["properties"] if key not in {"object_registry"}]
-    return json.dumps({"schema_version": SCHEMA_VERSION, "fields": keys}, ensure_ascii=False)
+    defs = schema["$defs"]
+    records = {
+        prefix: {"required": defs[prefix]["required"], "properties": defs[prefix]["properties"]}
+        for _chain, _table, _identity, prefix in RECORD_TABLES
+    }
+    return json.dumps(
+        {
+            "schema_version": SCHEMA_VERSION,
+            "thought": schema["properties"]["thought"],
+            "evidence": schema["properties"]["evidence"],
+            "review": schema["properties"]["review"],
+            "records": records,
+            "shared_types": {
+                name: definition
+                for name, definition in defs.items()
+                if name not in records and name not in {"LibraryRef", "Location", "SourceBlock", "SourceIdentity"}
+            },
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
 
 
 def format_template(template: str, **values: Any) -> str:

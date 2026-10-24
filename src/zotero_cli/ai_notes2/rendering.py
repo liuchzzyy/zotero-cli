@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from zotero_cli.ai_notes2.models import Note2Document
+from zotero_cli.ai_notes2.models import RECORD_TABLES, Note2Document
 from zotero_cli.ai_notes2.validation import resolve_index, validate_document
 
 _META_FIELDS = (
@@ -48,20 +48,41 @@ def _location_text(location: dict[str, Any]) -> str:
 
 
 def _reliability(document: Note2Document, index: str) -> tuple[str, str]:
-    """返回线型与说明；只有正向评议覆盖该目标时才用实线。"""
+    """只在评议和已检查覆盖均明确指向该支持关系时画实线。"""
     data = document.to_dict()
+    edge = next((row for row in data["thought"]["support_edges"] if row["index"] == index), None)
+    if edge is None:
+        return "dashed", "无对应支持关系，待核"
+    reviews = {row["review_id"]: row for row in data["review"]["review_items"]}
+    coverages = {row["coverage_id"]: row for row in data["review"]["coverage_records"]}
     for assessment in data["review"]["claim_assessments"]:
-        try:
-            target_index = resolve_index(document, assessment["target_ref"])
-        except ValueError:
-            continue
-        if target_index != index:
+        if assessment["target_ref"]["target_id"] != edge["to_node_id"] or assessment["unassessed_parts"]:
             continue
         conclusion = assessment["reliability_statement"]["conclusion"]
-        if conclusion in {"当前材料内支持较充分", "有支持但须限定范围"}:
-            return "solid", conclusion
-        return "dashed", conclusion
-    return "dashed", "无对应审查，待核"
+        if conclusion not in {"当前材料内支持较充分", "有支持但须限定范围"}:
+            continue
+        if not assessment["supporting_basis"]:
+            continue
+        reviewed = {
+            entry["review_ref"]["target_id"] for entry in assessment["evidence_review"] + assessment["logic_review"]
+        }
+        for ref in assessment["coverage_refs"]:
+            coverage = coverages.get(ref["target_id"])
+            if coverage is None or coverage["check_status"] != "已检查":
+                continue
+            if not any(target["target_id"] == edge["edge_id"] for target in coverage["target_refs"]):
+                continue
+            for question_ref in coverage["review_refs"]:
+                question_id = question_ref["target_id"]
+                question = reviews.get(question_id)
+                if (
+                    question_id in reviewed
+                    and question is not None
+                    and question["primary_target_ref"]["target_id"] == edge["edge_id"]
+                    and question["finding_status"] not in {None, "当前无法判断"}
+                ):
+                    return "solid", conclusion
+    return "dashed", "支持关系尚无完整正向审查，待核"
 
 
 def render_markdown(document: Note2Document, *, verification: dict[str, Any] | None = None) -> str:
@@ -115,31 +136,25 @@ def render_markdown(document: Note2Document, *, verification: dict[str, Any] | N
     for edge in data["thought"]["support_edges"]:
         children.setdefault(edge["to_node_id"], []).append(edge)
 
+    rendered_ids: set[str] = set()
     for node in nodes:
         if node["node_type"] != "核心论点":
             continue
-        lines.extend(_render_node(document, node, children, registry, level=2))
+        lines.extend(_render_node(document, node, children, registry, rendered_ids, level=2))
     if not any(node["node_type"] == "核心论点" for node in nodes):
         lines.extend(["（原文未形成可靠核心论点，见候选记录。）", ""])
 
-    for chain in ("evidence", "review"):
-        lines.extend([f"## {_CHAIN_TITLES[chain]}", ""])
-        for table, _identity, prefix in (
-            ("evidence_records", "evidence_id", "EC-E"),
-            ("process_relations", "process_id", "EC-P"),
-            ("provenance_groups", "group_id", "EC-G"),
-            ("use_groups", "use_group_id", "EC-U"),
-            ("mappings", "mapping_id", "EC-M"),
-            ("candidate_mappings", "candidate_id", "EC-C"),
-            ("background_records", "background_id", "RC-B"),
-            ("criterion_sources", "criterion_source_id", "RC-K"),
-            ("review_items", "review_id", "RC-Q"),
-            ("coverage_records", "coverage_id", "RC-S"),
-            ("claim_assessments", "assessment_id", "RC-A"),
-            ("change_suggestions", "suggestion_id", "RC-D"),
-        ):
-            for record in data[chain].get(table, []):
-                lines.append(_render_record(record, prefix, registry))
+    for chain_name in ("thought", "evidence", "review"):
+        remaining: list[str] = []
+        for row_chain, table, identity, prefix in RECORD_TABLES:
+            if row_chain != chain_name:
+                continue
+            for record in data[row_chain][table]:
+                if record[identity] not in rendered_ids:
+                    remaining.append(_render_record(record, prefix, registry))
+                    rendered_ids.add(record[identity])
+        if remaining:
+            lines.extend([f"## 其他{_CHAIN_TITLES[chain_name]}对象", "", *remaining, ""])
     lines.append("")
     return "\n".join(lines)
 
@@ -149,11 +164,15 @@ def _render_node(
     node: dict[str, Any],
     children: dict[str, list[dict[str, Any]]],
     registry: dict[str, str],
+    rendered_ids: set[str],
     *,
     level: int,
 ) -> list[str]:
     data = document.to_dict()
     index = node["index"]
+    if node["node_id"] in rendered_ids:
+        return [f"- 共享论点：[{node['node_id']}｜{index}]", ""]
+    rendered_ids.add(node["node_id"])
     lines = [f"{'#' * level} [{node['node_id']}｜{index}] {node['node_type']}｜{node['text']}", ""]
     lines.append(
         f"- 规范字段：`node_type={node['node_type']}`；`attribution={node['attribution']}`；"
@@ -166,6 +185,10 @@ def _render_node(
     lines.append("")
 
     for edge in children.get(node["node_id"], []):
+        if edge["edge_id"] in rendered_ids:
+            lines.extend([f"- 共享支持链：[{edge['edge_id']}｜{edge['index']}]", ""])
+            continue
+        rendered_ids.add(edge["edge_id"])
         style, reason = _reliability(document, edge["index"])
         lines.extend([f"**[{edge['edge_id']}｜{edge['index']}] 通向 {node['node_id']} 的支持链**", ""])
         lines.append(
@@ -181,32 +204,63 @@ def _render_node(
         lines.append("")
 
         for mapping in data["evidence"]["mappings"]:
-            if mapping["target_ref"]["target_id"] == edge["edge_id"]:
-                lines.append(
-                    f"- 用途关联 [{mapping['mapping_id']}｜{mapping['index']}]："
-                    f"`{_ref_label(document, mapping['subject_ref'])} → "
-                    f"{_ref_label(document, mapping['target_ref'])}`；"
-                    f"`usage_role={mapping['usage_role']}`；`use_topic={mapping['use_topic']}`"
-                )
+            if mapping["target_ref"]["target_id"] != edge["edge_id"]:
+                continue
+            subject = mapping["subject_ref"]["target_id"]
+            evidence = next(
+                (row for row in data["evidence"]["evidence_records"] if row["evidence_id"] == subject), None
+            )
+            if evidence is not None and subject not in rendered_ids:
+                lines.append(_render_record(evidence, "EC-E", registry))
+                rendered_ids.add(subject)
+            if mapping["mapping_id"] in rendered_ids:
+                lines.append(f"- 共享用途：[{mapping['mapping_id']}｜{mapping['index']}]")
+            else:
+                lines.append(_render_record(mapping, "EC-M", registry))
+                rendered_ids.add(mapping["mapping_id"])
         for question in data["review"]["review_items"]:
             target = question.get("primary_target_ref")
-            if target and target["target_id"] == edge["edge_id"]:
+            if target and target["target_id"] == edge["edge_id"] and question["review_id"] not in rendered_ids:
                 lines.append(_render_record(question, "RC-Q", registry))
+                rendered_ids.add(question["review_id"])
         lines.append("")
 
         source = next((n for n in data["thought"]["nodes"] if n["node_id"] == edge["from_node_id"]), None)
         if source is not None and source["node_type"] != "论证理由":
-            lines.extend(_render_node(document, source, children, registry, level=min(level + 1, 4)))
+            lines.extend(_render_node(document, source, children, registry, rendered_ids, level=min(level + 1, 4)))
+    for assessment in data["review"]["claim_assessments"]:
+        if assessment["target_ref"]["target_id"] == node["node_id"] and assessment["assessment_id"] not in rendered_ids:
+            lines.append(_render_record(assessment, "RC-A", registry))
+            rendered_ids.add(assessment["assessment_id"])
     lines.append("")
     return lines
+
+
+def _brief_value(value: Any, registry: dict[str, str]) -> str:
+    """显示结构字段和可见 ID；完整结构保存在 analysis.json。"""
+    if value is None:
+        return "未明确"
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return "；".join(_brief_value(part, registry) for part in value) or "无"
+    if isinstance(value, dict):
+        if "target_id" in value:
+            identifier = str(value["target_id"])
+            return f"{identifier}｜{registry.get(identifier, identifier)}" + (
+                ".bridge" if value.get("target_field") == "bridge" else ""
+            )
+        return "；".join(f"{key}：{_brief_value(part, registry)}" for key, part in value.items()) or "见结构文件"
+    return str(value)
 
 
 def _render_record(record: dict[str, Any], prefix: str, registry: dict[str, str]) -> str:
     identity_field = next(key for key in record if key.endswith("_id") and key not in {"target_id"})
     index = record.get("index", "")
     label = f"[{record[identity_field]}｜{index}]" if index else f"[{record[identity_field]}]"
-    body = json.dumps(record, ensure_ascii=False, indent=1)
-    return f"- **{prefix}** {label}\n\n```json\n{body}\n```"
+    fields = tuple((key, key) for key in record if key not in {identity_field, "record_meta", "index"})
+    details = "；".join(f"{field_label}：{_brief_value(record[field], registry)}" for field, field_label in fields)
+    return f"- **{prefix}** {label}：{details}"
 
 
 def render_html(document: Note2Document, *, title: str, verification: dict[str, Any] | None = None) -> str:

@@ -101,26 +101,50 @@ def reserve_run(
                     )
                 if row["status"] == STATUS_VERIFIED:
                     conn.commit()
-                    return Reservation(run_number=row["run_number"], replayed=json.loads(row["data"]))
-                if row["status"] in _UNCERTAIN or row["status"] == STATUS_FAILED and row["committed"]:
+                    stored = json.loads(row["data"])
+                    return Reservation(run_number=row["run_number"], replayed=stored.get("result", stored))
+                if row["status"] != STATUS_FAILED or row["committed"]:
                     raise AiNote2Error(
                         f"该幂等键的上一轮状态为 {row['status']}，必须先核对远端结果",
                         code="conflict",
                         hint_key="pending_mutation",
                     )
-                # 同一键、同一输入的失败（确认未写入）允许原地重试。
-                conn.execute("DELETE FROM runs WHERE scope = ? AND run_number = ?", (scope, row["run_number"]))
+                # 确认未写入的失败允许重试，但保留失败序号与历史结果。
+                conn.execute(
+                    "UPDATE runs SET idempotency_key = NULL WHERE scope = ? AND run_number = ?",
+                    (scope, row["run_number"]),
+                )
         pending = conn.execute(
-            "SELECT run_number, status, committed FROM runs WHERE scope = ? AND (committed = 1 OR status IN (?, ?, ?))"
+            "SELECT run_number, status FROM runs WHERE scope = ? AND (status IN (?, ?, ?) OR (committed = 1 AND status != ?))"
             " ORDER BY run_number DESC LIMIT 1",
-            (scope, STATUS_PUBLISHING, STATUS_TAGGING, STATUS_RECONCILE),
+            (scope, STATUS_PUBLISHING, STATUS_TAGGING, STATUS_RECONCILE, STATUS_VERIFIED),
         ).fetchone()
-        if pending is not None and not force:
-            if pending["status"] == STATUS_VERIFIED:
-                message = f"条目已有成功发布的运行 #{pending['run_number']}；追加新 note 请使用 --force"
-            else:
-                message = f"条目已有未对账的运行 #{pending['run_number']}（{pending['status']}）；先核对再重试"
-            raise AiNote2Error(message, code="conflict", hint_key="pending_mutation")
+        if pending is not None:
+            raise AiNote2Error(
+                f"条目已有未对账的运行 #{pending['run_number']}（{pending['status']}）；先核对再重试",
+                code="conflict",
+                hint_key="pending_mutation",
+            )
+        verified = conn.execute(
+            "SELECT run_number FROM runs WHERE scope = ? AND status = ? LIMIT 1",
+            (scope, STATUS_VERIFIED),
+        ).fetchone()
+        if verified is not None and not force:
+            raise AiNote2Error(
+                f"条目已有成功发布的运行 #{verified['run_number']}；追加新 note 请使用 --force",
+                code="conflict",
+                hint_key="pending_mutation",
+            )
+        active = conn.execute(
+            "SELECT run_number FROM runs WHERE scope = ? AND status IN (?, ?, ?) ORDER BY run_number DESC LIMIT 1",
+            (scope, STATUS_PREPARED, STATUS_GENERATED, STATUS_VALIDATED),
+        ).fetchone()
+        if active is not None:
+            raise AiNote2Error(
+                f"条目已有进行中的运行 #{active['run_number']}；完成或核对后再试",
+                code="conflict",
+                hint_key="pending_mutation",
+            )
         row = conn.execute("SELECT MAX(run_number) AS latest FROM runs WHERE scope = ?", (scope,)).fetchone()
         run_number = int(row["latest"] or 0) + 1
         payload = {"run_number": run_number, "input_digest": input_digest}
@@ -192,8 +216,54 @@ def latest_run(scope: str) -> dict[str, Any] | None:
 
 
 def _note_contains_run(note: dict[str, Any], run_number: int, item_key: str) -> bool:
-    body = json.dumps(note, ensure_ascii=False)
-    return f"{item_key}-{run_number:04d}-" in body
+    data = note.get("data", {}) if isinstance(note, dict) else {}
+    return (
+        data.get("itemType") == "note"
+        and data.get("parentItem") == item_key
+        and f"{item_key}-{run_number:04d}-" in str(data.get("note", ""))
+    )
+
+
+def reconcile_run(
+    writer: ZoteroWriter,
+    *,
+    scope: str,
+    run_number: int,
+    item_key: str,
+) -> PublishResult:
+    """远端查找未知创建结果；只有唯一匹配时继续完成发布。"""
+    latest = latest_run(scope)
+    if latest is None or latest["run_number"] != run_number or not latest["committed"]:
+        raise AiNote2Error("没有待核对的写入记录", code="not_found", hint_key="reconcile_missing")
+    note_key = latest.get("note_key")
+    if not note_key:
+        try:
+            notes = writer.read_child_notes(item_key, limit=100)
+        except ZoteroWriteError as exc:
+            raise AiNote2Error(
+                f"读取远端 notes 失败（{exc.code}）；结果仍未知",
+                code=exc.code,
+                committed=True,
+                hint_key="publish_unknown",
+            ) from exc
+        matches = [note for note in notes if _note_contains_run(note, run_number, item_key)]
+        if len(matches) != 1 or not matches[0].get("key"):
+            raise AiNote2Error(
+                f"远端找到 {len(matches)} 份符合本次运行的 note；不能自动确认创建结果",
+                code="conflict",
+                committed=True,
+                hint_key="publish_unknown",
+            )
+        note_key = str(matches[0]["key"])
+        update_run(scope, run_number, status=STATUS_RECONCILE, note_key=note_key, committed=True)
+    return publish_document(
+        writer,
+        scope=scope,
+        run_number=run_number,
+        item_key=item_key,
+        html_note="",
+        reconciled_note_key=str(note_key),
+    )
 
 
 @dataclass(frozen=True)
@@ -281,44 +351,44 @@ def publish_document(
         scope, run_number, status=STATUS_TAGGING, note_key=note_key, committed=True, data={"note_verified": True}
     )
 
-    item = writer.read_item(item_key)
-    existing = {tag.get("tag") for tag in item.get("data", {}).get("tags", [])}
-    tagged = EVIDENCE_TAG in existing
-    if not tagged:
-        try:
-            writer.add_tags(item_key, [EVIDENCE_TAG])
-        except ZoteroWriteError as exc:
-            update_run(
-                scope,
-                run_number,
-                status=STATUS_RECONCILE,
-                note_key=note_key,
-                committed=True,
-                data={"tag_error": exc.code},
-            )
-            raise AiNote2Error(
-                f"note {note_key} 已创建，但标签写入失败（{exc.code}）；恢复时只补标签",
-                code=exc.code,
-                committed=True,
-                hint_key="tag_unknown",
-            ) from exc
+    try:
         item = writer.read_item(item_key)
         existing = {tag.get("tag") for tag in item.get("data", {}).get("tags", [])}
-        if EVIDENCE_TAG not in existing:
-            update_run(
-                scope,
-                run_number,
-                status=STATUS_RECONCILE,
-                note_key=note_key,
-                committed=True,
-                data={"tag_verified": False},
-            )
-            raise AiNote2Error(
-                f"note {note_key} 已创建，但标签 {EVIDENCE_TAG} 回读缺失；请核对远端",
-                code="runtime_error",
-                committed=True,
-                hint_key="tag_unknown",
-            )
+        tagged = EVIDENCE_TAG in existing
+        if not tagged:
+            writer.add_tags(item_key, [EVIDENCE_TAG])
+            item = writer.read_item(item_key)
+            existing = {tag.get("tag") for tag in item.get("data", {}).get("tags", [])}
+    except ZoteroWriteError as exc:
+        update_run(
+            scope,
+            run_number,
+            status=STATUS_RECONCILE,
+            note_key=note_key,
+            committed=True,
+            data={"tag_error": exc.code},
+        )
+        raise AiNote2Error(
+            f"note {note_key} 已创建，但标签写入或回读失败（{exc.code}）；恢复时只核对并补标签",
+            code=exc.code,
+            committed=True,
+            hint_key="tag_unknown",
+        ) from exc
+    if EVIDENCE_TAG not in existing:
+        update_run(
+            scope,
+            run_number,
+            status=STATUS_RECONCILE,
+            note_key=note_key,
+            committed=True,
+            data={"tag_verified": False},
+        )
+        raise AiNote2Error(
+            f"note {note_key} 已创建，但标签 {EVIDENCE_TAG} 回读缺失；请核对远端",
+            code="runtime_error",
+            committed=True,
+            hint_key="tag_unknown",
+        )
 
     update_run(
         scope,
@@ -326,6 +396,15 @@ def publish_document(
         status=STATUS_VERIFIED,
         note_key=note_key,
         committed=True,
-        data={"note_key": note_key, "tagged": True, "verified": True},
+        data={
+            "status": "ok",
+            "item_key": item_key,
+            "run_number": run_number,
+            "note_key": note_key,
+            "tag": EVIDENCE_TAG,
+            "tagged": True,
+            "verified": True,
+            "needs_reconcile": False,
+        },
     )
     return PublishResult(note_key=note_key, tagged=True, verified=True, needs_reconcile=False, message="")

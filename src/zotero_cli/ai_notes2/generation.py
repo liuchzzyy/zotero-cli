@@ -123,13 +123,6 @@ def generate_document(
     prompt = build_prompt(snapshot)
     model = client.config.model
     output_reserve = max(OUTPUT_RESERVE, client.config.max_tokens)
-    if not model_supports_request(model, prompt, 0, output_reserve=output_reserve):
-        raise AiNote2Error(
-            "输入超出模型上下文或请求预算；不静默截断正文或旧笔记",
-            code="validation_error",
-            hint_key="input_too_large",
-            parkable=True,
-        )
     if progress:
         progress("analyze", "单阶段生成完整三链（纯文本，无图片）")
 
@@ -139,7 +132,7 @@ def generate_document(
         if model_supports_request(candidate, prompt, 0, output_reserve=output_reserve)
     }
     if not allowed:
-        raise AiNote2Error("没有模型可容纳本次输入", code="validation_error", hint_key="input_too_large")
+        raise AiNote2Error("没有模型可容纳本次输入", code="validation_error", hint_key="input_too_large", parkable=True)
 
     raw = client.chat(prompt, figures=[], allowed_models=allowed, progress=progress)
     first_error: str | None = None
@@ -159,9 +152,14 @@ def generate_document(
         + (first_error or "未知")
         + "\n请完整返回全部三链 JSON，不要只返回被修改的部分，也不要输出解释文字。"
     )
-    if not model_supports_request(model, repair_prompt, 0, output_reserve=output_reserve):
+    repair_allowed = {
+        candidate
+        for candidate in client.get_model_chain()
+        if model_supports_request(candidate, repair_prompt, 0, output_reserve=output_reserve)
+    }
+    if not repair_allowed:
         raise AiNote2Error("结构修复请求超出预算", code="validation_error", hint_key="input_too_large", parkable=True)
-    raw = client.chat(repair_prompt, figures=[], allowed_models=allowed, progress=progress)
+    raw = client.chat(repair_prompt, figures=[], allowed_models=repair_allowed, progress=progress)
     try:
         document = _validate_candidate(raw, snapshot, run_number)
     except Note2ValidationError as exc:

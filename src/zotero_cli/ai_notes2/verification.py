@@ -164,9 +164,10 @@ def _object_summary(document: Note2Document) -> str:
         for candidate in ("text", "bridge", "question", "statement", "description", "reported_result"):
             value = record.get(candidate)
             if isinstance(value, str) and value.strip():
-                summary[candidate] = value[:400]
+                summary[candidate] = value
             elif isinstance(value, dict) and isinstance(value.get("statement"), str):
-                summary[candidate] = value["statement"][:400]
+                summary[candidate] = value["statement"]
+        summary["record"] = record
         lines.append(json.dumps(summary, ensure_ascii=False))
     return "\n".join(lines)
 
@@ -179,23 +180,34 @@ def _parse_verdicts(raw: str, allowed_ids: set[str]) -> list[dict[str, Any]]:
     if not isinstance(payload, dict) or not isinstance(payload.get("verdicts"), list):
         raise Note2ValidationError("/verdicts", "核对结果缺少 verdicts 数组")
     verdicts: list[dict[str, Any]] = []
+    seen: set[str] = set()
     for entry in payload["verdicts"]:
         if not isinstance(entry, dict):
             raise Note2ValidationError("/verdicts", "核对条目必须是对象")
         identifier = entry.get("object_id")
         status = entry.get("status")
-        if identifier not in allowed_ids:
+        if not isinstance(identifier, str) or identifier not in allowed_ids:
             raise Note2ValidationError("/verdicts", f"核对结果包含未知对象 {identifier}")
+        if identifier in seen:
+            raise Note2ValidationError("/verdicts", f"核对结果重复对象 {identifier}")
+        seen.add(identifier)
         if status not in VERIFICATION_STATUSES:
             raise Note2ValidationError("/verdicts", f"未知核对状态 {status}")
+        source_ids = entry.get("source_block_ids")
+        if not isinstance(source_ids, list) or any(not isinstance(item, str) for item in source_ids):
+            raise Note2ValidationError("/verdicts", "source_block_ids 必须是字符串数组")
+        if not isinstance(entry.get("note"), str):
+            raise Note2ValidationError("/verdicts", "note 必须是字符串")
         verdicts.append(
             {
                 "object_id": identifier,
                 "status": status,
-                "source_block_ids": [str(item) for item in entry.get("source_block_ids") or []],
-                "note": str(entry.get("note") or ""),
+                "source_block_ids": source_ids,
+                "note": entry["note"],
             }
         )
+    if seen != allowed_ids:
+        raise Note2ValidationError("/verdicts", f"核对结果遗漏 {len(allowed_ids - seen)} 个对象")
     return verdicts
 
 
@@ -224,8 +236,12 @@ def verify_document(
         blocks=wrap_untrusted(snapshot.projection, "document"),
     )
     output_reserve = max(OUTPUT_RESERVE, client.config.max_tokens)
-    model = client.config.model
-    if not model_supports_request(model, prompt, 0, output_reserve=output_reserve):
+    allowed = {
+        candidate
+        for candidate in client.get_model_chain()
+        if model_supports_request(candidate, prompt, 0, output_reserve=output_reserve)
+    }
+    if not allowed:
         raise AiNote2Error(
             "核对请求超出模型预算；不静默截断输入",
             code="validation_error",
@@ -234,7 +250,7 @@ def verify_document(
         )
     if progress:
         progress("verify", f"第二步：核对 {report.checked_objects} 个对象的原文依据")
-    raw = client.chat(prompt, figures=[], progress=progress)
+    raw = client.chat(prompt, figures=[], allowed_models=allowed, progress=progress)
     allowed_ids = {
         record[next(key for key in record if key.endswith("_id") and key != "target_id")]
         for _prefix, _table, record in _iter_records(document)
