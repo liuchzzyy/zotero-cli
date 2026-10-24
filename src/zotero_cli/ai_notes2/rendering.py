@@ -64,7 +64,7 @@ def _reliability(document: Note2Document, index: str) -> tuple[str, str]:
     return "dashed", "无对应审查，待核"
 
 
-def render_markdown(document: Note2Document) -> str:
+def render_markdown(document: Note2Document, *, verification: dict[str, Any] | None = None) -> str:
     """按“元信息 → 核心论点 → 分论点 → 支持链／证据／审查 → 就地评议”输出。"""
     data = document.to_dict()
     lines: list[str] = [
@@ -90,7 +90,25 @@ def render_markdown(document: Note2Document) -> str:
     )
     lines.append("| 文本范围 | PDF 文本、表格与公式文字、图注和脚注，无图片；旧 AI 笔记文本 |")
     lines.extend(["", "## 思维链 - 证据链 - 审查链", ""])
-
+    if verification:
+        counts = verification.get("counts", {})
+        lines.extend(
+            [
+                "## 第二步核对（原文可定位性）",
+                "",
+                f"- 已核对对象：{verification.get('checked_objects', 0)}；"
+                + "；".join(
+                    f"{status} {counts.get(status, 0)}" for status in ("支持", "部分支持", "不支持", "无法核对")
+                ),
+                "- 程序已确认每条来源定位与原文片段来自本次冻结块；模型复核只判断陈述是否被原文支持，不改写内容。",
+            ]
+        )
+        for verdict in verification.get("verdicts", []):
+            if verdict.get("status") != "支持":
+                lines.append(
+                    f"- 待人工复核 `{verdict.get('object_id')}`：{verdict.get('status')}；{verdict.get('note', '')}"
+                )
+        lines.append("")
     nodes = data["thought"]["nodes"]
     registry = {entry["object_id"]: entry["index"] for entry in data["object_registry"]}
     children: dict[str, list[dict[str, Any]]] = {}
@@ -191,9 +209,9 @@ def _render_record(record: dict[str, Any], prefix: str, registry: dict[str, str]
     return f"- **{prefix}** {label}\n\n```json\n{body}\n```"
 
 
-def render_html(document: Note2Document, *, title: str) -> str:
+def render_html(document: Note2Document, *, title: str, verification: dict[str, Any] | None = None) -> str:
     """把 Markdown 结构渲染为 Zotero 可显示的 HTML 树，含可见 ID。"""
-    markdown = render_markdown(document)
+    markdown = render_markdown(document, verification=verification)
     body: list[str] = []
     for raw in markdown.splitlines():
         line = raw.rstrip()
@@ -307,7 +325,12 @@ def _supports(data: dict[str, Any], child: str, parent: str) -> bool:
 
 
 def write_artifacts(
-    directory: Path, document: Note2Document, *, title: str, manifest: dict[str, Any]
+    directory: Path,
+    document: Note2Document,
+    *,
+    title: str,
+    manifest: dict[str, Any],
+    verification: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     """原子写本次产物，返回文件名到 SHA-256 的映射。"""
     from hashlib import sha256
@@ -315,8 +338,8 @@ def write_artifacts(
     directory.mkdir(parents=True, exist_ok=True)
     files = {
         "analysis.json": json.dumps(document.to_dict(), ensure_ascii=False, indent=2),
-        "note.md": render_markdown(document),
-        "note.html": render_html(document, title=title),
+        "note.md": render_markdown(document, verification=verification),
+        "note.html": render_html(document, title=title, verification=verification),
         "tree.svg": render_svg(document),
         "run.json": json.dumps(manifest, ensure_ascii=False, indent=2),
     }

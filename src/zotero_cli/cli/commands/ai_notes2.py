@@ -34,6 +34,9 @@ _HINTS = {
     "reservation_failed": "检查状态目录与账本数据库权限",
     "idempotency_conflict": "同一幂等键对应不同输入；使用新的键",
     "reconcile_missing": "该条目没有已创建 note 的记录；先正常运行 ai-note2",
+    "unsupported_item_type": "ai-note2 只支持 itemType=journalArticle 的期刊论文条目",
+    "template_missing": "检查安装包是否包含 ai_notes2/templates/evidence-chain.md",
+    "source_verification_failed": "生成内容无法在冻结 PDF 文本中定位；检查模型输出后重跑，不发布",
 }
 
 

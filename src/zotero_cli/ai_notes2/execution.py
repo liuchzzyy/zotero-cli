@@ -23,6 +23,7 @@ from zotero_cli.ai_notes2.persistence import (
     update_run,
 )
 from zotero_cli.ai_notes2.rendering import render_html, validate_before_render, write_artifacts
+from zotero_cli.ai_notes2.verification import verify_document
 from zotero_cli.config import (
     get_data_dir,
     get_prefs_js_path,
@@ -198,6 +199,8 @@ def execute_ai_note2(
                 ],
                 "blocks": len(snapshot.source_blocks),
                 "characters": snapshot.character_count,
+                "template": "evidence-chain",
+                "steps": ["生成三链结构", "逐条核对原文可定位性"],
                 "budget": budget_summary(snapshot, model, ai_config.max_tokens),
                 "cache_note": "dry-run 不写 Zotero；缓存缺失时仍可能调用 MinerU 并写解析缓存",
             }
@@ -234,7 +237,19 @@ def execute_ai_note2(
 
     update_run(scope, run_number, status=STATUS_GENERATED, data={"model": generated.model})
     document = validate_before_render(generated.document)
-    update_run(scope, run_number, status=STATUS_VALIDATED, data={"objects": len(document.to_dict()["object_registry"])})
+
+    # 第二步：逐条核对生成内容能在冻结 PDF 文本中准确定位。
+    try:
+        report = verify_document(document, snapshot, client=client, progress=progress)
+    except AiNote2Error as exc:
+        update_run(scope, run_number, status="failed", committed=False, data={"error": exc.hint_key})
+        raise
+    update_run(
+        scope,
+        run_number,
+        status=STATUS_VALIDATED,
+        data={"objects": len(document.to_dict()["object_registry"]), "verification": report.to_dict()["counts"]},
+    )
 
     target_dir = (
         Path(output_dir).expanduser().resolve()
@@ -257,9 +272,11 @@ def execute_ai_note2(
         "repair_used": generated.repair_used,
         "object_count": len(document.to_dict()["object_registry"]),
         "prompt_version": "ai-note2/1",
+        "verification": report.to_dict(),
     }
     title = _document_title(snapshot)
-    digests = write_artifacts(target_dir, document, title=title, manifest=manifest)
+    verification = report.to_dict()
+    digests = write_artifacts(target_dir, document, title=title, manifest=manifest, verification=verification)
 
     result: dict[str, Any] = {
         "status": "local_only" if local_only else "ok",
@@ -271,13 +288,15 @@ def execute_ai_note2(
         "output_dir": str(target_dir),
         "files": digests,
         "source_note_key": snapshot.source_note.key,
+        "verification": report.to_dict()["counts"],
+        "unsupported_objects": [item["object_id"] for item in report.unsupported],
     }
 
     if local_only:
         return Execution(data=result)
 
     writer = ZoteroWriter(library_id=writer_library_id, api_key=writer_api_key, library_type=library_type)
-    html_note = render_html(document, title=title)
+    html_note = render_html(document, title=title, verification=verification)
     try:
         published = publish_document(writer, scope=scope, run_number=run_number, item_key=key, html_note=html_note)
     except AiNote2Error:

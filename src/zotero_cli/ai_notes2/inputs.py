@@ -26,6 +26,9 @@ from zotero_cli.zotero.models import Attachment, Item, Note
 # 本功能生成的笔记标题前缀，用于避免把自己的输出递归当作旧分析输入。
 NOTE2_TITLE_PREFIX = "框架分析 - "
 
+# 首版只支持期刊论文；综述、书籍、会议论文等不套用该三链模板。
+SUPPORTED_ITEM_TYPE = "journalArticle"
+
 # 旧 ai-note 生成的标题前缀；只检查首个标题，不在全文搜索。
 LEGACY_NOTE_TITLE_PREFIX = NOTE_TITLE_PREFIX
 
@@ -288,6 +291,12 @@ def collect_inputs(
         raise AiNote2Error(f"条目 '{key}' 不存在", code="not_found")
     if item.item_type in {"note", "attachment", "annotation"}:
         raise AiNote2Error("必须传入父条目，而不是 note 或附件", code="validation_error", hint_key="not_parent_item")
+    if item.item_type != SUPPORTED_ITEM_TYPE:
+        raise AiNote2Error(
+            f"ai-note2 只支持期刊论文（itemType=journalArticle）；当前条目类型为 {item.item_type}",
+            code="validation_error",
+            hint_key="unsupported_item_type",
+        )
 
     notes = reader.get_notes(key)
     source_note = _select_source_note(notes, source_note_key)

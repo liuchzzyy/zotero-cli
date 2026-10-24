@@ -15,65 +15,33 @@ from zotero_cli.ai_notes.access.client import AiClient
 from zotero_cli.ai_notes.evidence import OUTPUT_RESERVE, SAFETY_RESERVE, model_supports_request
 from zotero_cli.ai_notes2.errors import AiNote2Error
 from zotero_cli.ai_notes2.inputs import InputSnapshot
-from zotero_cli.ai_notes2.models import SCHEMA_VERSION, note2_json_schema
+from zotero_cli.ai_notes2.models import SCHEMA_VERSION
+from zotero_cli.ai_notes2.templates import build_prompt as build_template_prompt
 from zotero_cli.ai_notes2.validation import Note2ValidationError, allocate_indexes, populate_source_excerpts
-
-SYSTEM_PROMPT = (
-    "你是科研论文的论证整理助手。你只整理作者公开的论证，不评审其正确性。"
-    "你必须只输出一个 JSON 对象，不得输出解释、围栏或 Markdown。"
-)
 
 PROMPT_VERSION = "ai-note2/1"
 
-_TASK = """请阅读给定的论文文本块与已有 AI 分析笔记，一次性生成完整的三链结构。
 
-写作与结构要求：
-1. 使用简体中文，遵循 ASD-STE100 的清晰写作原则：一个概念一个术语，句子说明对象、条件与判断。
-2. 思维链（thought）只整理作者公开论证：核心论点 → 分论点 → 论证理由，最多三级。
-   相邻层级的支持关系写入 support_edges，推理桥写入 bridge，不新增第四级。
-3. 证据链（evidence）记录论文实际报告的结果、处理关系、同源组、联合使用与用途关联。
-   不要为整齐而把完全未关联的结果强挂到某个论点。
-4. 审查链（review）必须写明主要对象、单一领域、具体判准、依据、范围和结论。
-   区分原文问题、解析问题、整理问题和关联问题；保留正向材料、相反材料与未解项。
-5. 覆盖记录先列具体单位，再标未检查、已检查、当前不可检查或不适用。
-   “已检查”必须引用在该范围完成判断的 RC-Q。
-6. 原文由冻结来源块提供。每条记录都要引用实际 block_id；可用可选 span 指定区间，
-   程序会从冻结块填入 text_excerpt，你不要自己编造原文片段。
-7. 缺失字段必须显式记录为 null 并写入 field_statuses；不得补数值、补条件或补推理桥。
-8. 临时 ID 自拟且在本文件内唯一（如 n1、e1、q1）；不要生成全局 index，也不要写 object_registry。
-9. 候选对象不进入正式支持图；候选的 decision 与 record_meta.state 必须一致。
-10. 不得声称读取图片像素；只能使用文本、表格文字、公式文字、图注与脚注。
-
-输出 JSON 的顶层字段：
-{schema}
-"""
+def _item_journal(item: Any) -> str:
+    """期刊名来自 Extra，缺失时留空由模板写“未知”。"""
+    extra = getattr(item, "extra", None) or {}
+    return str(extra.get("publicationTitle") or extra.get("journalAbbreviation") or "")
 
 
-def _schema_hint() -> str:
-    """给出紧凑的顶层字段提示；完整契约由校验器负责。"""
-    schema = note2_json_schema()
-    keys = [key for key in schema["properties"] if key not in {"object_registry"}]
-    return json.dumps({"schema_version": SCHEMA_VERSION, "fields": keys}, ensure_ascii=False)
-
-
-def build_prompt(snapshot: InputSnapshot) -> str:
-    """构造唯一一次分析请求的提示词，包含冻结输入与旧笔记。"""
+def build_prompt(snapshot: InputSnapshot, *, template_name: str = "evidence-chain") -> str:
+    """从模板构造分析请求；冻结输入按不可信数据包裹。"""
     item = snapshot.item
-    metadata = {
-        "key": item.key,
-        "title": item.title,
-        "item_type": item.item_type,
-        "date": item.date,
-        "doi": item.doi,
-        "creators": [creator.full_name for creator in item.creators],
-    }
-    return "\n\n".join(
-        [
-            _TASK.format(schema=_schema_hint()),
-            "## 父条目元信息\n" + json.dumps(metadata, ensure_ascii=False, indent=2),
-            "## 已有 AI 分析笔记（辅助线索，不能代替 PDF 原文）\n" + snapshot.source_note.text,
-            "## 论文文本块（无图片）\n" + snapshot.projection,
-        ]
+    return build_template_prompt(
+        item_key=item.key,
+        title=item.title or "",
+        authors=", ".join(creator.full_name for creator in item.creators),
+        journal=_item_journal(item),
+        date=item.date or "",
+        doi=item.doi or "",
+        source_note_key=snapshot.source_note.key,
+        source_note=snapshot.source_note.text,
+        blocks=snapshot.projection,
+        template_name=template_name,
     )
 
 
