@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from zotero_cli.ai_notes.access.client import AiClient
-from zotero_cli.ai_notes.evidence import OUTPUT_RESERVE, SAFETY_RESERVE, model_supports_request
+from zotero_cli.ai_notes.evidence import SAFETY_RESERVE, model_supports_request
 from zotero_cli.ai_notes2.errors import AiNote2Error
 from zotero_cli.ai_notes2.inputs import InputSnapshot
 from zotero_cli.ai_notes2.models import SCHEMA_VERSION
@@ -40,7 +40,14 @@ def build_prompt(snapshot: InputSnapshot, *, template_name: str = "evidence-chai
         doi=item.doi or "",
         source_note_key=snapshot.source_note.key,
         source_note=snapshot.source_note.text,
-        blocks=snapshot.projection,
+        blocks=(
+            "本次来源定位的固定库身份："
+            + json.dumps(snapshot.library_ref, ensure_ascii=False)
+            + "；parent_item_key="
+            + item.key
+            + "。\n"
+            + snapshot.projection
+        ),
         template_name=template_name,
     )
 
@@ -122,14 +129,13 @@ def generate_document(
     """发送一次完整请求；结构失败时最多追加一轮结构修复。"""
     prompt = build_prompt(snapshot)
     model = client.config.model
-    output_reserve = max(OUTPUT_RESERVE, client.config.max_tokens)
     if progress:
         progress("analyze", "单阶段生成完整三链（纯文本，无图片）")
 
     allowed = {
         candidate
         for candidate in client.get_model_chain()
-        if model_supports_request(candidate, prompt, 0, output_reserve=output_reserve)
+        if model_supports_request(candidate, prompt, 0, max_tokens=client.config.max_tokens)
     }
     if not allowed:
         raise AiNote2Error("没有模型可容纳本次输入", code="validation_error", hint_key="input_too_large", parkable=True)
@@ -155,7 +161,7 @@ def generate_document(
     repair_allowed = {
         candidate
         for candidate in client.get_model_chain()
-        if model_supports_request(candidate, repair_prompt, 0, output_reserve=output_reserve)
+        if model_supports_request(candidate, repair_prompt, 0, max_tokens=client.config.max_tokens)
     }
     if not repair_allowed:
         raise AiNote2Error("结构修复请求超出预算", code="validation_error", hint_key="input_too_large", parkable=True)
@@ -174,11 +180,11 @@ def generate_document(
 def budget_summary(snapshot: InputSnapshot, model: str, max_tokens: int) -> dict[str, Any]:
     """供 trial 运行展示的预算预检；不发送请求。"""
     prompt = build_prompt(snapshot)
-    supported = model_supports_request(model, prompt, 0, output_reserve=max(OUTPUT_RESERVE, max_tokens))
+    supported = model_supports_request(model, prompt, 0, max_tokens=max_tokens)
     return {
         "characters": snapshot.character_count,
         "projection_bytes": len(prompt.encode("utf-8")),
-        "output_reserve": max(OUTPUT_RESERVE, max_tokens),
+        "max_tokens": max_tokens,
         "safety_reserve": SAFETY_RESERVE,
         "within_budget": supported,
     }

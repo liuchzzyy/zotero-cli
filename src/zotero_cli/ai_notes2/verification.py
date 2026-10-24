@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from zotero_cli.ai_notes.access.client import AiClient
-from zotero_cli.ai_notes.evidence import OUTPUT_RESERVE, model_supports_request
+from zotero_cli.ai_notes.evidence import model_supports_request
 from zotero_cli.ai_notes.generation import wrap_untrusted
 from zotero_cli.ai_notes2.errors import AiNote2Error
 from zotero_cli.ai_notes2.inputs import InputSnapshot
@@ -235,11 +235,10 @@ def verify_document(
         objects=wrap_untrusted(_object_summary(document), "note-objects"),
         blocks=wrap_untrusted(snapshot.projection, "document"),
     )
-    output_reserve = max(OUTPUT_RESERVE, client.config.max_tokens)
     allowed = {
         candidate
         for candidate in client.get_model_chain()
-        if model_supports_request(candidate, prompt, 0, output_reserve=output_reserve)
+        if model_supports_request(candidate, prompt, 0, max_tokens=client.config.max_tokens)
     }
     if not allowed:
         raise AiNote2Error(

@@ -15,7 +15,6 @@ from zotero_cli.ai_notes.constants import PARSE_RETRY_SUFFIX, SPARSE_RETRY_SUFFI
 from zotero_cli.ai_notes.errors import EvidenceBudgetError, NoteAnalysisError
 from zotero_cli.ai_notes.evidence import (
     MAX_IMAGE_BYTES,
-    OUTPUT_RESERVE,
     REQUEST_CEILING,
     SAFETY_RESERVE,
     build_evidence,
@@ -141,7 +140,7 @@ def test_missing_main_image_raises_error(tmp_path):
 
 
 def test_fallback_budget_accepts_exact_image_boundary_but_not_overflow():
-    prompt = "x" * (REQUEST_CEILING - 32_768 - 50_000 - 4_096)
+    prompt = "x" * (REQUEST_CEILING - 50_000 - 4_096)
     assert model_supports_request("group/deepseek", prompt, 1)
     assert model_supports_request("antigravity/gemini-3.8-flash", prompt, 1)
     assert not model_supports_request("group/deepseek", prompt, 2)
@@ -159,7 +158,7 @@ def test_coverage_notice_replans_when_its_own_text_removes_an_si_image(tmp_path)
         image_count=2,
     )
     evidence = build_evidence([("SI", "supplementary", si)])
-    prompt = "x" * (REQUEST_CEILING - 32_768 - 50_000 - 4_096)
+    prompt = "x" * (REQUEST_CEILING - 50_000 - 4_096)
     plan, final_prompt, omitted = plan_with_coverage(evidence, prompt, "group/deepseek")
     assert not plan.images
     assert omitted == [1, 2]
@@ -169,7 +168,7 @@ def test_coverage_notice_replans_when_its_own_text_removes_an_si_image(tmp_path)
 def test_si_budget_drops_all_images_only_when_required_text_fits(tmp_path):
     si = _parse(tmp_path, "si", [{"type": "image", "img_path": "images/0.jpg", "page_idx": 0}], image_count=1)
     evidence = build_evidence([("SI", "supplementary", si)])
-    plan = plan_request(evidence, "x" * (REQUEST_CEILING - 32_768 - 50_000 - 100), "group/deepseek")
+    plan = plan_request(evidence, "x" * (REQUEST_CEILING - 50_000 - 100), "group/deepseek")
     assert plan.images == []
     assert "[图 1]" in evidence.text
     assert "未附图像" not in evidence.text
@@ -179,7 +178,7 @@ def test_image_budget_does_not_undercount_a_large_image(tmp_path):
     main = _parse(tmp_path, "m", [{"type": "image", "img_path": "images/0.jpg", "page_idx": 0}], image_count=1)
     evidence = build_evidence([("M", "main", main)])
     with pytest.raises(ValueError, match="required main images"):
-        plan_request(evidence, "x" * (REQUEST_CEILING - 32_768 - 50_000 - 100), "group/deepseek")
+        plan_request(evidence, "x" * (REQUEST_CEILING - 50_000 - 100), "group/deepseek")
 
 
 def test_image_block_without_a_path_is_rejected_at_build_time(tmp_path):
@@ -228,7 +227,7 @@ def test_supplementary_images_referenced_by_main_are_prioritized(tmp_path):
         image_count=45,
     )
     evidence = build_evidence([("M", "main", main), ("SI", "supplementary", si)])
-    prompt = "x" * (REQUEST_CEILING - OUTPUT_RESERVE - SAFETY_RESERVE - 20 * 4096)
+    prompt = "x" * (REQUEST_CEILING - SAFETY_RESERVE - 20 * 4096)
     plan = plan_request(evidence, prompt, "group/deepseek")
     assert len(plan.si_images) == 20
     assert {44, 45}.issubset({n for n, _ in plan.si_images})
@@ -264,8 +263,19 @@ def test_real_client_records_usage_without_exposing_the_payload(monkeypatch):
     assert client.last_usage == {"prompt_tokens": 123, "completion_tokens": 9}
 
 
+def test_budget_has_no_fixed_output_reservation():
+    prompt = "x" * (REQUEST_CEILING - SAFETY_RESERVE - 1)
+    assert model_supports_request("group/deepseek", prompt, 0)
+
+
+def test_configured_output_limit_still_counts_toward_budget():
+    prompt = "x" * (REQUEST_CEILING - SAFETY_RESERVE - 100)
+    assert model_supports_request("group/deepseek", prompt, 0, max_tokens=99)
+    assert not model_supports_request("group/deepseek", prompt, 0, max_tokens=100)
+
+
 def test_format_retry_rejects_over_budget_request_before_sending():
-    prompt = "x" * (REQUEST_CEILING - OUTPUT_RESERVE - SAFETY_RESERVE - 1)
+    prompt = "x" * (REQUEST_CEILING - SAFETY_RESERVE - 1)
     assert model_supports_request("group/deepseek", prompt, 0)
     assert not model_supports_request("group/deepseek", prompt + PARSE_RETRY_SUFFIX, 0)
     client = MagicMock()
@@ -277,7 +287,7 @@ def test_format_retry_rejects_over_budget_request_before_sending():
 
 
 def test_format_retry_filters_model_that_no_longer_fits():
-    prompt = "x" * (250_000 - OUTPUT_RESERVE - SAFETY_RESERVE - 1)
+    prompt = "x" * (250_000 - SAFETY_RESERVE - 1)
     models = {"group/deepseek", "antigravity/claude-sonnet-4-6"}
     assert all(model_supports_request(model, prompt, 0) for model in models)
     client = MagicMock()
@@ -290,7 +300,7 @@ def test_format_retry_filters_model_that_no_longer_fits():
 
 
 def test_sparse_retry_keeps_valid_result_when_retry_exceeds_budget():
-    prompt = "x" * (REQUEST_CEILING - OUTPUT_RESERVE - SAFETY_RESERVE - 1)
+    prompt = "x" * (REQUEST_CEILING - SAFETY_RESERVE - 1)
     assert not model_supports_request("group/deepseek", prompt + SPARSE_RETRY_SUFFIX, 0)
     client = MagicMock()
     client.config = AiNoteConfig()

@@ -28,7 +28,6 @@ from zotero_cli.ai_notes.documents import (
 )
 from zotero_cli.ai_notes.errors import EvidenceBudgetError, NoteAnalysisError
 from zotero_cli.ai_notes.evidence import (
-    OUTPUT_RESERVE,
     SAFETY_RESERVE,
     build_evidence,
     model_supports_request,
@@ -138,7 +137,7 @@ def analyze_item(
     ai_config = ai_client.config if ai_client is not None else AiNoteConfig()
     metadata = f"条目：{item.title}\n类型：{item.item_type}\n日期：{item.date or '未知'}\nDOI：{item.doi or '未知'}"
     text_prompt = text_evidence_prompt(metadata + "\n\n" + cleaned)
-    if not model_supports_request(model, text_prompt, 0, output_reserve=max(OUTPUT_RESERVE, ai_config.max_tokens)):
+    if not model_supports_request(model, text_prompt, 0, max_tokens=ai_config.max_tokens):
         raise NoteAnalysisError(
             "required text exceeds the model budget; do not truncate evidence", code="validation_error", parkable=True
         )
@@ -204,7 +203,7 @@ def analyze_item(
             "omitted_images": len(omitted_numbers),
             "skipped_images": plan.skipped,
             "estimated_tokens_upper_bound": max(
-                plan.estimated_tokens, len(text_prompt) + OUTPUT_RESERVE + SAFETY_RESERVE
+                plan.estimated_tokens, len(text_prompt) + max(0, ai_config.max_tokens) + SAFETY_RESERVE
             ),
             "request_bytes": plan.request_bytes,
             "budget_model": plan.model,
@@ -224,7 +223,7 @@ def analyze_item(
     text_models = {
         candidate
         for candidate in client.get_model_chain()
-        if model_supports_request(candidate, text_prompt, 0, output_reserve=max(OUTPUT_RESERVE, ai_config.max_tokens))
+        if model_supports_request(candidate, text_prompt, 0, max_tokens=ai_config.max_tokens)
     }
     if not text_models:
         raise NoteAnalysisError("文字证据请求超出模型预算", code="validation_error", parkable=True)
@@ -246,9 +245,7 @@ def analyze_item(
     allowed_models = {
         candidate
         for candidate in client.get_model_chain()
-        if model_supports_request(
-            candidate, final_prompt, len(figures), output_reserve=max(OUTPUT_RESERVE, ai_config.max_tokens)
-        )
+        if model_supports_request(candidate, final_prompt, len(figures), max_tokens=ai_config.max_tokens)
     }
     if not allowed_models:
         raise NoteAnalysisError("视觉请求超出模型预算", code="validation_error", parkable=True)

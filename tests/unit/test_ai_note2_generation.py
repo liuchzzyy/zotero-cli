@@ -171,6 +171,8 @@ def test_generation_success_uses_one_text_only_call(document, monkeypatch):
     client = FakeClient([json.dumps(_payload(document), ensure_ascii=False)])
     result = generation.generate_document(client, _snapshot(document), run_number=1)
     assert len(client.calls) == 1
+    assert json.dumps(_snapshot(document).library_ref, ensure_ascii=False) in client.calls[0]["prompt"]
+    assert '"Location"' in client.calls[0]["prompt"]
     assert client.calls[0]["figures"] == []
     assert result.repair_used is False
     assert result.document["object_registry"]

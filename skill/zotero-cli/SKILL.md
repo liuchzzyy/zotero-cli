@@ -101,6 +101,8 @@ Validate the configured primary model against the authenticated proxy
 availability; do not remove or override a model solely because it is unavailable
 at inspection time — the fallback chain handles transient outages.
 
+Budget checks for `ai-note` and `ai-note2` have no fixed output reservation. A positive `max_tokens` counts toward the preflight and is sent to the API; zero omits the parameter and leaves the actual output limit to the service. `ai-note2` dry-run reports `budget.max_tokens`.
+
 ## AI note analysis (ai-note)
 
 The `zot ai-note` pipeline reads an item's local PDF, parses it via MinerU, classifies the document into a template (`research_article`, `review_article`, `book`), generates a structured JSON sections payload via LLM, renders it to an inline-styled HTML note in Zotero, tags the item `ai/noted`, and generates a `short-note: ...` summary in Extra with tag `ai/keywords`.

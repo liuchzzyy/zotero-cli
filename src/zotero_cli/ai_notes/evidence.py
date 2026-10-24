@@ -29,7 +29,6 @@ _ROUTE_LIMITS = {
 # 800k 是按实测样本留出余量后的单请求上限（XIPR4NR6：91 张正文图 + 172k 字符 prompt
 # = 627,745 估算单位），仍远低于 1M 上下文路由与 20 MiB 请求体。
 REQUEST_CEILING = 800_000
-OUTPUT_RESERVE = 32_768
 SAFETY_RESERVE = 50_000
 MAX_REQUEST_BYTES = 20 * 1024 * 1024
 # 图片有效性以解码为准，1x1 占位图单独声明；不能仅用文件字节数丢图。
@@ -196,7 +195,6 @@ def plan_request(
     prompt: str,
     model: str,
     *,
-    output_reserve: int = OUTPUT_RESERVE,
     config: AiNoteConfig | None = None,
     excluded_si: set[int] | None = None,
     prepared: dict[tuple[Path, bool], EncodedImage | None] | None = None,
@@ -206,7 +204,7 @@ def plan_request(
     if model not in _ROUTE_LIMITS:
         raise ValueError(f"unverified context/image budget for model {model}")
     context, per_image = _ROUTE_LIMITS[model]
-    reserve = max(output_reserve, config.max_tokens if config else 0)
+    reserve = max(0, config.max_tokens) if config else 0
     limit = min(context, REQUEST_CEILING)
     text_bound = len(prompt)
     image_allowance = limit - text_bound - reserve - SAFETY_RESERVE
@@ -342,12 +340,12 @@ def plan_with_coverage(
     raise EvidenceBudgetError("image coverage planning did not converge")
 
 
-def model_supports_request(model: str, prompt: str, image_count: int, *, output_reserve: int = OUTPUT_RESERVE) -> bool:
-    """备用路由必须容纳确切文本、图片数量与输出预留。"""
+def model_supports_request(model: str, prompt: str, image_count: int, *, max_tokens: int = 0) -> bool:
+    """备用路由须容纳文本、图片和明确配置的输出额度；不额外固定预留。"""
     route = _ROUTE_LIMITS.get(model)
     if route is None:
         return False
     context, per_image = route
     limit = min(context, REQUEST_CEILING)
-    text_and_reserve = len(prompt) + output_reserve + SAFETY_RESERVE
+    text_and_reserve = len(prompt) + max(0, max_tokens) + SAFETY_RESERVE
     return text_and_reserve < limit and text_and_reserve + image_count * per_image <= limit

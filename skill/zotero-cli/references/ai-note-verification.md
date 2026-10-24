@@ -137,7 +137,7 @@ The note is built from MinerU `content_list.json`, not `document.md`: `image` an
 `chart` blocks become `[图 N]` markers **and** payload parts read from `raw/`, so a
 chart panel that Markdown never referenced is still attached. The request is
 budgeted as two main analysis calls — text evidence first, then evidence packet plus figures. The visual call uses `min(route context, 800k)` minus rendered text,
-output reserve and safety margin buys images at a per-image ceiling. **Every
+explicitly configured max_tokens (zero adds no output reservation) and safety margin buys images at a per-image ceiling. **Every
 main-text image must fit or the run fails**; SI has no fixed count cap and is prioritised by
 `Figure S<n>` references in the main text, and the prompt lists the SI numbers that
 were not sent so the model cannot describe those panels.

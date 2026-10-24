@@ -71,11 +71,7 @@ def schema_fields() -> str:
             "evidence": schema["properties"]["evidence"],
             "review": schema["properties"]["review"],
             "records": records,
-            "shared_types": {
-                name: definition
-                for name, definition in defs.items()
-                if name not in records and name not in {"LibraryRef", "Location", "SourceBlock", "SourceIdentity"}
-            },
+            "shared_types": {name: definition for name, definition in defs.items() if name not in records},
         },
         ensure_ascii=False,
         separators=(",", ":"),

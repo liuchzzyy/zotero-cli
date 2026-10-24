@@ -19,7 +19,7 @@ from zotero_cli.ai_notes.constants import (
 )
 from zotero_cli.ai_notes.documents import _item_authors, _item_journal
 from zotero_cli.ai_notes.errors import NoteAnalysisError
-from zotero_cli.ai_notes.evidence import OUTPUT_RESERVE, model_supports_request
+from zotero_cli.ai_notes.evidence import model_supports_request
 from zotero_cli.ai_notes.templates import format_template
 from zotero_cli.zotero.models import Item
 
@@ -35,13 +35,11 @@ def _wrap_field(value: str, label: str, max_chars: int) -> str:
 
 
 def _retry_models(
-    prompt: str, figures: list[tuple[int, str]], allowed_models: set[str], output_reserve: int = OUTPUT_RESERVE
+    prompt: str, figures: list[tuple[int, str]], allowed_models: set[str], max_tokens: int = 0
 ) -> set[str]:
     """重试文本变化后，只保留原已验证且仍容得下同组图片的路由。"""
     return {
-        model
-        for model in allowed_models
-        if model_supports_request(model, prompt, len(figures), output_reserve=output_reserve)
+        model for model in allowed_models if model_supports_request(model, prompt, len(figures), max_tokens=max_tokens)
     }
 
 
@@ -54,7 +52,6 @@ def _chat_with_retry(
     progress: Callable[[str, str], None] | None,
 ) -> list[object]:
     """执行模型对话并解析 sections JSON，针对格式与内容稀疏各做一轮重试。"""
-    output_reserve = max(OUTPUT_RESERVE, client.config.max_tokens)
     answer = _chat(
         client, prompt, progress=progress, figures=figures, allowed_models=allowed_models, require_images=bool(figures)
     )
@@ -65,7 +62,7 @@ def _chat_with_retry(
             progress("retry", "AI 输出无法解析为 JSON，追加格式要求重试一次")
         # 格式重试必须使用同一组图片，视觉成稿不允许纯文本降级。
         retry_prompt = prompt + PARSE_RETRY_SUFFIX
-        retry_models = _retry_models(retry_prompt, figures, allowed_models, output_reserve)
+        retry_models = _retry_models(retry_prompt, figures, allowed_models, client.config.max_tokens)
         if not retry_models:
             raise NoteAnalysisError("输出格式重试超过已验证的模型预算", code="validation_error", parkable=True)
         retry_answer = _chat(
@@ -90,7 +87,7 @@ def _chat_with_retry(
         if progress:
             progress("retry", f"输出过简略（{len(sections)} 个 block），追加内容充实度要求重试一次")
         retry_prompt = prompt + SPARSE_RETRY_SUFFIX
-        retry_models = _retry_models(retry_prompt, figures, allowed_models, output_reserve)
+        retry_models = _retry_models(retry_prompt, figures, allowed_models, client.config.max_tokens)
         if retry_models:
             try:
                 retry_answer = _chat(

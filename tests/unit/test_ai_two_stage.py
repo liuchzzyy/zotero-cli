@@ -10,7 +10,7 @@ from tests.support import jpeg_bytes
 
 from zotero_cli.ai_notes.analysis import analyze_item
 from zotero_cli.ai_notes.errors import NoteAnalysisError
-from zotero_cli.ai_notes.evidence import OUTPUT_RESERVE, REQUEST_CEILING, SAFETY_RESERVE
+from zotero_cli.ai_notes.evidence import REQUEST_CEILING, SAFETY_RESERVE
 from zotero_cli.ai_notes.stages import MAX_PACKET_CHARS
 from zotero_cli.ai_pdf import MinerUParseResult
 from zotero_cli.config import AiNoteConfig
@@ -109,7 +109,7 @@ def test_text_then_visual_with_all_main_figures_before_write(tmp_path):
 def test_dry_run_does_not_reject_images_only_due_to_maximum_packet_reserve(tmp_path):
     reader, writer, client, att, parsed = _setup(tmp_path)
     # 图数取“实际可发送、但按最大证据包预留就放不下”的区间：正文图不可丢弃。
-    count = (REQUEST_CEILING - OUTPUT_RESERVE - SAFETY_RESERVE - MAX_PACKET_CHARS) // 4096 + 10
+    count = (REQUEST_CEILING - SAFETY_RESERVE - MAX_PACKET_CHARS) // 4096 + 10
     parsed.content_list_path.write_text(
         json.dumps(
             [
@@ -128,7 +128,7 @@ def test_dry_run_does_not_reject_images_only_due_to_maximum_packet_reserve(tmp_p
 
 def test_actual_packet_allows_main_figures_beyond_preview_reserve(tmp_path):
     reader, writer, client, att, parsed = _setup(tmp_path)
-    count = (REQUEST_CEILING - OUTPUT_RESERVE - SAFETY_RESERVE - MAX_PACKET_CHARS) // 4096 + 10
+    count = (REQUEST_CEILING - SAFETY_RESERVE - MAX_PACKET_CHARS) // 4096 + 10
     parsed.content_list_path.write_text(
         json.dumps(
             [

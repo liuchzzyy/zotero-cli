@@ -78,6 +78,23 @@ def test_template_includes_all_record_contract_fields():
     assert '"source_blocks"' not in contract
 
 
+def test_prompt_shared_type_references_are_closed():
+    contract = json.loads(templates.schema_fields())
+    definitions = {**contract["records"], **contract["shared_types"]}
+
+    def walk(value):
+        if isinstance(value, dict):
+            if "$ref" in value:
+                assert value["$ref"].split("/")[-1] in definitions
+            for child in value.values():
+                walk(child)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child)
+
+    walk(contract)
+
+
 def test_template_renamed_to_evidence_chain():
     assert templates.available_templates() == ["evidence-chain", "verification"]
     assert templates.template_path().name == "evidence-chain.md"
