@@ -180,6 +180,24 @@ the cause. Network/provider failures and uncertain writes are never parked.
 
 ## 6. Partial writes and evidence boundaries
 
+For collection failures, read the complete run log and checkpoint before
+resuming. Count generated notes, keyword backfills, failed items and blocked
+items separately; a successful HTTP response can still carry invalid model
+JSON, while an uncertain note write may already have appended a child note.
+Use the stage and error type to choose a focused reproduction: model response,
+`parse_text_packet()`, visual request, writer, or checkpoint. Distinguish a
+truncated response (`finish_reason=length`) from malformed complete JSON; do
+not accept a partial response by loosening parsing. Run focused fixture tests
+for a code repair, then inspect remote children, tags and Extra before any
+live retry. Green local tests alone do not verify model output or Zotero writes.
+
+`max_tokens = 0` omits that request parameter; the planning `OUTPUT_RESERVE`
+is not a provider output limit. If the provider reports a length stop, the
+pipeline requests a compact JSON retry once for that stage and fails without
+writing if it is still truncated. For fenced JSON, the parser also examines
+the raw brace-delimited response when a fence and `{` share a line; unbalanced
+braces remain an error, not a recoverable completed note.
+
 `save_analysis_note()` creates a child note before adding `ai/noted`. `save_short_note()` updates Extra before adding `ai/keywords`. A failed later tag does not undo either successful write: errors carry `committed=True`, the command fails and its idempotency reservation remains for reconciliation. Unknown Extra-write outcomes behave similarly. Do not cache these outcomes as success, add `ai/no_keywords` to disguise them or rerun full analysis blindly. A short-note generation failure or definite rejection before Extra is written can degrade the result and attempt `ai/no_keywords`; the CLI does not claim that tag exists unless verified. `--short-note-only` can also encounter partial writes.
 
 The first stage’s `parse_text_packet()` checks JSON structure, required fields, source labels against known attachment/kind/page combinations, valid figure numbers and the packet budget. Malformed JSON or invalid source/figure references get one bounded text-stage retry; the returned evidence is checked again before any write. Oversized packets shorten only program-added `source_excerpt` windows before failing if the model-supplied evidence remains over 120,000 characters. It does not compare or reject numeric values in `claim`, `data` or `conditions`. Program-added `source_excerpt` supports the model’s check; it does not establish numerical truth or sample/condition correspondence. Manual spot checks in this reference are separate from program validation.

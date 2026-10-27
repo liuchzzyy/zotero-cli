@@ -121,11 +121,21 @@ zot ai-note ITEMKEY --force            # Re-analyze even if already tagged ai/no
 zot ai-note ITEMKEY --no-short-note    # Generate note only without Extra short-note or keyword tags
 zot ai-note ITEMKEY --no-tag           # Write the note but do not apply the ai/noted tag
 zot ai-note ITEMKEY --short-note-only  # Backfill Extra short-note from existing AI note without re-analyzing
-zot ai-note ITEMKEY --progress-lines   # One progress record per line, for logs rather than a TTY
+zot ai-note ITEMKEY --progress-lines   # Progress on stderr, including JSON and non-TTY runs
 zot ai-note ITEMKEY --idempotency-key analyze-ITEMKEY-001  # Replay confirmed success; reconcile uncertain writes first
 ```
 
 ### Pre-flight, then verify through the Web API
+
+For a scoped live test, resolve the collection's current key and remote members,
+then record the target item's child-note keys, AI tags and Extra before writing.
+Check readable local PDFs and run `--dry-run` to inspect inputs and budgets;
+a successful preview does not establish that the model will return valid JSON.
+Use a stable idempotency key for the authorized write, capture its exit code and
+envelope, and compare Web API readback with the baseline before retrying an
+uncertain result. `--progress-lines` keeps stage records on stderr so JSON
+stdout stays parseable. See [AI Note verification](references/ai-note-verification.md)
+for the full evidence and failure checks.
 
 `--dry-run` is a no-write, no-AI-config preview, not a classification preview: it
 reports `paper_type`, `template`, `pdf_count` and the extracted `chars`, but the
@@ -174,6 +184,14 @@ this run; report only what the API shows for the note key, tag set,
 before expecting to see any of it there.
 
 Partial-write recovery: if Extra was written but `ai/keywords` failed, or an Extra update has an unknown outcome, the command raises a typed `committed=True` error and retains the idempotency reservation. Reconcile the note, Extra and tags remotely before retrying; do not cache success or add a fallback `ai/no_keywords` tag. Generation failures and definite rejections before Extra is written can report short-note failure and attempt that fallback tag, but its presence must be verified.
+
+`--no-short-note` creates a note and `ai/noted` without writing Extra or
+`ai/keywords`. Later collection runs can select that item for keyword-only
+backfill; the backfill reads an existing AI note from local SQLite, so allow
+Zotero Desktop to sync the new note first. It replaces an existing `short-note:`
+line rather than adding a second one. Inspect the remote Extra baseline before
+allowing a backfill that would replace user data; `--no-short-note` on the batch
+runner suppresses backfill for that run.
 
 First-stage `parse_text_packet()` checks required fields, known attachment/kind/page source labels, figure references and budget. Malformed JSON, invalid source labels or figure numbers get one bounded retry with the valid source/figure index; an invalid retry still fails before writing. When a packet exceeds 120,000 characters, only program-added `source_excerpt` windows are shortened first; claims, data and conditions remain intact, and an irreducibly oversized packet fails. It does not compare numerical/text content. `source_excerpt` is original context for model checking, not proof that a number or sample/condition mapping is correct.
 
