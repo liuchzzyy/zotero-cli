@@ -170,6 +170,9 @@ def run_collection(
                 if ANALYZED_TAG not in all_tags or KEYWORDS_TAG in all_tags:
                     summary["skipped"].append({"key": key, "reason": "tagged", "tags": done_tags})
                     continue
+                if previous.get("status") in {"blocked", "keyword_in_progress"} or previous.get("committed"):
+                    summary["blocked"].append({"key": key, "error": "prior_keyword_write_outcome_uncertain"})
+                    continue
                 attempts = int(previous.get("keyword_attempts", 0))
                 if attempts >= KEYWORD_BACKFILL_ATTEMPTS:
                     summary["keyword_blocked"].append({"key": key, "attempts": attempts})
@@ -201,31 +204,45 @@ def run_collection(
                     )
                     save_state(state_path, state)
                     entry = {"key": key, "error": f"{type(exc).__name__}: {exc}", "attempts": next_attempts}
-                    summary["blocked" if committed else "keyword_failed"].append(entry)
+                    summary[status if status in {"blocked", "keyword_blocked"} else "keyword_failed"].append(entry)
                     continue
                 try:
                     verification = verify_keyword_result(api, key, before, result)
                 except Exception as exc:
                     state[key] = _checkpoint(
-                        before, status="keyword_failed", error=str(exc), keyword_attempts=attempts + 1
+                        before, status="blocked", error=str(exc), committed=True, keyword_attempts=attempts + 1
                     )
                     save_state(state_path, state)
-                    summary["keyword_failed"].append({"key": key, "error": f"{type(exc).__name__}: {exc}"})
+                    summary["blocked"].append({"key": key, "error": f"{type(exc).__name__}: {exc}"})
                     continue
+                short_note_status = result.get("short_note")
+                next_attempts = attempts + 1
+                status = (
+                    "keyword_backfilled"
+                    if short_note_status == "ok"
+                    else ("keyword_blocked" if next_attempts >= KEYWORD_BACKFILL_ATTEMPTS else "keyword_failed")
+                )
                 state[key] = _checkpoint(
                     before,
                     **{
                         **result,
                         **verification,
-                        "status": "keyword_backfilled",
-                        "keyword_attempts": attempts,
+                        "status": status,
+                        "keyword_attempts": next_attempts,
                         "dry_run": False,
                     },
                 )
                 save_state(state_path, state)
-                summary["keyword_backfilled"].append(
-                    {"key": key, "short_note": result.get("short_note"), "tags": verification["tags"]}
-                )
+                if short_note_status == "ok":
+                    summary["keyword_backfilled"].append({"key": key, "tags": verification["tags"]})
+                else:
+                    summary[status].append(
+                        {
+                            "key": key,
+                            "error": result.get("short_note_error", "关键词回填未成功"),
+                            "attempts": next_attempts,
+                        }
+                    )
                 continue
             if previous.get("status") in HALTED_STATUSES and not previous.get("dry_run"):
                 summary["skipped"].append({"key": key, "reason": f"checkpoint_{previous['status']}"})
@@ -395,7 +412,16 @@ def main() -> int:
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
         save_state(args.output_dir / f"run-{stamp}.json", result)
         save_state(args.output_dir / "latest.json", result)
-        if args.dry_run or result["processed"] or result["uncertain"] or result["failed"] or result["blocked"]:
+        if (
+            args.dry_run
+            or result["processed"]
+            or result["uncertain"]
+            or result["failed"]
+            or result["blocked"]
+            or result["keyword_backfilled"]
+            or result["keyword_failed"]
+            or result["keyword_blocked"]
+        ):
             print(json.dumps(result, ensure_ascii=False, indent=2))
         return batch_exit_code(result)
 

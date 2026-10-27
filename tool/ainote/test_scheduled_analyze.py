@@ -24,13 +24,18 @@ def test_completed_tags_are_checked_remotely_before_pdf_or_analysis(tmp_path: Pa
     reader, api, analyze = MagicMock(), MagicMock(), MagicMock()
     reader.get_collection_items.return_value = [SimpleNamespace(key="ITEM", item_type="journalArticle", title="Paper")]
     api.everything.return_value = []
-    for tag in ("ai/noted", "ai/uncertain"):
+    for tags in (("ai/noted", "ai/keywords"), ("ai/uncertain",)):
         api.item.return_value = {
-            "data": {"key": "ITEM", "itemType": "journalArticle", "collections": ["COL"], "tags": [{"tag": tag}]}
+            "data": {
+                "key": "ITEM",
+                "itemType": "journalArticle",
+                "collections": ["COL"],
+                "tags": [{"tag": tag} for tag in tags],
+            }
         }
         result = sa.run_collection(reader, api, analyze, "COL", tmp_path / "state.json", apply=True)
         assert result["total"] == 1
-        assert result["skipped"] == [{"key": "ITEM", "reason": "tagged", "tags": [tag]}]
+        assert result["skipped"] == [{"key": "ITEM", "reason": "tagged", "tags": [tags[0]]}]
     reader.get_pdf_attachments.assert_not_called()
     analyze.assert_not_called()
 

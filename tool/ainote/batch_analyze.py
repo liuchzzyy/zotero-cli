@@ -192,6 +192,7 @@ def run_batch(
         keyword_backfilled_count = 0
         keyword_failed_count = 0
         keyword_blocked_count = 0
+        keyword_candidates_count = 0
         attempted_count = 0
         failed_count = 0
         failure_reasons: dict[str, int] = {}
@@ -208,16 +209,24 @@ def run_batch(
             def _progress(event: str, msg: str, _key: str = key) -> None:
                 logger.info(f"  [{_key}][{event}] {msg}")
 
-            if not force and prev_result.get("status") == "blocked":
+            if not force and prev_result.get("status") in {"blocked", "keyword_in_progress"}:
                 logger.warning(
                     f"[{idx}/{len(items)}] Blocked {key} (prior write outcome uncertain); reconcile remotely."
                 )
                 blocked_count += 1
                 continue
+            if (
+                not force
+                and prev_result.get("status") == "keyword_backfilled"
+                and prev_result.get("short_note") == "ok"
+            ):
+                logger.info(f"[{idx}/{len(items)}] Skip {key} (keywords already backfilled): {title[:40]}")
+                skipped_count += 1
+                continue
             raw_item = reader.get_item(key)
             item_tags = raw_item.tags if raw_item is not None else []
 
-            if not force and ANALYZED_TAG in item_tags and KEYWORDS_TAG not in item_tags:
+            if not force and not no_short_note and ANALYZED_TAG in item_tags and KEYWORDS_TAG not in item_tags:
                 # 已完成分析但缺关键词：只补 Extra 与标签，绝不重跑完整分析。
                 keyword_attempts = int(prev_result.get("keyword_attempts", 0))
                 if keyword_attempts >= KEYWORD_BACKFILL_ATTEMPTS:
@@ -232,6 +241,15 @@ def run_batch(
                     checkpoint()
                     continue
                 logger.info(f"[{idx}/{len(items)}] Backfill keywords {key}: {title[:40]}")
+                attempted_count += 1
+                if not dry_run:
+                    state[key] = {
+                        **prev_result,
+                        "status": "keyword_in_progress",
+                        "title": title,
+                        "updated_at": time.time(),
+                    }
+                    checkpoint()
                 try:
                     keyword_result = analyze_item(
                         reader=reader,
@@ -244,10 +262,13 @@ def run_batch(
                     )
                 except NoteAnalysisError as exc:
                     attempts = keyword_attempts + 1
-                    state[key] = {
-                        "status": "blocked"
+                    status = (
+                        "blocked"
                         if exc.committed
-                        else ("keyword_blocked" if attempts >= KEYWORD_BACKFILL_ATTEMPTS else "keyword_failed"),
+                        else ("keyword_blocked" if attempts >= KEYWORD_BACKFILL_ATTEMPTS else "keyword_failed")
+                    )
+                    state[key] = {
+                        "status": status,
                         "keyword_attempts": attempts,
                         "error": str(exc),
                         "code": exc.code,
@@ -256,18 +277,41 @@ def run_batch(
                     }
                     if exc.committed:
                         blocked_count += 1
+                    elif status == "keyword_blocked":
+                        keyword_blocked_count += 1
                     else:
                         keyword_failed_count += 1
                     checkpoint()
                 else:
-                    state[key] = {
-                        "status": "keyword_backfilled",
-                        "short_note": keyword_result.get("short_note"),
-                        "title": title,
-                        "updated_at": time.time(),
-                    }
-                    keyword_backfilled_count += 1
-                    checkpoint()
+                    short_note_status = keyword_result.get("short_note")
+                    if dry_run:
+                        keyword_candidates_count += 1
+                    elif short_note_status == "ok":
+                        state[key] = {
+                            "status": "keyword_backfilled",
+                            "short_note": short_note_status,
+                            "keyword_attempts": keyword_attempts + 1,
+                            "title": title,
+                            "updated_at": time.time(),
+                        }
+                        keyword_backfilled_count += 1
+                        checkpoint()
+                    else:
+                        attempts = keyword_attempts + 1
+                        status = "keyword_blocked" if attempts >= KEYWORD_BACKFILL_ATTEMPTS else "keyword_failed"
+                        state[key] = {
+                            "status": status,
+                            "short_note": short_note_status,
+                            "keyword_attempts": attempts,
+                            "error": keyword_result.get("short_note_error", "关键词回填未成功"),
+                            "title": title,
+                            "updated_at": time.time(),
+                        }
+                        if status == "keyword_blocked":
+                            keyword_blocked_count += 1
+                        else:
+                            keyword_failed_count += 1
+                        checkpoint()
                 continue
 
             if not force and prev_result.get("status") in _DONE_STATUSES and not prev_result.get("dry_run"):
@@ -364,6 +408,7 @@ def run_batch(
             "keyword_backfilled": keyword_backfilled_count,
             "keyword_failed": keyword_failed_count,
             "keyword_blocked": keyword_blocked_count,
+            "keyword_candidates": keyword_candidates_count,
             "attempted": attempted_count,
             "failed": failed_count,
             "failure_reasons": failure_reasons,
@@ -386,7 +431,7 @@ def main() -> None:
     )
     mode.add_argument("--apply", action="store_true", help="Execute writeback to Zotero Web API")
     parser.add_argument("--force", action="store_true", help="Re-analyze items even if already tagged ai/noted")
-    parser.add_argument("--limit", type=int, default=None, help="Limit number of items to process")
+    parser.add_argument("--limit", type=int, default=None, help="Limit analysis and keyword-backfill attempts")
     parser.add_argument("--no-tag", action="store_true", help="Do not apply ai/noted tag")
     parser.add_argument("--no-short-note", action="store_true", help="Do not generate Extra short-note")
 

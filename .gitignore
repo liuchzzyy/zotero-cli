@@ -66,3 +66,7 @@ batch_ainote_*.json
 tool/**/state.json
 tool/**/*.lock
 tool/**/inventory.json
+# 本地研究日志与 OCR 审查稿可能包含个人文献元数据
+/问题.md
+/ocr_review_diff.md
+/ocr_scan_ainotes.md

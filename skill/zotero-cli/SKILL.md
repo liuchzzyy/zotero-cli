@@ -93,7 +93,14 @@ items run after fresh candidates on later schedules; uncertain writes stay
 is reported as `degraded`, not appended again. An item tagged `ai/noted` but missing
 `ai/keywords` gets a keyword-only backfill (reusing the `--short-note-only` path, at
 most two attempts per item) instead of being skipped as `tagged`; results appear under
-`keyword_backfilled`, `keyword_failed` and `keyword_blocked` in `latest.json`. The time budget can defer work to
+`keyword_backfilled`, `keyword_failed` and `keyword_blocked` in `latest.json`.
+Only reported successful keyword writes count as backfilled; the scheduler also
+checks remote readback. A failed generation counts toward the two-attempt limit.
+Unknown write outcomes and failed readback remain blocked until
+remote reconciliation. In `batch_analyze.py`, `--limit` counts both full analyses and
+keyword backfills, `--no-short-note` suppresses backfills, and dry-run reports
+`keyword_candidates` without writing. A successful backfill checkpoint prevents
+repeat calls while the local Zotero tags are still awaiting sync. The time budget can defer work to
 a later run; scheduler success is not evidence that all items have Notes. Check
 `latest.json` for `failed`, `blocked`, `degraded` and `deferred_time_budget`.
 Validate the configured primary model against the authenticated proxy
