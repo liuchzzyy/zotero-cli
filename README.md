@@ -325,7 +325,7 @@ uv build
 
 | 目录 | 职责与主要入口 |
 | --- | --- |
-| `tool/ainote/` | `batch_analyze.py` 批量分析，摘要分别统计新建笔记、`uncertain`、失败、跳过与需远端核对的 `blocked`；写入结果不确定时保留 `blocked` 状态，后续运行不自动重试。`scheduled_analyze.py` 按集合调度，记录失败、需核对与时间预算延后状态。 |
+| `tool/ainote/` | `batch_analyze.py` 批量分析，摘要分别统计新建笔记、`uncertain`、失败、跳过与需远端核对的 `blocked`；写入结果不确定时保留 `blocked` 状态，后续运行不自动重试。已打 `ai/noted` 但缺 `ai/keywords` 的条目只补关键词（复用 `--short-note-only`，每条最多 2 次，超限记 `keyword_blocked`），不重跑分析。`scheduled_analyze.py` 按集合调度，记录失败、需核对、关键词回填与时间预算延后状态。 |
 | `tool/paper2zotero/` | `zotero_inbox.py` 导入文献；`backfill_titles.py`、`translate_abstracts.py` 回填翻译；`zh_text.py` 规范化中文、化学式与间距。 |
 | `tool/paperrag/` | `run-rag-workspace.zsh` 编排清点与索引，`run-rag-evidence-search.zsh` 运行检索，`workspace_inventory.py` 生成清点报告。 |
 

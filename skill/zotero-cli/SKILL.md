@@ -90,7 +90,10 @@ not stop later items: failures remain in the run report, while a completed
 inventory exits 0 (initialization/inventory errors still fail). Prior failed
 items run after fresh candidates on later schedules; uncertain writes stay
 `blocked` until remote reconciliation. A verified Note whose short-note failed
-is reported as `degraded`, not appended again. The time budget can defer work to
+is reported as `degraded`, not appended again. An item tagged `ai/noted` but missing
+`ai/keywords` gets a keyword-only backfill (reusing the `--short-note-only` path, at
+most two attempts per item) instead of being skipped as `tagged`; results appear under
+`keyword_backfilled`, `keyword_failed` and `keyword_blocked` in `latest.json`. The time budget can defer work to
 a later run; scheduler success is not evidence that all items have Notes. Check
 `latest.json` for `failed`, `blocked`, `degraded` and `deferred_time_budget`.
 Validate the configured primary model against the authenticated proxy
