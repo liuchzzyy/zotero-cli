@@ -183,8 +183,13 @@ def run_batch(
                 save_state(state_path, state)
 
         processed_count = 0
+        notes_created_count = 0
+        uncertain_count = 0
+        skipped_count = 0
+        blocked_count = 0
         attempted_count = 0
         failed_count = 0
+        failure_reasons: dict[str, int] = {}
 
         for idx, item in enumerate(items, 1):
             if limit is not None and attempted_count >= limit:
@@ -195,8 +200,15 @@ def run_batch(
             title = (item.title or "").replace("\n", " ")
             prev_result = state.get(key, {})
 
+            if not force and prev_result.get("status") == "blocked":
+                logger.warning(
+                    f"[{idx}/{len(items)}] Blocked {key} (prior write outcome uncertain); reconcile remotely."
+                )
+                blocked_count += 1
+                continue
             if not force and prev_result.get("status") in _DONE_STATUSES and not prev_result.get("dry_run"):
                 logger.info(f"[{idx}/{len(items)}] Skip {key} (previously completed): {title[:40]}")
+                skipped_count += 1
                 continue
 
             raw_item = reader.get_item(key)
@@ -209,6 +221,7 @@ def run_batch(
                     "updated_at": time.time(),
                 }
                 checkpoint()
+                skipped_count += 1
                 continue
 
             pdfs = reader.get_pdf_attachments(key)
@@ -216,6 +229,7 @@ def run_batch(
                 logger.warning(f"[{idx}/{len(items)}] {key} has no PDF attachments, skipping.")
                 state[key] = {"status": "error", "error": "no_pdf", "title": title}
                 failed_count += 1
+                failure_reasons["no_pdf"] = failure_reasons.get("no_pdf", 0) + 1
                 checkpoint()
                 continue
 
@@ -250,25 +264,47 @@ def run_batch(
                 }
                 checkpoint()
                 processed_count += 1
+                if res.get("status") == "ok":
+                    notes_created_count += 1
+                elif res.get("status") == "uncertain":
+                    uncertain_count += 1
                 suffix = " (dry-run, not persisted)" if dry_run else ""
                 logger.info(f"  [{key}] Finished with status: {res.get('status')}{suffix}")
             except NoteAnalysisError as exc:
                 logger.error(f"  [{key}] Analysis error: {exc}")
-                state[key] = {"status": "failed", "error": str(exc), "code": exc.code, "title": title}
-                failed_count += 1
+                state[key] = {
+                    "status": "blocked" if exc.committed else "failed",
+                    "error": str(exc),
+                    "code": exc.code,
+                    "committed": exc.committed,
+                    "title": title,
+                }
+                if exc.committed:
+                    blocked_count += 1
+                else:
+                    failed_count += 1
+                    reason = str(exc).split("（", 1)[0].split("；", 1)[0]
+                    failure_reasons[reason] = failure_reasons.get(reason, 0) + 1
                 checkpoint()
             except Exception as exc:
                 logger.error(f"  [{key}] Unexpected error: {exc}")
                 state[key] = {"status": "failed", "error": str(exc), "code": "unexpected", "title": title}
                 failed_count += 1
+                reason = f"unexpected:{type(exc).__name__}"
+                failure_reasons[reason] = failure_reasons.get(reason, 0) + 1
                 checkpoint()
 
         return {
             "collection_key": col_key,
             "total": len(items),
             "processed": processed_count,
+            "notes_created": notes_created_count,
+            "uncertain": uncertain_count,
+            "skipped": skipped_count,
+            "blocked": blocked_count,
             "attempted": attempted_count,
             "failed": failed_count,
+            "failure_reasons": failure_reasons,
             "dry_run": dry_run,
             "state_path": str(state_path),
         }

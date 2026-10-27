@@ -236,6 +236,7 @@ def test_supplementary_images_referenced_by_main_are_prioritized(tmp_path):
 
 def test_real_client_rejects_truncated_output(monkeypatch):
     from zotero_cli.ai_notes.access.client import AiClient
+    from zotero_cli.ai_notes.errors import OutputTruncatedError
     from zotero_cli.config import AiNoteConfig
 
     config = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="group/deepseek")
@@ -245,7 +246,7 @@ def test_real_client_rejects_truncated_output(monkeypatch):
         usage=SimpleNamespace(prompt_tokens=123, completion_tokens=9),
     )
     monkeypatch.setattr(client._client.chat.completions, "create", lambda **kwargs: response)
-    with pytest.raises(RuntimeError, match="truncated"):
+    with pytest.raises(OutputTruncatedError, match="truncated"):
         client.chat("prompt")
 
 

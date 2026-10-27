@@ -75,6 +75,7 @@ class AiNoteConfig:
     fallback_models: list[str] = field(default_factory=lambda: ["group/deepseek"])
     reasoning_effort: str = "max"
     temperature: float = 0.7
+    # 0 表示不发送 max_tokens，由服务端按模型自身输出上限决定。
     max_tokens: int = 0
     max_extracted_chars: int = 250000
     timeout_seconds: float = 300.0

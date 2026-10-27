@@ -165,7 +165,7 @@ before expecting to see any of it there.
 
 Partial-write recovery: if Extra was written but `ai/keywords` failed, or an Extra update has an unknown outcome, the command raises a typed `committed=True` error and retains the idempotency reservation. Reconcile the note, Extra and tags remotely before retrying; do not cache success or add a fallback `ai/no_keywords` tag. Generation failures and definite rejections before Extra is written can report short-note failure and attempt that fallback tag, but its presence must be verified.
 
-First-stage `parse_text_packet()` checks required fields, known attachment/kind/page source labels, figure references and budget. It does not compare numerical/text content. `source_excerpt` is original context for model checking, not proof that a number or sample/condition mapping is correct.
+First-stage `parse_text_packet()` checks required fields, known attachment/kind/page source labels, figure references and budget. Malformed JSON, invalid source labels or figure numbers get one bounded retry with the valid source/figure index; an invalid retry still fails before writing. When a packet exceeds 120,000 characters, only program-added `source_excerpt` windows are shortened first; claims, data and conditions remain intact, and an irreducibly oversized packet fails. It does not compare numerical/text content. `source_excerpt` is original context for model checking, not proof that a number or sample/condition mapping is correct.
 
 ### Output formatting (no super/subscripts, CJK/Latin spacing)
 

@@ -28,6 +28,12 @@ _ROUTE_LIMITS = {
 # 500k 的文本+图像合计上界，而按 4096/图的保守估算它们在 1M 上下文路由里仍然安全。
 # 800k 是按实测样本留出余量后的单请求上限（XIPR4NR6：91 张正文图 + 172k 字符 prompt
 # = 627,745 估算单位），仍远低于 1M 上下文路由与 20 MiB 请求体。
+# 各路由的模型输出上限（Magpie /v1/models 的 max_output_tokens）。仅用于截断后的
+# 压缩目标；不发送 max_tokens 时由服务端按同一上限约束。
+_ROUTE_OUTPUT_LIMITS = {
+    "group/deepseek": 128_000,
+    "antigravity/gemini-3.8-flash": 65_536,
+}
 REQUEST_CEILING = 800_000
 OUTPUT_RESERVE = 32_768
 SAFETY_RESERVE = 50_000
@@ -340,6 +346,11 @@ def plan_with_coverage(
             + "、".join(f"[图 {number}]" for number in requested if number in excluded)
         )
     raise EvidenceBudgetError("image coverage planning did not converge")
+
+
+def output_ceiling(model: str) -> int:
+    """返回该路由的模型输出上限；未登记的路由按保守预留计算。"""
+    return _ROUTE_OUTPUT_LIMITS.get(model, OUTPUT_RESERVE)
 
 
 def model_supports_request(model: str, prompt: str, image_count: int, *, output_reserve: int = OUTPUT_RESERVE) -> bool:

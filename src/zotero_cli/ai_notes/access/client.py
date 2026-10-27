@@ -8,7 +8,7 @@ from typing import Any
 
 from openai import DefaultHttpx2Client, OpenAI
 
-from zotero_cli.ai_notes.errors import NoteAnalysisError
+from zotero_cli.ai_notes.errors import NoteAnalysisError, OutputTruncatedError
 from zotero_cli.ai_notes.payloads import build_request, request_bytes, user_content
 from zotero_cli.config import AiNoteConfig
 
@@ -91,9 +91,8 @@ class AiClient:
         # 因长度而停止意味着 note JSON 不完整；它绝不能作为已完成的分析写入，
         # 因此抛出错误而不是返回部分文本。
         if getattr(choice, "finish_reason", None) == "length":
-            raise RuntimeError(
-                "AI truncated (finish_reason=length): the analysis output hit the max_tokens limit; raise the output allowance or shorten the prompt"
-            )
+            # 输出达到 max_tokens。换模型只是重复同一上限，因此由调用方压缩后重试。
+            raise OutputTruncatedError()
         return (choice.message.content or "").strip()
 
     def chat(
@@ -116,6 +115,8 @@ class AiClient:
 
             try:
                 return self._send(**create_kwargs)
+            except OutputTruncatedError:
+                raise
             except Exception as error:
                 err_str = str(error).lower()
                 # 可选图片请求可明确降级；视觉成稿要求图片时直接尝试下一路由。
