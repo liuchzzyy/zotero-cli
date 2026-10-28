@@ -48,6 +48,8 @@ idea/TODO/
 # 本地 Zotero 凭据、缓存、索引和导出产物不提交
 .zot/*
 !.zot/config.example.toml
+# 模型原始响应调试文件可能含未公开的论文文本
+.zot/debug/
 # 本地运行配置、缓存与产物；仅保留说明和模板
 config/*
 !config/README.md

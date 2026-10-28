@@ -191,6 +191,18 @@ def test_unknown_write_outcome_is_not_retried(tmp_path: Path) -> None:
     analyze.assert_called_once_with("ITEM")
 
 
+def test_retry_blocked_rechecks_children_before_reentering(tmp_path: Path) -> None:
+    reader, api, analyze, path = fixture_item(tmp_path)
+    analyze.side_effect = RuntimeError("write result unknown")
+    sa.run_collection(reader, api, analyze, "COL", path, apply=True)
+    analyze.side_effect = None
+    analyze.return_value = {"status": "already_analyzed"}
+    result = sa.run_collection(reader, api, analyze, "COL", path, apply=True, retry_blocked=True)
+    assert result["candidates"] == ["ITEM"]
+    assert api.children.call_count >= 2
+    assert analyze.call_count == 2
+
+
 def test_remote_error_is_failure_not_empty_collection(tmp_path: Path) -> None:
     reader, api, analyze, path = fixture_item(tmp_path)
     api.item.side_effect = RuntimeError("offline")

@@ -31,7 +31,7 @@ def _writer_call(action: str, callback: Callable[..., Any], *args: Any, **kwargs
             f"{action}失败：{type(exc).__name__}: {exc}",
             code=code,
             retryable=retryable,
-            committed=code not in _DEFINITE_REJECTION_CODES,
+            committed=not bool(getattr(exc, "definitely_not_sent", False)) and code not in _DEFINITE_REJECTION_CODES,
         ) from exc
 
 

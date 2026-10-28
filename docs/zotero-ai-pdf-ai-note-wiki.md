@@ -123,7 +123,7 @@ ai_pdf(KEY, --attachment?)
 
 ### 3.3 两阶段模型调用
 
-**第一阶段：文字取证。** [`text_evidence_prompt()`](../src/zotero_cli/ai_notes/stages.py) 发送带来源标签的全文、表格与图注，要求模型返回包含 `source`、`claim`、`conditions`、`data`、`figure_refs`、`unresolved` 的 JSON。[`parse_text_packet()`](../src/zotero_cli/ai_notes/stages.py) 核验必需字段、来源附件/页码、图号与包大小，并在对应原文中提取 `source_excerpt`。JSON、来源或图号不合规则按原始索引重试一次；超过 120,000 字符时先缩短附加的原文片段，不删模型提取的主张、数值和条件，仍超限则失败。它**不验证具体数字或样品条件的真实性**：来源合法不等于科学断言已被证实。
+**第一阶段：文字取证。** [`text_evidence_prompt()`](../src/zotero_cli/ai_notes/stages.py) 发送带来源标签的全文、表格与图注，要求模型返回包含 `source`、`claim`、`conditions`、`data`、`figure_refs`、`unresolved` 的 JSON。[`parse_text_packet()`](../src/zotero_cli/ai_notes/stages.py) 核验必需字段、来源附件/页码、图号与包大小，并在对应原文中提取 `source_excerpt`。JSON 无法解析或有效证据低于 40% 覆盖门槛时按原始索引重试一次；数字字符串图号和同附件同类型两页内的来源偏差可规范化，无法解析的单条证据丢弃并计数；超过 120,000 字符时先缩短附加的原文片段，不删模型提取的主张、数值和条件，仍超限则失败。它**不验证具体数字或样品条件的真实性**：来源合法不等于科学断言已被证实。
 
 **第二阶段：图像核查与成稿。** [`plan_with_coverage()`](../src/zotero_cli/ai_notes/evidence.py) 为模型规划图像与精确请求字节数。有效正文图必须容纳请求，SI 图先选正文引用者，再考虑其余图片；容量不足时记录未发送图号和原因，并在 prompt 中禁止描述未见图像细节。单图可尝试无损重编码，不修改 MinerU 原图。[`plan_request()`](../src/zotero_cli/ai_notes/evidence.py) 随后 [`visual_note_prompt()`](../src/zotero_cli/ai_notes/stages.py) 合并证据包、来源片段、参考文献和笔记模板；模型输出 `sections` JSON，格式失败可带同组图片重试。模型链只尝试通过请求预算预检的路线，视觉成稿要求图片时不会改成纯文本成稿。[`analysis.py`](../src/zotero_cli/ai_notes/analysis.py) · [`generation.py`](../src/zotero_cli/ai_notes/generation.py) · [`AiClient`](../src/zotero_cli/ai_notes/access/client.py)
 

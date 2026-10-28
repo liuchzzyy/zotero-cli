@@ -269,6 +269,8 @@ def test_truncated_output_is_typed_and_not_failed_over():
     with pytest.raises(OutputTruncatedError):
         client.chat("p")
     assert calls == ["group/deepseek"]
+    assert client.last_finish_reason == "length"
+    assert client.last_response_text == '{"sections": ['
 
 
 def test_truncated_sections_retry_with_compaction_instruction():
@@ -299,5 +301,136 @@ def test_repeated_truncation_fails_without_writing():
     client = MagicMock()
     client.config = MagicMock(max_tokens=32_768)
     client.chat.side_effect = OutputTruncatedError("AI truncated (finish_reason=length)", code="output_truncated")
-    with pytest.raises(NoteAnalysisError, match="输出超过模型上限"):
+    with pytest.raises(NoteAnalysisError, match="输出超过模型上限") as caught:
         _chat_with_retry(client, "base", figures=[], allowed_models={"group/deepseek"}, progress=None)
+    assert caught.value.code == "output_truncated"
+    assert caught.value.parkable is True
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        '{"evidence":[{"data":"1\\times10\\% cm^{-3}","source":"s"}],"unresolved":[]}',
+        '{"evidence":[{"data":"x",}],"unresolved":[],}',
+        '前言\n```json\n{"evidence":[{"data":"x"}],"unresolved":[]}\n```',
+        '{"evidence":[{"data":"x"}]}{"evidence":[{"data":"y"}]}',
+        '```json\n{"sections":[{"type":"paragraph","text":"```inside```"}]}\n```',
+        "{“evidence”:[{“data”:“x”}],“unresolved”:[]}",
+    ],
+)
+def test_json_repair_real_shapes(raw):
+    from zotero_cli.ai_notes.generation import extract_json_object
+
+    parsed = extract_json_object(raw)
+    assert "evidence" in parsed or "sections" in parsed
+
+
+def test_truncated_note_salvage_and_balanced_unterminated_string():
+    from zotero_cli.ai_notes.errors import OutputTruncatedError
+    from zotero_cli.ai_notes.generation import extract_json_object
+
+    complete = ",".join('{"type":"paragraph","text":"内容"}' for _ in range(10))
+    truncated = '{"sections":[' + complete + ',{"type":"paragraph","text":"尾部'
+    parsed = extract_json_object(truncated, stage="visual", finish_reason="length")
+    assert parsed["_repair"]["salvaged"] is True
+    assert len(parsed["sections"]) == 10
+    with pytest.raises(OutputTruncatedError):
+        extract_json_object('{"sections":[{"type":"paragraph","text":"未结束}}]}', stage="visual")
+
+
+def test_packet_grades_source_and_figure_entries():
+    source = "[ATT1 | main | PDF p.28 | Electrical conductivity measurements] 原文"
+    entries = [json.loads(_packet(source="[ATT1 | main | PDF p.27 | Section]", refs=["1"]))["evidence"][0]]
+    entries.extend(json.loads(_packet(source="[ATT1 | main | PDF p.28]"))["evidence"] * 18)
+    entries.append(json.loads(_packet(source="[BAD | main | PDF p.1]"))["evidence"][0])
+    packet = json.loads(
+        parse_text_packet(json.dumps({"evidence": entries, "unresolved": []}), source_text=source, figure_numbers={1})
+    )
+    assert packet["stats"]["kept"] == 19
+    assert packet["stats"]["normalized_sources"] == 1
+    assert packet["stats"]["dropped_sources"] == 1
+    assert packet["evidence"][0]["figure_refs"] == [1]
+    assert packet["evidence"][0]["source_normalized"] is True
+    assert packet["evidence"][0]["figure_refs_normalized"] is True
+
+
+def test_packet_coverage_floor_rejects_majority_unresolvable():
+    good = json.loads(_packet())["evidence"][0]
+    bad = json.loads(_packet(source="[BAD | main | PDF p.1]"))["evidence"][0]
+    entries = [good] * 7 + [bad] * 13
+    with pytest.raises(NoteAnalysisError, match="覆盖率不足"):
+        parse_text_packet(
+            json.dumps({"evidence": entries, "unresolved": []}), source_text="[ATT1 | main | PDF p.1] 原文"
+        )
+
+
+def test_packet_coverage_floor_keeps_half_by_specified_formula():
+    good = json.loads(_packet())["evidence"][0]
+    bad = json.loads(_packet(source="[BAD | main | PDF p.1]"))["evidence"][0]
+    entries = [good] * 10 + [bad] * 10
+    packet = json.loads(
+        parse_text_packet(
+            json.dumps({"evidence": entries, "unresolved": []}), source_text="[ATT1 | main | PDF p.1] 原文"
+        )
+    )
+    assert packet["stats"]["kept"] == 10
+    assert packet["stats"]["dropped_sources"] == 10
+
+
+def test_parse_debug_file_is_bounded_and_can_be_disabled(tmp_path, monkeypatch):
+    from zotero_cli.ai_notes import generation
+
+    monkeypatch.setattr(generation, "state_dir", lambda: tmp_path / "state")
+    for _ in range(21):
+        with pytest.raises(NoteAnalysisError):
+            generation.extract_json_object('{"evidence": [broken]}', item_key="ITEM", stage="text", model="model")
+    debug_files = list((tmp_path / "debug" / "ainote").glob("*.txt"))
+    assert len(debug_files) == 20
+    assert "item_key=ITEM" in debug_files[0].read_text()
+    assert "json_error=" in debug_files[0].read_text()
+    monkeypatch.setenv("ZOT_AINOTE_DEBUG", "0")
+    with pytest.raises(NoteAnalysisError):
+        generation.extract_json_object('{"evidence": [broken]}', item_key="ITEM", stage="text")
+    assert len(list((tmp_path / "debug" / "ainote").glob("*.txt"))) == 20
+
+
+def test_parse_retry_truncation_uses_compact_retry():
+    from zotero_cli.ai_notes.errors import OutputTruncatedError
+    from zotero_cli.ai_notes.generation import _chat_with_retry
+
+    client = MagicMock()
+    client.config = MagicMock(max_tokens=32768)
+    good = json.dumps({"sections": [{"type": "paragraph", "text": "x"} for _ in range(10)]})
+    client.chat.side_effect = ['{"sections": [broken]}', OutputTruncatedError(), good]
+    sections = _chat_with_retry(client, "base", figures=[], allowed_models={"group/deepseek"}, progress=None)
+    assert len(sections) == 10
+    assert "压缩" in client.chat.call_args.args[0] or "输出上限" in client.chat.call_args.args[0]
+
+
+def test_batch_retry_blocked_reenters_item(tmp_path, monkeypatch):
+    script_path = Path(__file__).resolve().parents[2] / "tool" / "ainote" / "batch_analyze.py"
+    spec = importlib.util.spec_from_file_location("batch_analyze_retry", script_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    reader = MagicMock()
+    reader.get_collections.return_value = [MagicMock(key="COLL0001", name="collection", children=[])]
+    reader.get_collection_items.return_value = [MagicMock(key="ITEM0001", title="paper")]
+    reader.get_item.return_value = MagicMock(tags=[])
+    reader.get_pdf_attachments.return_value = [MagicMock()]
+    monkeypatch.setattr(module, "load_config", lambda: MagicMock())
+    monkeypatch.setattr(module, "load_ai_note_config", lambda: MagicMock())
+    monkeypatch.setattr(module, "get_data_dir", lambda cfg: tmp_path)
+    monkeypatch.setattr(module, "get_prefs_js_path", lambda cfg: None)
+    monkeypatch.setattr(module, "resolve_library_id", lambda db, cfg: "1")
+    monkeypatch.setattr(module, "resolve_write_credentials", lambda cfg: ("1", "key"))
+    monkeypatch.setattr(module, "ZoteroReader", lambda *args, **kwargs: reader)
+    monkeypatch.setattr(module, "ZoteroWriter", lambda *args, **kwargs: MagicMock())
+    monkeypatch.setattr(module, "AiClient", lambda cfg: MagicMock())
+    analyze = MagicMock(return_value={"status": "ok", "repaired": True, "write_retries": 1})
+    monkeypatch.setattr(module, "analyze_item", analyze)
+    state_path = tmp_path / "state.json"
+    state_path.write_text(json.dumps({"ITEM0001": {"status": "blocked"}}))
+    assert module.run_batch("COLL0001", state_path=state_path)["blocked"] == 1
+    assert module.run_batch("COLL0001", state_path=state_path, retry_blocked=True)["repaired"] == 1
+    analyze.assert_called_once()

@@ -36,10 +36,13 @@ class EvidenceBudgetError(ValueError):
 class OutputTruncatedError(NoteAnalysisError):
     """模型输出达到 max_tokens 被截断；换模型通常同样超限，应由调用方压缩后重试。"""
 
-    def __init__(self, message: str = "AI truncated (finish_reason=length)", **kwargs: Any) -> None:
+    def __init__(
+        self, message: str = "AI truncated (finish_reason=length)", *, response_text: str = "", **kwargs: Any
+    ) -> None:
         kwargs.setdefault("code", "output_truncated")
         kwargs.setdefault("retryable", False)
         super().__init__(message, **kwargs)
+        self.response_text = response_text
 
 
 class AiNoteExecutionError(NoteAnalysisError):
