@@ -40,6 +40,7 @@ class ZoteroWriteError(Exception):
             4xx、校验、权限或冲突类错误为 False。
         committed：请求可能已经到达服务端时为 True（发送后发生网络故障或
             5xx）。该值为 True 时，调用方必须进行核对，不能盲目重试。
+        definitely_not_sent：失败发生在读回阶段，尚未发出本次写请求。
         retry_after_seconds：从限流响应中解析出的可选提示。
     """
 
@@ -51,12 +52,14 @@ class ZoteroWriteError(Exception):
         retryable: bool = False,
         committed: bool = False,
         retry_after_seconds: int | None = None,
+        definitely_not_sent: bool = False,
     ) -> None:
         super().__init__(message)
         self.code = code
         self.retryable = retryable
         self.committed = committed
         self.retry_after_seconds = retry_after_seconds
+        self.definitely_not_sent = definitely_not_sent
 
 
 def _retry_after_seconds(value: object) -> int | None:

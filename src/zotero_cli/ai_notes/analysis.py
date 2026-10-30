@@ -30,7 +30,13 @@ from zotero_cli.ai_notes.evidence import (
     model_supports_request,
     plan_with_coverage,
 )
-from zotero_cli.ai_notes.generation import _chat, _chat_with_retry, build_analysis_prompt, compact_retry_prompt
+from zotero_cli.ai_notes.generation import (
+    _chat,
+    _chat_with_retry,
+    build_analysis_prompt,
+    compact_retry_prompt,
+    extract_json_object,
+)
 from zotero_cli.ai_notes.payloads import build_request, request_bytes
 from zotero_cli.ai_notes.persistence import _writer_call, mark_short_note_failure, save_analysis_note, save_short_note
 from zotero_cli.ai_notes.rendering import render_note
@@ -227,25 +233,44 @@ def analyze_item(
         raise NoteAnalysisError("文字证据请求超出模型预算", code="validation_error", parkable=True)
     if progress:
         progress("evidence", "第一阶段：提取文字证据")
+    client.item_key = key
+    client.last_repair = {}
     try:
         packet_answer = _chat(client, text_prompt, figures=[], allowed_models=text_models, progress=progress)
-    except OutputTruncatedError:
+    except OutputTruncatedError as error:
+        packet_answer = ""
+        if error.response_text:
+            try:
+                extract_json_object(
+                    error.response_text, item_key=key, stage="text", model=client.last_model, finish_reason="length"
+                )
+                packet_answer = error.response_text
+            except OutputTruncatedError:
+                pass
         # 证据包被输出上限截断：要求压缩后重试一次，避免整条分析直接失败。
-        compact_prompt, limit = compact_retry_prompt(text_prompt, ai_config)
-        if progress:
-            progress("retry", f"文字证据达到 {limit} token 上限被截断，要求压缩后重试一次")
-        compact_models = {
-            candidate
-            for candidate in text_models
-            if model_supports_request(candidate, compact_prompt, 0, max_tokens=ai_config.max_tokens)
-        }
-        if not compact_models:
-            raise NoteAnalysisError("文字证据压缩重试超过模型预算", code="validation_error", parkable=True)
-        packet_answer = _chat(client, compact_prompt, figures=[], allowed_models=compact_models, progress=progress)
+        if not packet_answer:
+            compact_prompt, limit = compact_retry_prompt(text_prompt, ai_config)
+            if progress:
+                progress("retry", f"文字证据达到 {limit} token 上限被截断，要求压缩后重试一次")
+            compact_models = {
+                candidate
+                for candidate in text_models
+                if model_supports_request(candidate, compact_prompt, 0, max_tokens=ai_config.max_tokens)
+            }
+            if not compact_models:
+                raise NoteAnalysisError("文字证据压缩重试超过模型预算", code="validation_error", parkable=True)
+            packet_answer = _chat(client, compact_prompt, figures=[], allowed_models=compact_models, progress=progress)
     try:
-        packet = parse_text_packet(packet_answer, source_text=cleaned, figure_numbers=set(evidence.captions))
+        packet = parse_text_packet(
+            packet_answer,
+            source_text=cleaned,
+            figure_numbers=set(evidence.captions),
+            item_key=key,
+            model=client.last_model,
+            finish_reason=client.last_finish_reason,
+        )
     except NoteAnalysisError as error:
-        if not any(word in str(error) for word in ("无法从 AI 输出中解析出 JSON", "来源不在原始", "图号无效")):
+        if error.code not in {"runtime_error", "output_truncated"} and "覆盖率不足" not in str(error):
             raise
         labels = sorted(
             set(re.findall(r"\[[^\]]+\|\s*(?:main|supplementary)\s*\|\s*PDF p\.(?:\d+|\?)[^\]]*\]", cleaned))
@@ -273,7 +298,11 @@ def analyze_item(
             _chat(client, retry_prompt, figures=[], allowed_models=retry_models, progress=progress),
             source_text=cleaned,
             figure_numbers=set(evidence.captions),
+            item_key=key,
+            model=client.last_model,
+            finish_reason=client.last_finish_reason,
         )
+    packet_stats = json.loads(packet).get("stats", {})
     final_prompt = visual_note_prompt(visual_template, packet, references_text=references_text)
     try:
         plan, final_prompt, omitted_numbers = plan_with_coverage(evidence, final_prompt, model, config=ai_config)
@@ -306,6 +335,7 @@ def analyze_item(
     note_title = note_constants.NOTE_TITLE_PREFIX + prepare(_plain_title(item.title))
     html_note = render_note(sections, title=note_title)
     note_key = save_analysis_note(writer, key, html_note, no_tag=no_tag)
+    write_retries = writer.last_write_retries if isinstance(getattr(writer, "last_write_retries", None), int) else 0
 
     short_note_status = "skipped"
     short_note_error = ""
@@ -313,6 +343,9 @@ def analyze_item(
         try:
             short_note = _generate_short_note(client, _sections_to_text(sections), progress)
             short_note_status, short_note_error = save_short_note(writer, key, short_note)
+            write_retries += (
+                writer.last_write_retries if isinstance(getattr(writer, "last_write_retries", None), int) else 0
+            )
         except NoteAnalysisError as error:
             if error.committed:
                 raise
@@ -334,4 +367,9 @@ def analyze_item(
         "visual_request_bytes": plan.request_bytes,
         "short_note": short_note_status,
         "short_note_error": short_note_error,
+        "repaired": bool(packet_stats.get("repaired") or getattr(client, "last_repair", {}).get("repaired")),
+        "salvaged": bool(packet_stats.get("salvaged") or getattr(client, "last_repair", {}).get("salvaged")),
+        "normalized_sources": packet_stats.get("normalized_sources", 0),
+        "dropped_sources": packet_stats.get("dropped_sources", 0),
+        "write_retries": write_retries,
     }

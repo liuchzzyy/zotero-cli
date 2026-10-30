@@ -167,13 +167,15 @@ The files are on disk under the parse’s `raw/images/`. An authorized direct vi
 
 Two operational notes. There is no figure count cap any more: every main-text
 panel is mandatory and the run fails rather than dropping one (except decoded 1x1 placeholders). SI is selected by context and exact serialized request bytes, and a parse-retry resends the _same_ image set with renewed preflight. And a
-`finish_reason=length` answer is rejected instead of being saved, so a truncated
-JSON note cannot land in the library — read the error rather than re-running.
+`finish_reason=length` answer is salvaged only when at least 10 complete section
+blocks remain; the run logs `[salvage]` and records `salvaged`. Otherwise it
+uses a compact retry, then reports parkable `output_truncated` if cut again.
 
 For a scheduled collection run, the new
 fail-closed errors are permanent, not transient: an item whose structured text
 exceeds `max_extracted_chars` or whose main figures exceed the token budget can
-never succeed on retry. The scheduler counts explicitly marked input-budget failures and parks the
+never succeed on retry. A second compact-output truncation is also explicitly
+parkable until the model route or output budget changes. The scheduler counts these marked failures and parks the
 item as `unanalyzable` after three, reports it under `blocked` rather than
 `failed`, and skips it afterwards; clear it with `--retry-parked` after fixing
 the cause. Network/provider failures and uncertain writes are never parked.
@@ -187,7 +189,10 @@ JSON, while an uncertain note write may already have appended a child note.
 Use the stage and error type to choose a focused reproduction: model response,
 `parse_text_packet()`, visual request, writer, or checkpoint. Distinguish a
 truncated response (`finish_reason=length`) from malformed complete JSON; do
-not accept a partial response by loosening parsing. Run focused fixture tests
+not accept a partial response below the section threshold. First-stage packets
+normalize numeric-string figure refs and pages within two pages of a known
+page of the same attachment and kind. Unresolvable entries are dropped and
+counted; coverage below 40% fails. Run focused fixture tests
 for a code repair, then inspect remote children, tags and Extra before any
 live retry. Green local tests alone do not verify model output or Zotero writes.
 

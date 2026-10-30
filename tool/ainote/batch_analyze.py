@@ -145,6 +145,7 @@ def run_batch(
     no_tag: bool = False,
     no_short_note: bool = False,
     state_path: Path | None = None,
+    retry_blocked: bool = False,
 ) -> dict[str, Any]:
     cfg = load_config()
     ai_cfg = load_ai_note_config()
@@ -196,6 +197,9 @@ def run_batch(
         attempted_count = 0
         failed_count = 0
         failure_reasons: dict[str, int] = {}
+        repair_counts = {
+            name: 0 for name in ("repaired", "salvaged", "normalized_sources", "dropped_sources", "write_retries")
+        }
 
         for idx, item in enumerate(items, 1):
             if limit is not None and attempted_count >= limit:
@@ -209,7 +213,10 @@ def run_batch(
             def _progress(event: str, msg: str, _key: str = key) -> None:
                 logger.info(f"  [{_key}][{event}] {msg}")
 
-            if not force and prev_result.get("status") in {"blocked", "keyword_in_progress"}:
+            if not force and (
+                prev_result.get("status") == "keyword_in_progress"
+                or (prev_result.get("status") == "blocked" and not retry_blocked)
+            ):
                 logger.warning(
                     f"[{idx}/{len(items)}] Blocked {key} (prior write outcome uncertain); reconcile remotely."
                 )
@@ -364,7 +371,12 @@ def run_batch(
                     "short_note": res.get("short_note"),
                     "title": title,
                     "updated_at": time.time(),
+                    **{name: res.get(name, 0) for name in repair_counts},
                 }
+                for name in repair_counts:
+                    repair_counts[name] += (
+                        int(bool(res.get(name))) if name in {"repaired", "salvaged"} else int(res.get(name, 0))
+                    )
                 checkpoint()
                 processed_count += 1
                 if res.get("status") == "ok":
@@ -412,6 +424,7 @@ def run_batch(
             "attempted": attempted_count,
             "failed": failed_count,
             "failure_reasons": failure_reasons,
+            **repair_counts,
             "dry_run": dry_run,
             "state_path": str(state_path),
         }
@@ -434,8 +447,15 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=None, help="Limit analysis and keyword-backfill attempts")
     parser.add_argument("--no-tag", action="store_true", help="Do not apply ai/noted tag")
     parser.add_argument("--no-short-note", action="store_true", help="Do not generate Extra short-note")
+    parser.add_argument(
+        "--retry-blocked", action="store_true", help="Retry blocked items after confirming no duplicate note exists"
+    )
 
     args = parser.parse_args()
+    if args.retry_blocked and args.apply:
+        confirmation = input("已核对 Zotero 中不存在重复笔记，输入 yes 重试 blocked 条目：")
+        if confirmation.strip().lower() != "yes":
+            raise SystemExit("未确认，停止重试 blocked 条目")
 
     summary = run_batch(
         args.collection,
@@ -445,6 +465,7 @@ def main() -> None:
         limit=args.limit,
         no_tag=args.no_tag,
         no_short_note=args.no_short_note,
+        retry_blocked=args.retry_blocked,
     )
     logger.info(f"Batch run complete: {summary}")
 

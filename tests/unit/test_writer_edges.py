@@ -7,7 +7,7 @@ import json
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import httpx2 as httpx
 import pytest
@@ -24,6 +24,8 @@ from pyzotero.zotero_errors import (
     UserNotAuthorisedError,
 )
 
+from zotero_cli.ai_notes.errors import NoteAnalysisError
+from zotero_cli.ai_notes.persistence import _writer_call
 from zotero_cli.zotero.access import writer as writer_module
 from zotero_cli.zotero.access.errors import (
     ZoteroWriteError,
@@ -184,6 +186,87 @@ def test_add_note_posts_content_and_parent_after_template_lookup(
     assert json.loads(request.content) == [
         {"itemType": "note", "tags": [], "collections": [], "relations": {}, "note": content, "parentItem": ITEM_KEY}
     ]
+
+
+def test_add_note_503_retries_after_no_matching_child(monkeypatch: pytest.MonkeyPatch) -> None:
+    writer = object.__new__(ZoteroWriter)
+    writer._zot = MagicMock()
+    writer._zot.item_template.return_value = {"itemType": "note"}
+    writer._zot.everything.return_value = []
+    writer._check_response = MagicMock(
+        side_effect=[ZoteroWriteError("503", code="api_error", retryable=True, committed=True), CREATED_KEY]
+    )
+    monkeypatch.setattr(writer_module.time, "sleep", lambda seconds: None)
+    assert writer.add_note(ITEM_KEY, "<h1>Title</h1><p>Content</p>") == CREATED_KEY
+    assert writer._zot.create_items.call_count == 2
+    assert writer.last_write_retries == 1
+
+
+def test_add_note_503_finds_landed_note_before_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    writer = object.__new__(ZoteroWriter)
+    writer._zot = MagicMock()
+    writer._zot.item_template.return_value = {"itemType": "note"}
+    writer._zot.everything.return_value = [
+        {"key": CREATED_KEY, "data": {"itemType": "note", "note": "<h1>Title</h1><p>Content</p>"}}
+    ]
+    writer._check_response = MagicMock(
+        side_effect=ZoteroWriteError("503", code="api_error", retryable=True, committed=True)
+    )
+    monkeypatch.setattr(writer_module.time, "sleep", lambda seconds: None)
+    assert writer.add_note(ITEM_KEY, "<h1>Title</h1><p>Content</p>") == CREATED_KEY
+    writer._zot.create_items.assert_called_once()
+    assert writer.last_write_retries == 0
+
+
+def test_add_note_timeout_after_503_finds_one_landed_note(monkeypatch: pytest.MonkeyPatch) -> None:
+    writer = object.__new__(ZoteroWriter)
+    writer._zot = MagicMock()
+    writer._zot.item_template.return_value = {"itemType": "note"}
+    landed = {"key": CREATED_KEY, "data": {"itemType": "note", "note": "<h1>Title</h1><p>Content</p>"}}
+    writer._zot.everything.side_effect = [[], [landed]]
+    writer._check_response = MagicMock(
+        side_effect=[
+            ZoteroWriteError("503", code="api_error", retryable=True, committed=True),
+            ZoteroWriteError("timeout", code="network_error", retryable=True, committed=True),
+        ]
+    )
+    monkeypatch.setattr(writer_module.time, "sleep", lambda seconds: None)
+    assert writer.add_note(ITEM_KEY, "<h1>Title</h1><p>Content</p>") == CREATED_KEY
+    assert writer._zot.create_items.call_count == 2
+    assert writer.last_write_retries == 1
+
+
+def test_short_note_timeout_uses_extra_readback_before_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    writer = object.__new__(ZoteroWriter)
+    writer._zot = MagicMock()
+    writer._zot.item.side_effect = [
+        {"data": {"extra": "funder: Example"}},
+        {"data": {"extra": "funder: Example\nshort-note: Summary"}},
+    ]
+    writer._zot.update_item.side_effect = httpx.ReadTimeout("timeout")
+    monkeypatch.setattr(writer_module.time, "sleep", lambda seconds: None)
+    writer.update_short_note(ITEM_KEY, "Summary")
+    writer._zot.update_item.assert_called_once()
+    assert writer.last_write_retries == 0
+
+
+def test_short_note_read_503_retries_without_uncertain_write(monkeypatch: pytest.MonkeyPatch) -> None:
+    writer = object.__new__(ZoteroWriter)
+    writer._zot = MagicMock()
+    writer._zot.item.side_effect = [httpx.ReadTimeout("503"), {"data": {"extra": "funder: Example"}}]
+    monkeypatch.setattr(writer_module.time, "sleep", lambda seconds: None)
+    writer.update_short_note(ITEM_KEY, "Summary")
+    writer._zot.update_item.assert_called_once()
+    assert writer.last_write_retries == 1
+
+
+def test_read_only_failure_does_not_mark_note_write_committed() -> None:
+    def fail() -> None:
+        raise ZoteroWriteError("503", code="network_error", retryable=True, committed=False, definitely_not_sent=True)
+
+    with pytest.raises(NoteAnalysisError) as caught:
+        _writer_call("写入 Extra short-note", fail)
+    assert caught.value.committed is False
 
 
 @pytest.mark.parametrize(

@@ -106,6 +106,12 @@ keyword backfills, `--no-short-note` suppresses backfills, and dry-run reports
 repeat calls while the local Zotero tags are still awaiting sync. The time budget can defer work to
 a later run; scheduler success is not evidence that all items have Notes. Check
 `latest.json` for `failed`, `blocked`, `degraded` and `deferred_time_budget`.
+After checking the target item's remote child notes and confirming no duplicate
+exists, `--retry-blocked` re-enters a blocked checkpoint; interactive batch
+apply requires an explicit `yes`. Batch summaries include `repaired`, `salvaged`,
+`normalized_sources`, `dropped_sources` and `write_retries`. Parse failures keep
+at most 20 raw responses under `.zot/debug/ainote/`; `ZOT_AINOTE_DEBUG=0`
+disables these local dumps.
 Validate the configured primary model against the authenticated proxy
 `/v1/models` and `ai_notes/evidence.py::_ROUTE_LIMITS` to diagnose temporary
 availability; do not remove or override a model solely because it is unavailable

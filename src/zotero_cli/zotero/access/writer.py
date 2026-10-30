@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import html
+import random
+import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +60,7 @@ class ZoteroWriter:
             # float 或 httpx2.Timeout；传入 httpx.Timeout 对象会在 httpcore
             # 深处报错 "'Timeout' object cannot be interpreted as an integer"。
             self._zot.client.timeout = float(timeout)
+        self.last_write_retries = 0
 
     # --- 基础设施 ---------------------------------------------------------
 
@@ -66,6 +71,7 @@ class ZoteroWriter:
             code="network_error",
             retryable=True,
             committed=True,
+            retry_after_seconds=response_retry_after(getattr(exc, "response", None)),
         )
 
     @staticmethod
@@ -147,23 +153,54 @@ class ZoteroWriter:
 
     def add_note(self, parent_key: str, content: str) -> str:
         """在条目下创建子注记；返回新注记的键。"""
+        self.last_write_retries = 0
         try:
+            template = self._zot.item_template("note")
+        except Exception:  # noqa: BLE001 - 退回到最小化注记模板
+            template = {"itemType": "note", "note": "", "tags": [], "collections": [], "relations": {}}
+        template["note"] = content
+        template["parentItem"] = parent_key
+        title_match = re.search(r"<h1\b[^>]*>(.*?)</h1>", content, flags=re.I | re.S)
+        title = html.unescape(re.sub(r"<[^>]+>", "", title_match.group(1) if title_match else content)).strip()
+        for attempt in range(3):
             try:
-                template = self._zot.item_template("note")
-            except Exception:  # noqa: BLE001 - 退回到最小化注记模板
-                template = {"itemType": "note", "note": "", "tags": [], "collections": [], "relations": {}}
-            template["note"] = content
-            template["parentItem"] = parent_key
-            resp = self._zot.create_items([template])
-            return self._check_response(resp)
-        except ResourceNotFoundError:
-            raise ZoteroWriteError(
-                f"Parent item '{parent_key}' not found", code="not_found", retryable=False, committed=False
-            )
-        except httpx2.HTTPError as error:
-            raise self._network_error(error) from error
-        except PyZoteroError as error:
-            raise _friendly_api_error(error) from error
+                return self._check_response(self._zot.create_items([template]))
+            except ResourceNotFoundError as error:
+                raise ZoteroWriteError(
+                    f"Parent item '{parent_key}' not found", code="not_found", retryable=False, committed=False
+                ) from error
+            except (httpx2.HTTPError, PyZoteroError, ZoteroWriteError) as error:
+                failure = (
+                    self._network_error(error)
+                    if isinstance(error, httpx2.HTTPError)
+                    else _friendly_api_error(error)
+                    if isinstance(error, PyZoteroError)
+                    else error
+                )
+                if failure.retry_after_seconds is None:
+                    failure.retry_after_seconds = response_retry_after(getattr(error, "response", None))
+                if not failure.retryable or not failure.committed or attempt == 2:
+                    raise failure from error
+                # 503/超时后先查同标题子笔记，确认未落地才允许再次 POST。
+                try:
+                    children = self._zot.everything(self._zot.children(parent_key, limit=100))
+                    for child in children:
+                        body = child.get("data", {}).get("note", "")
+                        match = re.search(r"<h1\b[^>]*>(.*?)</h1>", body, flags=re.I | re.S)
+                        child_title = html.unescape(re.sub(r"<[^>]+>", "", match.group(1) if match else body)).strip()
+                        if child.get("data", {}).get("itemType") == "note" and child_title == title:
+                            return str(child["key"])
+                except Exception as verification_error:
+                    failure.committed = True
+                    raise failure from verification_error
+                delay = (
+                    failure.retry_after_seconds
+                    if failure.retry_after_seconds is not None
+                    else 0.25 * 2**attempt + random.uniform(0, 0.1)
+                )
+                time.sleep(delay)
+                self.last_write_retries += 1
+        raise AssertionError("重试循环未返回")
 
     def add_item(
         self,
@@ -202,17 +239,48 @@ class ZoteroWriter:
 
     def update_short_note(self, key: str, short_note: str) -> None:
         """通过 Web API 把 short-note 行合并进条目的 Extra 字段。"""
-        try:
-            item = self._zot.item(key)
-            current = item["data"].get("extra") or ""
-            item["data"]["extra"] = merge_short_note_into_extra(current, short_note)
-            self._zot.update_item(item)
-        except ResourceNotFoundError:
-            raise ZoteroWriteError(f"Item '{key}' not found", code="not_found", retryable=False, committed=False)
-        except httpx2.HTTPError as error:
-            raise self._network_error(error) from error
-        except PyZoteroError as error:
-            raise _friendly_api_error(error) from error
+        self.last_write_retries = 0
+        for attempt in range(3):
+            write_started = False
+            try:
+                item = self._zot.item(key)
+                current = item["data"].get("extra") or ""
+                item["data"]["extra"] = merge_short_note_into_extra(current, short_note)
+                write_started = True
+                self._zot.update_item(item)
+                return
+            except ResourceNotFoundError as error:
+                raise ZoteroWriteError(
+                    f"Item '{key}' not found", code="not_found", retryable=False, committed=False
+                ) from error
+            except (httpx2.HTTPError, PyZoteroError) as error:
+                failure = (
+                    self._network_error(error) if isinstance(error, httpx2.HTTPError) else _friendly_api_error(error)
+                )
+                if failure.retry_after_seconds is None:
+                    failure.retry_after_seconds = response_retry_after(getattr(error, "response", None))
+                # 读请求失败尚未发出 PATCH，可安全重试；发送后失败才需要远端核对。
+                if not write_started:
+                    failure.committed = False
+                    failure.definitely_not_sent = True
+                if not failure.retryable or attempt == 2:
+                    raise failure from error
+                if write_started:
+                    # Extra 回读已经包含目标行时，停止重发以免覆盖并发更新。
+                    try:
+                        remote = self._zot.item(key)
+                        if f"short-note: {short_note.strip()}" in (remote["data"].get("extra") or "").splitlines():
+                            return
+                    except Exception as verification_error:
+                        failure.committed = True
+                        raise failure from verification_error
+                delay = (
+                    failure.retry_after_seconds
+                    if failure.retry_after_seconds is not None
+                    else 0.25 * 2**attempt + random.uniform(0, 0.1)
+                )
+                time.sleep(delay)
+                self.last_write_retries += 1
 
     def update_item(self, key: str, fields: dict[str, str], *, expected_version: int | None = None) -> None:
         """更新字段；可选地在派生负载准备好之后拒绝已发生的变更。"""

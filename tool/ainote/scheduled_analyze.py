@@ -131,6 +131,7 @@ def run_collection(
     apply: bool = False,
     budget_seconds: float | None = None,
     retry_parked: bool = False,
+    retry_blocked: bool = False,
 ) -> dict[str, Any]:
     """Process only fresh candidates; all network/model boundaries are injectable.
 
@@ -171,6 +172,11 @@ def run_collection(
         "keyword_blocked": [],
         "keyword_candidates": [],
         "dry_run": not apply,
+        "repaired": 0,
+        "salvaged": 0,
+        "normalized_sources": 0,
+        "dropped_sources": 0,
+        "write_retries": 0,
     }
     for key in keys:
         try:
@@ -180,6 +186,9 @@ def run_collection(
                 continue
             all_tags = {entry["tag"] for entry in before.get("tags", [])}
             previous = state.get(key, {})
+            if retry_blocked and apply and (previous.get("status") == "blocked" or previous.get("committed")):
+                # 人工确认后仍须由下方远端子笔记回读挡住重复创建。
+                previous = {}
             done_tags = sorted(all_tags & DONE_TAGS)
             if done_tags:
                 # 已分析但缺关键词的条目只回填 Extra 与标签，绝不重跑完整分析。
@@ -329,6 +338,10 @@ def run_collection(
             # ** would raise "multiple values for keyword argument".
             state[key] = _checkpoint(before, **{**result, **verification, "dry_run": False})
             save_state(state_path, state)
+            for name in ("repaired", "salvaged", "normalized_sources", "dropped_sources", "write_retries"):
+                summary[name] += (
+                    int(bool(result.get(name))) if name in {"repaired", "salvaged"} else int(result.get(name, 0))
+                )
             summary["uncertain" if result["status"] == "uncertain" else "processed"] += 1
             if result.get("short_note") == "failed":
                 summary["degraded"].append(
@@ -355,6 +368,9 @@ def main() -> int:
         "--retry-parked",
         action="store_true",
         help=f"Clear '{PARKED_STATUS}' checkpoints so they are attempted again (apply mode only)",
+    )
+    parser.add_argument(
+        "--retry-blocked", action="store_true", help="Retry blocked items after confirming no duplicate note exists"
     )
     args = parser.parse_args()
     # Imports/configuration are intentionally lazy: --help works offline.
@@ -415,6 +431,7 @@ def main() -> int:
                 state_dir() / f"batch_ainote_{args.collection}.json",
                 apply=args.apply,
                 retry_parked=args.retry_parked,
+                retry_blocked=args.retry_blocked,
             )
         finally:
             reader.close()

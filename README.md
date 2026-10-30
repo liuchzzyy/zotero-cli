@@ -61,7 +61,7 @@ timeout_seconds = 300.0
 max_retries = 2
 ```
 
-`fallback_models` 可以是 TOML 数组，也可以是逗号分隔字符串；主模型调用失败或拒绝图片输入时按顺序回退。完整 note 请求只会切换到经预检、能容纳同一份文字和图片的模型。`timeout_seconds` 是单次请求超时，`max_retries` 是同一模型的可重试失败重试次数。`max_tokens = 0` 表示不向服务端发送输出上限，由模型自身能力决定（代理 `/v1/models` 的 `max_output_tokens`）；显式设为正数才会强制该上限。若模型仍返回 `finish_reason=length`，流水线会按该路由的输出上限要求压缩后重试一次（证据包阶段与成稿阶段各自一次），压缩后仍被截断则失败且不写入任何笔记。
+`fallback_models` 可以是 TOML 数组，也可以是逗号分隔字符串；主模型调用失败或拒绝图片输入时按顺序回退。完整 note 请求只会切换到经预检、能容纳同一份文字和图片的模型。`timeout_seconds` 是单次请求超时，`max_retries` 是同一模型的可重试失败重试次数。`max_tokens = 0` 表示不向服务端发送输出上限，由模型自身能力决定（代理 `/v1/models` 的 `max_output_tokens`）；显式设为正数才会强制该上限。若模型仍返回 `finish_reason=length`，足量且已闭合的章节可带 `[salvage]` 标记恢复；否则按路由输出上限压缩重试，第二次截断报 `output_truncated` 且不写入笔记。
 
 所有 `[ai_notes]` 配置项都可以用环境变量覆盖（优先级：env > 配置文件 > 默认值），便于在不改动本地 `.zot/config.toml` 时切换 endpoint 或模型：
 
@@ -235,7 +235,7 @@ uv run zot ai-note ITEMKEY --idempotency-key analyze-ITEMKEY-001
 - `--dry-run` 不调用分类模型：`paper_type` 是条目类型默认值（book 类型映射 book，其余 research_article）；它仍会按缓存/云端解析 PDF，只是跳过生成 note 的模型调用和所有 Zotero 写入。它也会预览已打 `ai/noted` 的条目（不因已分析而提前返回）。
 - note 按条目类型/分类选择模板（研究论文 / 综述 / 书籍），模板位于 `src/zotero_cli/ai_notes/templates/`。
 - 标题、作者、期刊、日期、DOI 和正文作为不可信数据用定界符包裹后进入 prompt，模板声明指令层级，降低论文内容注入风险；正文长度超过 `max_extracted_chars` 或整份请求超过已验证的模型预算时会报错，不截断证据（标题在渲染前先转纯文本再转义）。
-- note 采用两个主分析阶段：第一阶段仅发送完整结构化文字、表格、图注，生成带附件/页码/图号和实验条件的文字证据包；第二阶段发送证据包、由程序附加的原来源片段、图像索引和图片，核查后输出原有 `sections` 笔记。分类、关键词简记与失败重试可增加实际 API 请求次数。第一阶段校验证据包的必要字段、`source` 标签对应的附件/正文或 SI/PDF 页码组合是否存在于原始输入（`known_sources`），以及 `figure_refs` 中的图号是否有效；JSON、来源或图号校验失败时按原始标签和图号重试一次，仍无效则停止，超预算时先缩短附加的原来源片段，保留模型提取的主张、数据及条件。若保留这些字段后仍超过 120,000 字符则失败。它不对 `claim`、`data`、`conditions` 中的数值或小数内容做比对或据此拒绝证据包。跨页命中会附原始页码片段供模型核查，不自动当成样品/条件对应已验证；这些片段也不代表数值已被程序验证。两阶段之间不写入 Zotero。
+- note 采用两个主分析阶段：第一阶段仅发送完整结构化文字、表格、图注，生成带附件/页码/图号和实验条件的文字证据包；第二阶段发送证据包、由程序附加的原来源片段、图像索引和图片，核查后输出原有 `sections` 笔记。分类、关键词简记与失败重试可增加实际 API 请求次数。第一阶段校验证据包的必要字段、`source` 标签对应的附件/正文或 SI/PDF 页码组合是否存在于原始输入（`known_sources`），以及 `figure_refs` 中的图号是否有效；JSON 无法解析或有效证据低于 40% 覆盖门槛时按原始标签和图号重试一次，仍无效则停止；数字字符串图号和同附件同类型两页内的来源偏差会规范化，无法解析的单条证据会丢弃并计数，超预算时先缩短附加的原来源片段，保留模型提取的主张、数据及条件。若保留这些字段后仍超过 120,000 字符则失败。它不对 `claim`、`data`、`conditions` 中的数值或小数内容做比对或据此拒绝证据包。跨页命中会附原始页码片段供模型核查，不自动当成样品/条件对应已验证；这些片段也不代表数值已被程序验证。两阶段之间不写入 Zotero。
 - `content_list.json` 的文字、表格、图像和图注按附件、正文/SI、PDF 页码标记。重复 PDF 去重后编号；全部有效正文图必须发送，SI 不设固定张数上限，按上下文与请求体预算尽量多选，正文引用优先，其余覆盖前中后区域。未发送图号与原因明确报告；真正的 1x1 占位图单独标记，损坏正文图直接失败。
 - 单图 5 MiB、每请求 20 MiB 均为本项目预检阈值；发送前优先保留原图，超限时仅尝试保持分辨率与解码像素的无损 PNG 重编码，不缩小、不降低 JPEG 质量。原始缓存不修改，输出记录尺寸、编码、源/发送哈希和字节数。无损候选仍放不下正文图时失败；压缩不会按比例减少模型图片 token。规划与发送共用 JSON 构造，最终客户端再检查精确 UTF-8 请求体大小。
 - 视觉成稿及其重试不允许退化为纯文本；图像能力被拒绝时尝试下一条满足同组图片预算的路由，全部失败则不写笔记。`--dry-run` 不调用笔记模型，视觉计数是为证据包预留字符量后的估算，实际计数以第二阶段结果为准。
@@ -365,7 +365,7 @@ uv build
 
 | 目录 | 职责与主要入口 |
 | --- | --- |
-| `tool/ainote/` | `batch_analyze.py` 批量分析，摘要分别统计新建笔记、`uncertain`、失败、跳过与需远端核对的 `blocked`；写入结果不确定时保留阻断状态，先核对远端再重试。已打 `ai/noted` 但缺 `ai/keywords` 的条目只补关键词（复用 `--short-note-only`，每条最多 2 次，超限记 `keyword_blocked`），生成失败记 `keyword_failed`，成功才记 `keyword_backfilled`；成功断点也能避免本地标签尚未同步时重复回填。`--limit` 同时限制完整分析与关键词回填的尝试数；`--no-short-note` 跳过回填，dry-run 只计 `keyword_candidates`。`scheduled_analyze.py` 按集合调度，记录失败、需核对、关键词回填与时间预算延后状态。 |
+| `tool/ainote/` | `batch_analyze.py` 批量分析，摘要分别统计新建笔记、`uncertain`、失败、跳过与需远端核对的 `blocked`；写入结果不确定时保留阻断状态，先核对远端再用 `--retry-blocked` 重试；摘要还统计 JSON 修复、截断恢复、来源规范化/丢弃与写入重试。已打 `ai/noted` 但缺 `ai/keywords` 的条目只补关键词（复用 `--short-note-only`，每条最多 2 次，超限记 `keyword_blocked`），生成失败记 `keyword_failed`，成功才记 `keyword_backfilled`；成功断点也能避免本地标签尚未同步时重复回填。`--limit` 同时限制完整分析与关键词回填的尝试数；`--no-short-note` 跳过回填，dry-run 只计 `keyword_candidates`。`scheduled_analyze.py` 按集合调度，记录失败、需核对、关键词回填与时间预算延后状态。 |
 | `tool/paper2zotero/` | `zotero_inbox.py` 导入文献；`backfill_titles.py`、`translate_abstracts.py` 回填翻译；`zh_text.py` 规范化中文、化学式与间距。 |
 | `tool/paperrag/` | `run-rag-workspace.zsh` 编排清点与索引，`run-rag-evidence-search.zsh` 运行检索，`workspace_inventory.py` 生成清点报告。 |
 

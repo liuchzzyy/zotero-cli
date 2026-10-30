@@ -56,6 +56,10 @@ class AiClient:
         # 最近一次观测到的服务商用量，仅用于诊断；从不携带载荷内容。
         self.last_usage: dict[str, int] | None = None
         self.last_model: str = ""
+        self.last_finish_reason: str = ""
+        self.last_response_text: str = ""
+        self.item_key: str = ""
+        self.last_repair: dict[str, bool] = {}
         self.usage_history: list[dict[str, Any]] = []
 
     def get_model_chain(self) -> list[str]:
@@ -88,12 +92,14 @@ class AiClient:
         if self.last_usage is not None:
             self.usage_history.append({**self.last_usage, "model": self.last_model})
         choice = response.choices[0]
+        self.last_finish_reason = str(getattr(choice, "finish_reason", "") or "")
+        self.last_response_text = (choice.message.content or "").strip()
         # 因长度而停止意味着 note JSON 不完整；它绝不能作为已完成的分析写入，
         # 因此抛出错误而不是返回部分文本。
-        if getattr(choice, "finish_reason", None) == "length":
+        if self.last_finish_reason == "length":
             # 输出达到 max_tokens。换模型只是重复同一上限，因此由调用方压缩后重试。
-            raise OutputTruncatedError()
-        return (choice.message.content or "").strip()
+            raise OutputTruncatedError(response_text=self.last_response_text)
+        return self.last_response_text
 
     def chat(
         self,

@@ -199,7 +199,7 @@ def test_invalid_source_packet_never_writes(tmp_path):
         pytest.raises(NoteAnalysisError, match="证据包"),
     ):
         analyze_item(reader, writer, client, "ITEM1", no_short_note=True)
-    assert client.chat.call_count == 1
+    assert client.chat.call_count == 2
     writer.add_note.assert_not_called()
 
 
