@@ -70,3 +70,9 @@ batch_ainote_*.json
 tool/**/state.json
 tool/**/*.lock
 tool/**/inventory.json
+# 本地研究日志与 OCR 审查稿可能包含个人文献元数据
+/问题.md
+/ocr_review_diff.md
+/ocr_scan_ainotes.md
+# 技能目录中的本地草稿可能含个人文献与服务配置
+/skill/zotero-cli/*.local.md

@@ -705,6 +705,7 @@ class TestAiClient:
         assert "科研文献分析" in kwargs["messages"][0]["content"]
         assert kwargs["messages"][1] == {"role": "user", "content": "hello"}
         assert kwargs["temperature"] == 0.7
+        # 默认不发送 max_tokens；0 表示由服务端按模型输出上限约束
         assert "max_tokens" not in kwargs
 
     def test_chat_passes_max_tokens_when_configured(self):

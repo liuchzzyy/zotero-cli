@@ -33,6 +33,15 @@ class EvidenceBudgetError(ValueError):
     """未改动的证据无法装入该请求已核实的限制。"""
 
 
+class OutputTruncatedError(NoteAnalysisError):
+    """模型输出达到 max_tokens 被截断；换模型通常同样超限，应由调用方压缩后重试。"""
+
+    def __init__(self, message: str = "AI truncated (finish_reason=length)", **kwargs: Any) -> None:
+        kwargs.setdefault("code", "output_truncated")
+        kwargs.setdefault("retryable", False)
+        super().__init__(message, **kwargs)
+
+
 class AiNoteExecutionError(NoteAnalysisError):
     """执行边界的失败，携带由调用方呈现的提示类别。"""
 

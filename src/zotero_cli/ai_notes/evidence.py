@@ -25,6 +25,14 @@ _POLICY_KEYS = {
     "MAX_REQUEST_BYTES": ("budget", "max_request_bytes"),
     "MAX_IMAGE_BYTES": ("images", "max_image_bytes"),
 }
+# 未登记路由的保守输出预留，仅用于预算估算，不作为 API 参数发送。
+OUTPUT_RESERVE = 32_768
+# 各路由的模型输出上限（Magpie /v1/models 的 max_output_tokens）。仅用于截断后的
+# 压缩目标；不发送 max_tokens 时由服务端按同一上限约束。
+_ROUTE_OUTPUT_LIMITS = {
+    "group/deepseek": 128_000,
+    "antigravity/gemini-3.8-flash": 65_536,
+}
 _IMAGE_TYPES = {"image", "chart"}
 _SKIP_TYPES = {"header", "footer", "page_number", "page_footnote", "aside_text"}
 
@@ -351,6 +359,11 @@ def plan_with_coverage(
             + "、".join(f"[图 {number}]" for number in requested if number in excluded)
         )
     raise EvidenceBudgetError("image coverage planning did not converge")
+
+
+def output_ceiling(model: str) -> int:
+    """返回该路由的模型输出上限，仅作为截断后压缩重试的目标；未登记路由按保守值。"""
+    return _ROUTE_OUTPUT_LIMITS.get(model, OUTPUT_RESERVE)
 
 
 def model_supports_request(model: str, prompt: str, image_count: int, *, max_tokens: int = 0) -> bool:

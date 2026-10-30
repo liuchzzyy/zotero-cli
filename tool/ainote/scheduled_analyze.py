@@ -20,7 +20,7 @@ from typing import Any
 
 from batch_analyze import load_state, save_state
 
-from zotero_cli.ai_notes.constants import NOTE_TITLE_PREFIX
+from zotero_cli.ai_notes.constants import ANALYZED_TAG, KEYWORDS_TAG, NO_KEYWORDS_TAG, NOTE_TITLE_PREFIX
 from zotero_cli.config.runtime import section
 from zotero_cli.pdf_rag.metadata import clean_html
 
@@ -42,6 +42,8 @@ def _policy(name: str) -> Any:
     return getattr(sys.modules[__name__], name)
 
 
+# 缺 ai/keywords 的已完成条目只补关键词；同一最多尝试该次数。
+KEYWORD_BACKFILL_ATTEMPTS = 2
 PARKED_STATUS = "unanalyzable"
 HALTED_STATUSES = DONE_STATUSES | {PARKED_STATUS}
 
@@ -95,10 +97,34 @@ def verify_result(api: Any, key: str, before: dict[str, Any], result: dict[str, 
     return {"verified": True, "headings": len(sections) - 1, "tags": sorted(tags), "note_key": note["key"]}
 
 
+def verify_keyword_result(api: Any, key: str, before: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    """回填后只核对标签与唯一 short-note 行，不重写笔记内容。"""
+    item = api.item(key)["data"]
+    tags = {entry["tag"] for entry in item.get("tags", [])}
+    extra_lines = (item.get("extra") or "").splitlines()
+    short = [line for line in extra_lines if line.lower().startswith("short-note:")]
+    if result.get("short_note") == "ok":
+        if KEYWORDS_TAG not in tags:
+            raise RuntimeError("Keyword tag missing on readback")
+        if len(short) != 1 or "疑问：" not in short[0]:
+            raise RuntimeError("short-note missing, duplicated or incomplete")
+    elif result.get("short_note") == "failed":
+        if NO_KEYWORDS_TAG not in tags:
+            raise RuntimeError("Keyword failure not marked on readback")
+        if short:
+            raise RuntimeError("short-note present despite keyword failure")
+    else:
+        raise RuntimeError("Unexpected short-note status")
+    previous = [line for line in (before.get("extra") or "").splitlines() if not line.lower().startswith("short-note:")]
+    if any(line not in extra_lines for line in previous):
+        raise RuntimeError("Pre-existing Extra content changed")
+    return {"verified": True, "tags": sorted(tags), "keyword_verified": True}
+
+
 def run_collection(
     reader: Any,
     api: Any,
-    analyze: Callable[[str], dict[str, Any]],
+    analyze: Callable[..., dict[str, Any]],
     collection: str,
     state_path: Path,
     *,
@@ -140,6 +166,10 @@ def run_collection(
         "failed": [],
         "blocked": [],
         "degraded": [],
+        "keyword_backfilled": [],
+        "keyword_failed": [],
+        "keyword_blocked": [],
+        "keyword_candidates": [],
         "dry_run": not apply,
     }
     for key in keys:
@@ -148,11 +178,88 @@ def run_collection(
             if before.get("deleted") or collection not in before.get("collections", []):
                 summary["skipped"].append({"key": key, "reason": "not_live_member"})
                 continue
-            tags = sorted({entry["tag"] for entry in before.get("tags", [])} & DONE_TAGS)
-            if tags:
-                summary["skipped"].append({"key": key, "reason": "tagged", "tags": tags})
-                continue
+            all_tags = {entry["tag"] for entry in before.get("tags", [])}
             previous = state.get(key, {})
+            done_tags = sorted(all_tags & DONE_TAGS)
+            if done_tags:
+                # 已分析但缺关键词的条目只回填 Extra 与标签，绝不重跑完整分析。
+                if ANALYZED_TAG not in all_tags or KEYWORDS_TAG in all_tags:
+                    summary["skipped"].append({"key": key, "reason": "tagged", "tags": done_tags})
+                    continue
+                if previous.get("status") in {"blocked", "keyword_in_progress"} or previous.get("committed"):
+                    summary["blocked"].append({"key": key, "error": "prior_keyword_write_outcome_uncertain"})
+                    continue
+                attempts = int(previous.get("keyword_attempts", 0))
+                if attempts >= KEYWORD_BACKFILL_ATTEMPTS:
+                    summary["keyword_blocked"].append({"key": key, "attempts": attempts})
+                    continue
+                if time.monotonic() - started > budget_seconds:
+                    summary["skipped"].append({"key": key, "reason": "deferred_time_budget"})
+                    continue
+                if not apply:
+                    summary["keyword_candidates"].append(key)
+                    continue
+                state[key] = _checkpoint(before, status="keyword_in_progress", keyword_attempts=attempts)
+                save_state(state_path, state)
+                try:
+                    result = analyze(key, short_note_only=True)
+                except Exception as exc:
+                    committed = bool(getattr(exc, "committed", True))
+                    next_attempts = attempts + 1
+                    status = (
+                        "blocked"
+                        if committed
+                        else ("keyword_blocked" if next_attempts >= KEYWORD_BACKFILL_ATTEMPTS else "keyword_failed")
+                    )
+                    state[key] = _checkpoint(
+                        before,
+                        status=status,
+                        error=str(exc),
+                        committed=committed,
+                        keyword_attempts=next_attempts,
+                    )
+                    save_state(state_path, state)
+                    entry = {"key": key, "error": f"{type(exc).__name__}: {exc}", "attempts": next_attempts}
+                    summary[status if status in {"blocked", "keyword_blocked"} else "keyword_failed"].append(entry)
+                    continue
+                try:
+                    verification = verify_keyword_result(api, key, before, result)
+                except Exception as exc:
+                    state[key] = _checkpoint(
+                        before, status="blocked", error=str(exc), committed=True, keyword_attempts=attempts + 1
+                    )
+                    save_state(state_path, state)
+                    summary["blocked"].append({"key": key, "error": f"{type(exc).__name__}: {exc}"})
+                    continue
+                short_note_status = result.get("short_note")
+                next_attempts = attempts + 1
+                status = (
+                    "keyword_backfilled"
+                    if short_note_status == "ok"
+                    else ("keyword_blocked" if next_attempts >= KEYWORD_BACKFILL_ATTEMPTS else "keyword_failed")
+                )
+                state[key] = _checkpoint(
+                    before,
+                    **{
+                        **result,
+                        **verification,
+                        "status": status,
+                        "keyword_attempts": next_attempts,
+                        "dry_run": False,
+                    },
+                )
+                save_state(state_path, state)
+                if short_note_status == "ok":
+                    summary["keyword_backfilled"].append({"key": key, "tags": verification["tags"]})
+                else:
+                    summary[status].append(
+                        {
+                            "key": key,
+                            "error": result.get("short_note_error", "关键词回填未成功"),
+                            "attempts": next_attempts,
+                        }
+                    )
+                continue
             if previous.get("status") in HALTED_STATUSES and not previous.get("dry_run"):
                 summary["skipped"].append({"key": key, "reason": f"checkpoint_{previous['status']}"})
                 continue
@@ -282,7 +389,7 @@ def main() -> int:
         ai_client = None
         writer = None
 
-        def analyze(key: str) -> dict[str, Any]:
+        def analyze(key: str, *, short_note_only: bool = False) -> dict[str, Any]:
             nonlocal ai_client, writer
             if ai_client is None:
                 ai_client = AiClient(load_ai_note_config())
@@ -294,6 +401,7 @@ def main() -> int:
                     ai_client,
                     key,
                     force=False,
+                    short_note_only=short_note_only,
                     progress=lambda event, message: logging.info("[%s][%s] %s", key, event, message),
                 )
             )
@@ -320,7 +428,16 @@ def main() -> int:
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
         save_state(args.output_dir / f"run-{stamp}.json", result)
         save_state(args.output_dir / "latest.json", result)
-        if args.dry_run or result["processed"] or result["uncertain"] or result["failed"] or result["blocked"]:
+        if (
+            args.dry_run
+            or result["processed"]
+            or result["uncertain"]
+            or result["failed"]
+            or result["blocked"]
+            or result["keyword_backfilled"]
+            or result["keyword_failed"]
+            or result["keyword_blocked"]
+        ):
             print(json.dumps(result, ensure_ascii=False, indent=2))
         return batch_exit_code(result)
 

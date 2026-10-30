@@ -8,11 +8,12 @@ from collections.abc import Callable
 
 from zotero_cli.ai_notes import constants as note_constants
 from zotero_cli.ai_notes.access.client import AiClient
-from zotero_cli.ai_notes.constants import PARSE_RETRY_SUFFIX, SPARSE_RETRY_SUFFIX
+from zotero_cli.ai_notes.constants import COMPACT_RETRY_SUFFIX, PARSE_RETRY_SUFFIX, SPARSE_RETRY_SUFFIX
 from zotero_cli.ai_notes.documents import _item_authors, _item_journal
-from zotero_cli.ai_notes.errors import NoteAnalysisError
-from zotero_cli.ai_notes.evidence import model_supports_request
+from zotero_cli.ai_notes.errors import NoteAnalysisError, OutputTruncatedError
+from zotero_cli.ai_notes.evidence import model_supports_request, output_ceiling
 from zotero_cli.ai_notes.templates import format_template
+from zotero_cli.config import AiNoteConfig
 from zotero_cli.zotero.models import Item
 
 _MISSING_FIELD = "未知"
@@ -35,6 +36,13 @@ def _retry_models(
     }
 
 
+def compact_retry_prompt(prompt: str, config: AiNoteConfig) -> tuple[str, int]:
+    """按路由输出上限构造压缩重试提示词：显式配置优先，否则用代理报告的模型上限。"""
+    limit = int(config.max_tokens) if config.max_tokens > 0 else output_ceiling(config.model)
+    # 中文与 JSON 结构约每 token 1–1.5 字符；按上限的 60% 估算字符目标。
+    return prompt + COMPACT_RETRY_SUFFIX.format(limit=limit, chars=int(limit * 0.6)), limit
+
+
 def _chat_with_retry(
     client: AiClient,
     prompt: str,
@@ -44,9 +52,37 @@ def _chat_with_retry(
     progress: Callable[[str, str], None] | None,
 ) -> list[object]:
     """执行模型对话并解析 sections JSON，针对格式与内容稀疏各做一轮重试。"""
-    answer = _chat(
-        client, prompt, progress=progress, figures=figures, allowed_models=allowed_models, require_images=bool(figures)
-    )
+    try:
+        answer = _chat(
+            client,
+            prompt,
+            progress=progress,
+            figures=figures,
+            allowed_models=allowed_models,
+            require_images=bool(figures),
+        )
+    except OutputTruncatedError:
+        # 输出达到上限：换模型只会重复同一上限，改为要求更紧凑的 JSON 重试一次。
+        compact_prompt, limit = compact_retry_prompt(prompt, client.config)
+        if progress:
+            progress("retry", f"输出达到 {limit} token 上限被截断，要求压缩后重试一次")
+        compact_models = _retry_models(compact_prompt, figures, allowed_models, client.config.max_tokens)
+        if not compact_models:
+            raise NoteAnalysisError("输出压缩重试超过已验证的模型预算", code="validation_error", parkable=True)
+        try:
+            answer = _chat(
+                client,
+                compact_prompt,
+                progress=progress,
+                figures=figures,
+                allowed_models=compact_models,
+                require_images=bool(figures),
+            )
+        except OutputTruncatedError as error:
+            raise NoteAnalysisError(
+                f"输出超过模型上限（{limit} token），压缩重试后仍被截断；未写入任何笔记",
+                code="output_truncated",
+            ) from error
     try:
         sections = extract_json_object(answer).get("sections", [])
     except NoteAnalysisError:
@@ -132,17 +168,30 @@ def extract_json_object(text: str) -> dict:
     if start != -1 and end > start:
         candidates.append(s[start : end + 1])
 
+    # 围栏与 JSON 同行且缺少结尾围栏时，上一步的按行剥离会清空正文；
+    # 因此再从原始响应中取一次花括号区间。
+    raw_start, raw_end = text.find("{"), text.rfind("}")
+    if raw_start != -1 and raw_end > raw_start:
+        candidates.append(text[raw_start : raw_end + 1])
+
     candidates.append(s)
 
+    parse_error: json.JSONDecodeError | None = None
     for candidate in candidates:
         for strict in (True, False):
             try:
                 parsed = json.loads(candidate, strict=strict)
                 if isinstance(parsed, dict):
                     return parsed
-            except json.JSONDecodeError:
-                continue
-    raise NoteAnalysisError("无法从 AI 输出中解析出 JSON")
+            except json.JSONDecodeError as error:
+                parse_error = error
+    opened, closed = text.count("{"), text.count("}")
+    detail = (
+        f"；响应长度 {len(text)} 字符，解析位置 {parse_error.pos}" if parse_error else f"；响应长度 {len(text)} 字符"
+    )
+    if opened > closed:
+        detail += f"，疑似截断（花括号 {opened} 个 '{{' / {closed} 个 '}}'；响应被服务端截断）"
+    raise NoteAnalysisError(f"无法从 AI 输出中解析出 JSON{detail}")
 
 
 def _sanitize_untrusted(text: str) -> str:

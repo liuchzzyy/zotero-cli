@@ -408,3 +408,35 @@ def test_completed_analysis_keeps_reservation_if_result_cannot_be_saved():
     assert json.loads(result.output)["error"]["code"] == "configuration_error"
     reader.return_value.close.assert_called_once()
     release.assert_not_called()
+
+
+class TestProgressLinesInJsonMode:
+    """非 TTY 自动启用 JSON 时，显式 --progress-lines 仍应输出阶段信息到 stderr。"""
+
+    def _run(self, extra):
+        from unittest.mock import patch
+
+        def fake_analyze(*args, progress=None, **kwargs):
+            if progress is not None:
+                progress("evidence", "第一阶段：提取文字证据")
+            return {"status": "dry_run", "item_key": "ABC123", "pdf_count": 1, "chars": 10}
+
+        base_env = {"ZOT_LIBRARY_ID": "123", "ZOT_API_KEY": "abc", "ZOT_FORMAT": "json"}
+        with (
+            patch("zotero_cli.ai_notes.execution.load_ai_note_config", return_value=_make_ai_config()),
+            patch("zotero_cli.ai_notes.execution.analyze_item", side_effect=fake_analyze),
+            patch("zotero_cli.ai_notes.execution.ZoteroReader"),
+            patch("zotero_cli.ai_notes.execution.ZoteroWriter"),
+            patch("zotero_cli.ai_notes.execution.AiClient"),
+        ):
+            return invoke_cli(["ai-note", "ABC123", "--dry-run", *extra], env=base_env)
+
+    def test_progress_visible_with_flag(self):
+        res = self._run(["--progress-lines"])
+        assert res.exit_code == 0, res.output
+        assert "第一阶段：提取文字证据" in res.output
+
+    def test_progress_silent_without_flag(self):
+        res = self._run([])
+        assert res.exit_code == 0
+        assert "第一阶段：提取文字证据" not in res.output

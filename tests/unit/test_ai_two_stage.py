@@ -153,6 +153,42 @@ def test_actual_packet_allows_main_figures_beyond_preview_reserve(tmp_path):
     writer.add_note.assert_called_once()
 
 
+@pytest.mark.parametrize(
+    "bad_packet", ["not json", _packet().replace("PDF p.2", "PDF p.9"), _packet().replace("[1]", "[99]")]
+)
+def test_text_packet_retries_once_with_valid_contract(tmp_path, bad_packet):
+    reader, writer, client, att, parsed = _setup(tmp_path)
+    client.chat.side_effect = [
+        bad_packet,
+        _packet(),
+        json.dumps({"sections": [{"type": "paragraph", "text": f"内容 {i}"} for i in range(12)]}),
+    ]
+    with patch("zotero_cli.ai_notes.documents.MinerUParseCache.ensure_many", return_value={att.path: parsed}):
+        result = analyze_item(reader, writer, client, "ITEM1", no_short_note=True)
+    assert result["status"] == "ok"
+    assert client.chat.call_count == 3
+    assert "[ATT1 | main | PDF p.2]" in client.chat.call_args_list[1].args[0]
+    assert "[图 1]" in client.chat.call_args_list[1].args[0]
+    writer.add_note.assert_called_once()
+
+
+def test_text_stage_truncation_retries_with_compaction(tmp_path):
+    from zotero_cli.ai_notes.errors import OutputTruncatedError
+
+    reader, writer, client, att, parsed = _setup(tmp_path)
+    client.chat.side_effect = [
+        OutputTruncatedError(),
+        _packet(),
+        json.dumps({"sections": [{"type": "paragraph", "text": f"内容 {i}"} for i in range(12)]}),
+    ]
+    with patch("zotero_cli.ai_notes.documents.MinerUParseCache.ensure_many", return_value={att.path: parsed}):
+        result = analyze_item(reader, writer, client, "ITEM1", no_short_note=True)
+    assert result["status"] == "ok"
+    assert client.chat.call_count == 3
+    assert "输出长度要求" in client.chat.call_args_list[1].args[0]
+    writer.add_note.assert_called_once()
+
+
 def test_invalid_source_packet_never_writes(tmp_path):
     reader, writer, client, att, parsed = _setup(tmp_path)
     client.chat.return_value = json.dumps(

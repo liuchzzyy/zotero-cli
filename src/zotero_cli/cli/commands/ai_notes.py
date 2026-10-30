@@ -32,7 +32,7 @@ def ai_note(
     no_tag: bool = typer.Option(False, "--no-tag", help="写 note 但不打 ai/noted tag。"),
     no_short_note: bool = typer.Option(False, "--no-short-note", help="不生成关键词简记，只生成 note。"),
     short_note_only: bool = typer.Option(False, "--short-note-only", help="只根据已有 AI note 回填 Extra short-note。"),
-    progress_lines: bool = typer.Option(False, "--progress-lines", help="按行输出进度，适合日志。"),
+    progress_lines: bool = typer.Option(False, "--progress-lines", help="按行输出进度到 stderr；JSON 模式下同样生效。"),
     idempotency_key: str | None = typer.Option(
         None, "--idempotency-key", help="重放已确认成功；进行中或未知结果必须先对账。"
     ),
@@ -41,7 +41,9 @@ def ai_note(
     json_out = ctx.obj.get("json", False)
 
     def progress(event: str, message: str) -> None:
-        if json_out:
+        # JSON envelope 只写 stdout；显式 --progress-lines 时进度仍走 stderr，
+        # 否则非 TTY 自动启用 JSON 会让重定向日志完全看不到阶段信息。
+        if json_out and not progress_lines:
             return
         line = f"  [{event}] {message}"
         if progress_lines or not _stderr_is_tty():

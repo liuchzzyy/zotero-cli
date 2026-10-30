@@ -99,7 +99,8 @@ def parse_text_packet(
         raise NoteAnalysisError("文字证据包缺少证据条目", code="validation_error")
     source_fragments = _source_fragments(source_text)
     known_sources = set(source_fragments)
-    for entry in evidence:
+    excerpts: list[str] = []
+    for index, entry in enumerate(evidence, 1):
         if not isinstance(entry, dict) or not all(
             isinstance(entry.get(k), str) and entry[k].strip() for k in ("source", "claim", "conditions", "data")
         ):
@@ -108,23 +109,45 @@ def parse_text_packet(
         if source_text and (
             not matches or any((key.strip(), kind, page) not in known_sources for key, kind, page in matches)
         ):
-            raise NoteAnalysisError("文字证据包来源不在原始结构化文本中", code="validation_error")
+            raise NoteAnalysisError(
+                f"文字证据包来源不在原始结构化文本中（第 {index} 条：{entry['source'][:120]}）",
+                code="validation_error",
+            )
         refs = entry.get("figure_refs")
         if not isinstance(refs, list) or any(
             type(ref) is not int or ref < 1 or (figure_numbers is not None and ref not in figure_numbers)
             for ref in refs
         ):
-            raise NoteAnalysisError("文字证据包图号无效", code="validation_error")
+            raise NoteAnalysisError(f"文字证据包图号无效（第 {index} 条：{str(refs)[:120]}）", code="validation_error")
         if source_text:
             original = "\n".join(source_fragments[(key.strip(), kind, page)] for key, kind, page in matches)
             entry["source_excerpt"] = _extract_source_excerpt(original, entry.get("claim", ""), entry.get("data", ""))
+            excerpts.append(entry["source_excerpt"])
         entry["basis"] = "text_only"
     unresolved = packet.get("unresolved")
     if not isinstance(unresolved, list) or any(not isinstance(value, str) for value in unresolved):
         raise NoteAnalysisError("文字证据包未解问题列表无效", code="validation_error")
     result = json.dumps({"evidence": evidence, "unresolved": unresolved}, ensure_ascii=False)
-    if len(result) > _policy("MAX_PACKET_CHARS"):
-        raise NoteAnalysisError("文字证据包超过下一阶段预算", code="validation_error", parkable=True)
+    packet_limit = _policy("MAX_PACKET_CHARS")
+    expanded_chars = len(result)
+    if expanded_chars > packet_limit and excerpts:
+        excess = expanded_chars - packet_limit
+        # 原文片段为核查辅助信息；先均匀缩短片段，保留模型提取的主张和条件。
+        remaining = sum(len(excerpt) for excerpt in excerpts)
+        allowance = max(0, remaining - excess)
+        per_entry = allowance // len(excerpts)
+        for entry in evidence:
+            if "source_excerpt" in entry:
+                entry["source_excerpt"] = entry["source_excerpt"][:per_entry]
+        result = json.dumps({"evidence": evidence, "unresolved": unresolved}, ensure_ascii=False)
+    if len(result) > packet_limit:
+        raise NoteAnalysisError(
+            f"文字证据包超过下一阶段预算（原始响应 {len(answer)} 字符，"
+            f"证据 {len(evidence)} 条，加入原文片段后 {expanded_chars} 字符，"
+            f"缩短片段后 {len(result)} 字符，超出 {len(result) - packet_limit} 字符）",
+            code="validation_error",
+            parkable=True,
+        )
     return result
 
 

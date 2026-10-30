@@ -84,6 +84,7 @@ class AiNoteConfig:
     fallback_models: list[str] = field(default_factory=lambda: list(_DEFAULTS["ai_notes"]["fallback_models"]))
     reasoning_effort: str = _DEFAULTS["ai_notes"]["reasoning_effort"]
     temperature: float = _DEFAULTS["ai_notes"]["temperature"]
+    # 0 表示不发送 max_tokens，由服务端按模型自身输出上限决定。
     max_tokens: int = _DEFAULTS["ai_notes"]["max_tokens"]
     max_extracted_chars: int = _DEFAULTS["ai_notes"]["max_extracted_chars"]
     timeout_seconds: float = _DEFAULTS["ai_notes"]["timeout_seconds"]

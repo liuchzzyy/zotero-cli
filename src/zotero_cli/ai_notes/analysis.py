@@ -8,6 +8,8 @@ Extra short-note 关键词。仅生成 short-note 的模式会从已有 AI note 
 
 from __future__ import annotations
 
+import json
+import re
 from collections.abc import Callable
 
 from zotero_cli.ai_notes import constants as note_constants
@@ -22,13 +24,13 @@ from zotero_cli.ai_notes.documents import (
     _sections_to_text,
     collect_documents,
 )
-from zotero_cli.ai_notes.errors import EvidenceBudgetError, NoteAnalysisError
+from zotero_cli.ai_notes.errors import EvidenceBudgetError, NoteAnalysisError, OutputTruncatedError
 from zotero_cli.ai_notes.evidence import (
     build_evidence,
     model_supports_request,
     plan_with_coverage,
 )
-from zotero_cli.ai_notes.generation import _chat, _chat_with_retry, build_analysis_prompt
+from zotero_cli.ai_notes.generation import _chat, _chat_with_retry, build_analysis_prompt, compact_retry_prompt
 from zotero_cli.ai_notes.payloads import build_request, request_bytes
 from zotero_cli.ai_notes.persistence import _writer_call, mark_short_note_failure, save_analysis_note, save_short_note
 from zotero_cli.ai_notes.rendering import render_note
@@ -225,11 +227,53 @@ def analyze_item(
         raise NoteAnalysisError("文字证据请求超出模型预算", code="validation_error", parkable=True)
     if progress:
         progress("evidence", "第一阶段：提取文字证据")
-    packet = parse_text_packet(
-        _chat(client, text_prompt, figures=[], allowed_models=text_models, progress=progress),
-        source_text=cleaned,
-        figure_numbers=set(evidence.captions),
-    )
+    try:
+        packet_answer = _chat(client, text_prompt, figures=[], allowed_models=text_models, progress=progress)
+    except OutputTruncatedError:
+        # 证据包被输出上限截断：要求压缩后重试一次，避免整条分析直接失败。
+        compact_prompt, limit = compact_retry_prompt(text_prompt, ai_config)
+        if progress:
+            progress("retry", f"文字证据达到 {limit} token 上限被截断，要求压缩后重试一次")
+        compact_models = {
+            candidate
+            for candidate in text_models
+            if model_supports_request(candidate, compact_prompt, 0, max_tokens=ai_config.max_tokens)
+        }
+        if not compact_models:
+            raise NoteAnalysisError("文字证据压缩重试超过模型预算", code="validation_error", parkable=True)
+        packet_answer = _chat(client, compact_prompt, figures=[], allowed_models=compact_models, progress=progress)
+    try:
+        packet = parse_text_packet(packet_answer, source_text=cleaned, figure_numbers=set(evidence.captions))
+    except NoteAnalysisError as error:
+        if not any(word in str(error) for word in ("无法从 AI 输出中解析出 JSON", "来源不在原始", "图号无效")):
+            raise
+        labels = sorted(
+            set(re.findall(r"\[[^\]]+\|\s*(?:main|supplementary)\s*\|\s*PDF p\.(?:\d+|\?)[^\]]*\]", cleaned))
+        )
+        retry_prompt = (
+            text_prompt
+            + "\n\n上次输出未通过结构校验："
+            + str(error)
+            + "。仅返回完整 JSON；source 必须使用以下原始标签之一："
+            + json.dumps(labels, ensure_ascii=False)
+            + "；figure_refs 只允许使用以下 [图 N] 编号（无图填空列表）："
+            + json.dumps(sorted(evidence.captions))
+            + "。保留数值与实验条件，不编造来源。"
+        )
+        retry_models = {
+            candidate
+            for candidate in text_models
+            if model_supports_request(candidate, retry_prompt, 0, max_tokens=ai_config.max_tokens)
+        }
+        if not retry_models:
+            raise NoteAnalysisError("文字证据格式重试超过模型预算", code="validation_error", parkable=True) from error
+        if progress:
+            progress("retry", f"文字证据包校验失败（{error}），按来源和图号契约重试一次")
+        packet = parse_text_packet(
+            _chat(client, retry_prompt, figures=[], allowed_models=retry_models, progress=progress),
+            source_text=cleaned,
+            figure_numbers=set(evidence.captions),
+        )
     final_prompt = visual_note_prompt(visual_template, packet, references_text=references_text)
     try:
         plan, final_prompt, omitted_numbers = plan_with_coverage(evidence, final_prompt, model, config=ai_config)
