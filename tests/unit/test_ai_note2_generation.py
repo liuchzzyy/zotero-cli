@@ -9,7 +9,13 @@ import pytest
 
 from zotero_cli.ai_notes2.errors import AiNote2Error
 from zotero_cli.ai_notes2.inputs import InputSnapshot, SourceNote
-from zotero_cli.ai_notes2.rendering import render_markdown, render_svg, write_artifacts
+from zotero_cli.ai_notes2.rendering import (
+    render_chain_markdown,
+    render_markdown,
+    render_overview_markdown,
+    render_svg,
+    write_artifacts,
+)
 from zotero_cli.ai_notes2.validation import validate_document
 from zotero_cli.zotero.models import Creator, Item
 
@@ -49,12 +55,15 @@ def allocated(document):
     return allocate_indexes(document)
 
 
-def test_markdown_core_branch_and_visible_indexes(allocated):
+def test_compact_note_and_thought_view_keep_visible_identities(allocated):
     markdown = render_markdown(allocated)
-    assert "[TC-N001｜SYNITEM1-0001-0001] 核心论点" in markdown
-    assert "推理桥 `bridge`" in markdown
-    assert "虚线" in markdown
-    assert "- **RC-Q**" in markdown
+    thought = render_chain_markdown(allocated, "thought")
+    assert "## 思维链索引" in markdown
+    assert "## 证据链索引" in markdown
+    assert "## 审查链索引" in markdown
+    assert "[TC-N001｜SYNITEM1-0001-0001]" in thought
+    assert "`bridge`" in thought
+    assert "argument_support:TC-L001" in thought
 
 
 def test_svg_uses_solid_for_supported_and_dashed_by_default(allocated):
@@ -80,33 +89,46 @@ def test_positive_assessment_of_node_does_not_certify_unreviewed_edge(allocated)
 
 def test_artifacts_are_written_atomically(allocated, tmp_path: Path):
     digests = write_artifacts(tmp_path, allocated, title="框架分析 - T", manifest={"run": 1})
-    assert set(digests) == {"analysis.json", "note.md", "note.html", "tree.svg", "run.json"}
+    assert set(digests) == {
+        "analysis.json",
+        "object-index.json",
+        "overview.md",
+        "thought.md",
+        "evidence.md",
+        "review.md",
+        "note.md",
+        "note.html",
+        "tree.svg",
+        "run.json",
+    }
     assert not list(tmp_path.glob(".*.tmp"))
     assert json.loads((tmp_path / "analysis.json").read_text(encoding="utf-8"))["parent_item_key"] == "SYNITEM1"
     validate_document(json.loads((tmp_path / "analysis.json").read_text(encoding="utf-8")))
+    object_index = json.loads((tmp_path / "object-index.json").read_text(encoding="utf-8"))
+    assert object_index["source"]["parent_item_key"] == "SYNITEM1"
+    assert object_index["validation_scope"]["model_source_assessment"] == "absent"
 
 
-def test_markdown_keeps_author_claims_out_of_second_stage_before_verdicts(allocated):
-    markdown = render_markdown(allocated)
-    assert markdown.count("[TC-N001｜") == 1
-    assert markdown.count("[TC-N002｜") == 1
-    assert markdown.count("[TC-N003｜") == 1
-    assert markdown.count("[TC-L001｜") == 1
-    assert markdown.count("[TC-L002｜") == 1
-    assert "[TC-C001｜" in markdown
+def test_split_views_define_each_chain_object_once(allocated):
+    thought = render_chain_markdown(allocated, "thought")
+    assert thought.count("## [TC-N001｜") == 1
+    assert thought.count("## [TC-N002｜") == 1
+    assert thought.count("## [TC-N003｜") == 1
+    assert thought.count("## [TC-L001｜") == 1
+    assert thought.count("## [TC-L002｜") == 1
+    assert "## [TC-C001｜" in thought
 
 
-def test_markdown_places_evidence_and_review_by_support_edge(allocated):
-    markdown = render_markdown(allocated)
-    edge = markdown.index("[TC-L001｜")
-    evidence = markdown.index("[EC-E001｜")
-    mapping = markdown.index("[EC-M001｜")
-    assert edge < evidence < mapping
-    assert markdown.count("[EC-E001｜") == 1
-    assert "mapping_id：" not in markdown
-    assert "TC-L001｜" in markdown
-    assert ".bridge" in markdown
-    assert "```json" not in markdown
+def test_overview_projects_typed_cross_chain_relations_without_merging_chains(allocated):
+    overview = render_overview_markdown(allocated)
+    evidence = render_chain_markdown(allocated, "evidence")
+    review = render_chain_markdown(allocated, "review")
+    assert "evidence_use:EC-M001" in overview
+    assert "EC-E001 → TC-L001.bridge" in overview
+    assert evidence.count("## [EC-E001｜") == 1
+    assert "## [TC-N001｜" not in evidence
+    assert review.count("## [RC-Q001｜") == 1
+    assert "```json" not in overview
 
 
 def test_html_renders_records_as_readable_fields(allocated):
@@ -116,7 +138,10 @@ def test_html_renders_records_as_readable_fields(allocated):
     assert "```json" not in html_text
     assert "&quot;record_meta&quot;" not in html_text
     assert "EC-E001" in html_text
-    assert "reported_result" in html_text
+    assert "/evidence/evidence_records/0" in html_text
+    assert "思维链索引" in html_text
+    assert "SYNITEM1-0001-" in html_text
+    assert "<script" not in html_text
 
 
 def test_html_escapes_model_text(allocated):

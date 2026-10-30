@@ -254,7 +254,7 @@ uv run zot ai-note ITEMKEY --idempotency-key analyze-ITEMKEY-001
 # 预览所选旧笔记、PDF 附件、输入范围与预算；不调用分析模型、不写 Zotero
 uv run zot ai-note2 ITEMKEY --dry-run
 
-# 只生成本地 analysis.json / note.md / note.html / tree.svg，不创建 writer
+# 只生成本地权威 analysis.json、派生索引、分链视图与 Zotero 紧凑视图，不创建 writer
 uv run zot ai-note2 ITEMKEY --local-only
 
 # 生成并新增一份 child note，回读确认后为父条目追加 ai/evidence
@@ -274,9 +274,11 @@ uv run zot ai-note2 ITEMKEY --force --idempotency-key RUNKEY
 - PDF 按内容 SHA-256 去除字节相同的副本并保留附件别名；正文/支撑信息角色沿用启发式判定，并记录判定依据与“身份未明确”，不因附件唯一就宣称文献身份正确。
 - 发给模型的只有保留块类型、顺序、页码与 `block_id` 的文本 JSON 投影和旧笔记文本；图片路径、URL、base64 和像素都不进入请求。原文片段由程序从冻结块填入，区间越界或未知来源视为结构错误。
 - 正常成功路径只有一次分析请求；仅在 JSON 或结构校验失败时追加一轮结构修复。输入超出字符或上下文预算时明确失败，不静默截断。预算不额外固定预留输出空间；`max_tokens > 0` 时按该配置计入预算并传给 API，`0` 时省略该请求参数，实际输出额度由服务端决定。
-- 生成后执行第二步核对：程序先确认每条来源定位、原文片段与图号都来自本次冻结块（不一致直接失败），再由模型逐条复核陈述是否被原文支持；核对响应缺项或重复对象会失败。模型判定为“部分支持/不支持/无法核对”的对象不会阻止发布，但会写入 `run.json` 与笔记的“第二步核对”段，标记为待人工复核。
+- 生成后执行第二步核对：程序先确认每条来源定位、原文片段与图号都来自本次冻结块（不一致直接失败），再由模型逐条复核陈述是否被原文支持；每个核对来源必须用 `source_set_id + attachment_key + block_id` 三元组，避免多附件中重复块号混淆。核对响应缺项、重复对象或引用未登记来源会失败。模型判定为“部分支持/不支持/无法核对”的对象不会阻止发布，但会写入 `run.json` 与派生视图，标记为待人工复核。
 - `--reconcile` 在创建响应未知时查找远端同父条目的运行标识；只有唯一匹配才继续核对并补标签。没有匹配仍保留未知状态，不自动重新创建。
-- 本地 Markdown/HTML 将报告结果、用途和审查放到对应支持链附近；共享对象只定义一次，未关联对象保留在末尾。完整结构存于 `analysis.json`，Zotero 笔记显示可读字段，不嵌入原始 JSON 代码块。
+- `analysis.json` 是唯一完整科学内容源。`object-index.json` 用分析摘要、运行身份和完整对象指针派生紧凑索引，明确投影支持、证据用途、处理派生、共享来源、联合使用、候选与审查关系；它可删除重建，不是第二份科学记录。
+- 本地产物另包含 `overview.md`、`thought.md`、`evidence.md`、`review.md`、紧凑 `note.md` / `note.html`、`tree.svg` 和 `run.json`。三链字段分文件展开，跨链关系在总览与索引中显式呈现；共享对象只按同一 ID 引用，未关联证据、未评议论点和未解候选不会被隐藏。Zotero HTML 仅使用静态标题、段落和列表，不依赖 JavaScript、SVG 或复杂锚点。
+- 索引中分开记录 schema/引用校验、冻结来源一致性、模型来源评估和 RC 科学审查。引用合法、模型判定或图注图号都不表示科学正确或已查看图像像素；缺失核对显式记为 `absent`。
 - 产物先写临时文件再原子替换。全局 index 形如 `ITEMKEY-0001-0001`，跨 TC/EC/RC 唯一；推理桥使用支持链 index 加 `.bridge`，不占新对象号。
 - 发布后必须回读 note 与父条目 `ai/evidence` 才记 `verified`。note 已创建但标签写入、回读或账本保存失败时保留 `committed=true` 与已知 note key，恢复时只补未完成步骤，不重复创建 note。
 - 账本位于配置状态根的 `ai_note2/`，与旧 `ai-note` 的幂等命名空间分离；进行中或结果未知时 `--force` 与新键都不能绕过对账。

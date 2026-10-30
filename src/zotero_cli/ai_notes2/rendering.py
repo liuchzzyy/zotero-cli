@@ -1,7 +1,7 @@
-"""从规范三链文档派生单篇 Markdown、HTML 与鱼骨状 SVG。
+"""从规范三链文档派生紧凑总览、分链视图、HTML 与鱼骨状 SVG。
 
-内容只定义一次，其他分支用全局 index 引用。渲染器负责转义，模型不输出
-HTML/CSS。线型表示该范围内的支持可靠性：实线须有覆盖该关系的正向评议，
+内容只在 `Note2Document` 定义一次，索引与视图只使用运行内身份和对象指针引用。
+渲染器负责转义，模型不输出 HTML/CSS。线型表示该范围内的支持可靠性：实线须有覆盖该关系的正向评议，
 缺少对应审查时默认虚线并标注待核。
 """
 
@@ -12,14 +12,24 @@ import json
 from pathlib import Path
 from typing import Any
 
+from zotero_cli.ai_notes2.indexing import build_object_index
 from zotero_cli.ai_notes2.models import RECORD_TABLES, Note2Document
-from zotero_cli.ai_notes2.validation import resolve_index, validate_document
+from zotero_cli.ai_notes2.validation import resolve_index, validate_document, validate_object_index
 
-_META_FIELDS = (
-    ("条目信息", ("key", "title", "item_type", "doi")),
-    ("PDF", ("source_set_id", "attachment_key", "pdf_role", "role_basis")),
-)
 _CHAIN_TITLES = {"thought": "思维链", "evidence": "证据链", "review": "审查链"}
+_FLAG_LABELS = {
+    "candidate": "候选对象",
+    "unresolved_candidate": "候选未决",
+    "missing_context": "实验或解读上下文缺失",
+    "explicitly_not_reported": "原文明确未报告或未测量",
+    "unlinked_evidence": "未与论证建立正式用途",
+    "candidate_link_only": "仅有候选用途",
+    "unassessed_claim": "未有命题评议",
+    "source_assessment_attention": "模型来源评估需人工注意",
+    "source_assessment_absent": "无模型来源评估",
+    "resolved": "已解决历史对象",
+    "retired": "已退役历史对象",
+}
 
 
 def _esc(value: Any) -> str:
@@ -85,207 +95,325 @@ def _reliability(document: Note2Document, index: str) -> tuple[str, str]:
     return "dashed", "支持关系尚无完整正向审查，待核"
 
 
-def render_markdown(document: Note2Document, *, verification: dict[str, Any] | None = None) -> str:
-    """按“元信息 → 核心论点 → 分论点 → 支持链／证据／审查 → 就地评议”输出。"""
-    data = document.to_dict()
-    lines: list[str] = [
-        "# 框架分析 - " + str(data["parent_item_key"]),
-        "",
-        "## 元信息",
-        "",
-        "| 项目 | 值 |",
-        "| --- | --- |",
+def _object_index(
+    document: Note2Document,
+    verification: dict[str, Any] | None,
+) -> dict[str, Any]:
+    index = build_object_index(document, verification=verification)
+    validate_object_index(document, index, verification=verification)
+    return index
+
+
+def _md(value: Any) -> str:
+    return " ".join(str(value or "").split()).replace("|", "\\|")
+
+
+def _source_labels(entry: dict[str, Any]) -> list[str]:
+    labels: list[str] = []
+    for source in entry["source_locations"]:
+        page = f"PDF p.{source['page_pdf']}" if source["page_pdf"] else "PDF p.?"
+        section = " > ".join(source["section_path"])
+        label = f"{source['attachment_key']} / {page} / {source['block_id']}"
+        if section:
+            label += f" / {section}"
+        labels.append(label)
+    return labels
+
+
+def _assessment_label(entry: dict[str, Any]) -> str:
+    assessment = entry["model_source_assessment"]
+    if assessment["state"] == "absent":
+        return "缺失（未推导为通过）"
+    note = _md(assessment["note"])
+    return f"{assessment['status']}" + (f"：{note}" if note else "")
+
+
+def _flag_label(flag: str) -> str:
+    return _FLAG_LABELS.get(flag, flag)
+
+
+def _ref_label_text(reference: dict[str, Any]) -> str:
+    suffix = ".bridge" if reference.get("target_field") == "bridge" else ""
+    return f"{reference['object_id']}{suffix}"
+
+
+def _relation_label(relation: dict[str, Any]) -> str:
+    sources = " + ".join(_ref_label_text(ref) for ref in relation["from_refs"])
+    targets = " + ".join(_ref_label_text(ref) for ref in relation["to_refs"])
+    members = "、".join(_ref_label_text(member["ref"]) for member in relation["member_refs"])
+    path = f"{sources} → {targets}" if sources or targets else members
+    return f"{relation['relation_type']} / {relation['status']} / {path or '无端点'}"
+
+
+def _metadata_lines(data: dict[str, Any], index: dict[str, Any]) -> list[str]:
+    lines = [
+        f"- 库：`{data['library_ref']['library_type']}:{data['library_ref']['library_id']}`",
+        f"- 父条目：`{data['parent_item_key']}`",
+        f"- 运行：`{data['run_number']:04d}`；命名空间 `{index['source']['namespace']}`",
+        f"- 旧 AI note：`{data['inputs']['source_note']['note_key']}`；摘要 `{data['inputs']['source_note']['text_digest'][:12]}…`",
     ]
-    item_inputs = data["inputs"]
-    note = item_inputs["source_note"]
-    lines.append(f"| 父条目 | `{data['parent_item_key']}` |")
-    lines.append(f"| AI 分析笔记 | `{note['note_key']}`；摘要 `{note['text_digest'][:12]}…` |")
-    for entry in item_inputs["documents"]:
-        aliases = "、".join(entry["attachment_aliases"]) or "无"
+    for source in data["inputs"]["documents"]:
+        aliases = "、".join(source["attachment_aliases"]) or "无"
         lines.append(
-            f"| PDF `{entry['attachment_key']}` | 角色 {entry['pdf_role']}；别名 {aliases}；"
-            f"身份 {entry['document_identity_status']}；依据 {entry['role_basis']} |"
+            f"- PDF：`{source['attachment_key']}`；角色 {source['pdf_role']}；别名 {aliases}；"
+            f"身份 {source['document_identity_status']}"
         )
-    lines.append(
-        f"| 运行 | `{data['parent_item_key']}-{data['run_number']:04d}`；对象数 {len(data['object_registry'])} |"
-    )
-    lines.append("| 文本范围 | PDF 文本、表格与公式文字、图注和脚注，无图片；旧 AI 笔记文本 |")
-    lines.extend(["", "## 思维链 - 证据链 - 审查链", ""])
-    if verification:
-        counts = verification.get("counts", {})
-        lines.extend(
-            [
-                "## 第二步核对（原文可定位性）",
-                "",
-                f"- 已核对对象：{verification.get('checked_objects', 0)}；"
-                + "；".join(
-                    f"{status} {counts.get(status, 0)}" for status in ("支持", "部分支持", "不支持", "无法核对")
-                ),
-                "- 程序已确认每条来源定位与原文片段来自本次冻结块；模型复核只判断陈述是否被原文支持，不改写内容。",
-            ]
-        )
-        for verdict in verification.get("verdicts", []):
-            if verdict.get("status") != "支持":
-                lines.append(
-                    f"- 待人工复核 `{verdict.get('object_id')}`：{verdict.get('status')}；{verdict.get('note', '')}"
-                )
-        lines.append("")
-    nodes = data["thought"]["nodes"]
-    registry = {entry["object_id"]: entry["index"] for entry in data["object_registry"]}
-    children: dict[str, list[dict[str, Any]]] = {}
-    for edge in data["thought"]["support_edges"]:
-        children.setdefault(edge["to_node_id"], []).append(edge)
+    return lines
 
-    rendered_ids: set[str] = set()
-    for node in nodes:
-        if node["node_type"] != "核心论点":
+
+def render_markdown(document: Note2Document, *, verification: dict[str, Any] | None = None) -> str:
+    """生成适合 Zotero 的紧凑总览，不在单文件里展开全部三链字段。"""
+    data = document.to_dict()
+    index = _object_index(document, verification)
+    lines = [
+        f"# 框架分析 - {data['parent_item_key']}",
+        "",
+        "## 运行与边界",
+        "",
+        *_metadata_lines(data, index),
+        "- 权威源：`analysis.json`；本 note 与 `object-index.json` 均为可重建视图。",
+        "- 输入只包含文本、表格／公式文字、图注和脚注；未检查图像像素。",
+        "- 结构和来源定位通过不表示科学正确；模型来源评估不替代 RC 科学审查。",
+        "",
+        "## 索引摘要",
+        "",
+        f"- 对象 {index['counts']['objects']}；类型化关系 {index['counts']['relations']}。",
+    ]
+    flags = index["counts"]["flags"]
+    attention = [
+        f"{_flag_label(flag)} {count}"
+        for flag, count in flags.items()
+        if flag
+        in {
+            "unresolved_candidate",
+            "missing_context",
+            "unlinked_evidence",
+            "unassessed_claim",
+            "source_assessment_attention",
+            "source_assessment_absent",
+        }
+    ]
+    lines.append("- 需注意：" + ("；".join(attention) if attention else "无索引级警示"))
+    lines.extend(["", "## 类型化连接", ""])
+    if index["relations"]:
+        for relation in index["relations"]:
+            lines.append(
+                f"- `{relation['relation_id']}`：{_relation_label(relation)}；依据对象 "
+                f"`{relation['source_object_id']}`。"
+            )
+    else:
+        lines.append("- 无已登记关系；不为使图形完整而补边。")
+    for chain in ("thought", "evidence", "review"):
+        lines.extend(["", f"## {_CHAIN_TITLES[chain]}索引", ""])
+        entries = [entry for entry in index["objects"] if entry["chain"] == chain]
+        if not entries:
+            lines.append("- 无对象。")
             continue
-        lines.extend(_render_node(document, node, children, registry, rendered_ids, level=2))
-    if not any(node["node_type"] == "核心论点" for node in nodes):
-        lines.extend(["（原文未形成可靠核心论点，见候选记录。）", ""])
+        for entry in entries:
+            sources = "；".join(_source_labels(entry)) or "通过对象引用回溯"
+            flags_text = "、".join(_flag_label(flag) for flag in entry["flags"]) or "无"
+            lines.append(
+                f"- **{entry['short_id']}** `{entry['object_type']}`｜{_md(entry['summary'])}；"
+                f"状态 {entry['state']}；标记 {flags_text}；来源 {sources}；"
+                f"来源评估 {_assessment_label(entry)}；完整对象 `{entry['full_object_pointer']}`。"
+            )
+    lines.extend(
+        [
+            "",
+            "## 本地详细视图",
+            "",
+            "- `overview.md`：论文级概览与对象总索引。",
+            "- `thought.md` / `evidence.md` / `review.md`：分链字段和来源展开。",
+            "- `tree.svg`：辅助图；线型只表示已声明审查范围内的状态。",
+            "",
+        ]
+    )
+    return "\n".join(lines)
 
-    for chain_name in ("thought", "evidence", "review"):
-        remaining: list[str] = []
-        for row_chain, table, identity, prefix in RECORD_TABLES:
-            if row_chain != chain_name:
-                continue
-            for record in data[row_chain][table]:
-                if record[identity] not in rendered_ids:
-                    remaining.append(_render_record(record, prefix, registry))
-                    rendered_ids.add(record[identity])
-        if remaining:
-            lines.extend([f"## 其他{_CHAIN_TITLES[chain_name]}对象", "", *remaining, ""])
+
+def render_overview_markdown(
+    document: Note2Document,
+    *,
+    verification: dict[str, Any] | None = None,
+) -> str:
+    """生成带摘要和紧凑对象表的论文级总览。"""
+    data = document.to_dict()
+    index = _object_index(document, verification)
+    lines = [
+        f"# 对象概览 - {data['parent_item_key']} / 运行 {data['run_number']:04d}",
+        "",
+        *_metadata_lines(data, index),
+        f"- 分析摘要：`{index['source']['analysis_sha256']}`",
+        f"- 输入快照摘要：`{index['source']['input_snapshot_sha256']}`",
+        f"- 核对摘要：`{index['source']['verification_sha256'] or '无'}`",
+        "",
+        "## 验证语义",
+        "",
+        "- schema 与对象引用：通过。",
+        "- 来源定位与 excerpt：与本次冻结块一致，不代表科学正确。",
+        f"- 模型来源评估：{index['validation_scope']['model_source_assessment']}。",
+        "- 科学审查：仅由 RC 对象按其判准和范围表达；未检查图像像素。",
+        "",
+        "## 核心论点",
+        "",
+    ]
+    records = _records_by_id(data)
+    cores = [
+        entry
+        for entry in index["objects"]
+        if entry["object_type"] == "TC-N" and records[entry["short_id"]]["node_type"] == "核心论点"
+    ]
+    lines.extend(
+        [f"- **{entry['short_id']}**：{_md(entry['summary'])}" for entry in cores]
+        or ["- 未登记核心论点；查看思维候选。"]
+    )
+    lines.extend(["", "## 类型化关系", "", "| 关系 | 类型／状态／端点 | 来源对象 |", "| --- | --- | --- |"])
+    for relation in index["relations"]:
+        lines.append(
+            f"| `{relation['relation_id']}` | {_md(_relation_label(relation))} | `{relation['source_object_id']}` |"
+        )
+    if not index["relations"]:
+        lines.append("| 无 | 不补建未登记关系 | 无 |")
+    lines.extend(
+        [
+            "",
+            "## 对象索引",
+            "",
+            "| 短 ID | 类型 | 摘要 | 标记 | 来源评估 | 完整对象 |",
+            "| --- | --- | --- | --- | --- | --- |",
+        ]
+    )
+    for entry in index["objects"]:
+        flags = "、".join(_flag_label(flag) for flag in entry["flags"]) or "无"
+        lines.append(
+            f"| `{entry['short_id']}` | {entry['type_label']} | {_md(entry['summary'])} | {_md(flags)} | "
+            f"{_md(_assessment_label(entry))} | `{entry['full_object_pointer']}` |"
+        )
     lines.append("")
     return "\n".join(lines)
 
 
-def _render_node(
-    document: Note2Document,
-    node: dict[str, Any],
-    children: dict[str, list[dict[str, Any]]],
-    registry: dict[str, str],
-    rendered_ids: set[str],
-    *,
-    level: int,
-) -> list[str]:
-    data = document.to_dict()
-    index = node["index"]
-    if node["node_id"] in rendered_ids:
-        return [f"- 共享论点：[{node['node_id']}｜{index}]", ""]
-    rendered_ids.add(node["node_id"])
-    lines = [f"{'#' * level} [{node['node_id']}｜{index}] {node['node_type']}｜{node['text']}", ""]
-    lines.append(
-        f"- 规范字段：`node_type={node['node_type']}`；`attribution={node['attribution']}`；"
-        f"`extraction_status={node['extraction_status']}`；`presentation_status={node['presentation_status']}`"
-    )
-    if node["original_qualifiers"]:
-        lines.append("- 原文限定：" + "；".join(node["original_qualifiers"]))
-    for location in node["text_locations"]:
-        lines.append(f"- 作者表述定位：〔{_location_text(location)}〕")
-    lines.append("")
-
-    for edge in children.get(node["node_id"], []):
-        if edge["edge_id"] in rendered_ids:
-            lines.extend([f"- 共享支持链：[{edge['edge_id']}｜{edge['index']}]", ""])
-            continue
-        rendered_ids.add(edge["edge_id"])
-        style, reason = _reliability(document, edge["index"])
-        lines.extend([f"**[{edge['edge_id']}｜{edge['index']}] 通向 {node['node_id']} 的支持链**", ""])
-        lines.append(
-            f"- 关系：`{registry.get(edge['from_node_id'], edge['from_node_id'])} → "
-            f"{registry.get(edge['to_node_id'], edge['to_node_id'])}`；"
-            f"`attribution={edge['attribution']}`；`extraction_status={edge['extraction_status']}`；"
-            f"`combination={edge['combination']['mode']}`；线型 {'实线' if style == 'solid' else '虚线'}（{reason}）"
-        )
-        lines.append(f"- 目标部分：{edge['target_part']}")
-        lines.append(f"- 推理桥 `bridge`：{edge['bridge']}")
-        for location in edge["text_locations"]:
-            lines.append(f"- 关系出处：〔{_location_text(location)}〕")
-        lines.append("")
-
-        for mapping in data["evidence"]["mappings"]:
-            if mapping["target_ref"]["target_id"] != edge["edge_id"]:
-                continue
-            subject = mapping["subject_ref"]["target_id"]
-            evidence = next(
-                (row for row in data["evidence"]["evidence_records"] if row["evidence_id"] == subject), None
-            )
-            if evidence is not None and subject not in rendered_ids:
-                lines.append(_render_record(evidence, "EC-E", registry))
-                rendered_ids.add(subject)
-            if mapping["mapping_id"] in rendered_ids:
-                lines.append(f"- 共享用途：[{mapping['mapping_id']}｜{mapping['index']}]")
-            else:
-                lines.append(_render_record(mapping, "EC-M", registry))
-                rendered_ids.add(mapping["mapping_id"])
-        for question in data["review"]["review_items"]:
-            target = question.get("primary_target_ref")
-            if target and target["target_id"] == edge["edge_id"] and question["review_id"] not in rendered_ids:
-                lines.append(_render_record(question, "RC-Q", registry))
-                rendered_ids.add(question["review_id"])
-        lines.append("")
-
-        source = next((n for n in data["thought"]["nodes"] if n["node_id"] == edge["from_node_id"]), None)
-        if source is not None and source["node_type"] != "论证理由":
-            lines.extend(_render_node(document, source, children, registry, rendered_ids, level=min(level + 1, 4)))
-    for assessment in data["review"]["claim_assessments"]:
-        if assessment["target_ref"]["target_id"] == node["node_id"] and assessment["assessment_id"] not in rendered_ids:
-            lines.append(_render_record(assessment, "RC-A", registry))
-            rendered_ids.add(assessment["assessment_id"])
-    lines.append("")
-    return lines
+def _records_by_id(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    records: dict[str, dict[str, Any]] = {}
+    for chain, table, identity, _prefix in RECORD_TABLES:
+        for record in data[chain][table]:
+            records[record[identity]] = record
+    return records
 
 
-def _brief_value(value: Any, registry: dict[str, str]) -> str:
-    """显示结构字段和可见 ID；完整结构保存在 analysis.json。"""
+def _field_value(value: Any) -> str:
     if value is None:
-        return "未明确"
+        return "未提供／不适用"
     if isinstance(value, str):
-        return value
-    if isinstance(value, list):
-        return "；".join(_brief_value(part, registry) for part in value) or "无"
-    if isinstance(value, dict):
-        if "target_id" in value:
-            identifier = str(value["target_id"])
-            return f"{identifier}｜{registry.get(identifier, identifier)}" + (
-                ".bridge" if value.get("target_field") == "bridge" else ""
+        return _md(value) or "空字符串"
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return "；".join(_md(item) for item in value) or "无"
+    if isinstance(value, dict) and value.get("kind") == "object":
+        return _ref_label_text({"object_id": value["target_id"], "target_field": value["target_field"]})
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def render_chain_markdown(
+    document: Note2Document,
+    chain: str,
+    *,
+    verification: dict[str, Any] | None = None,
+) -> str:
+    """按链展开对象字段，跨链内容仅使用 ID 引用。"""
+    if chain not in _CHAIN_TITLES:
+        raise ValueError(f"未知链：{chain}")
+    data = document.to_dict()
+    index = _object_index(document, verification)
+    records = _records_by_id(data)
+    relations = {relation["relation_id"]: relation for relation in index["relations"]}
+    lines = [
+        f"# {_CHAIN_TITLES[chain]} - {data['parent_item_key']} / 运行 {data['run_number']:04d}",
+        "",
+        "本文件是 `analysis.json` 的派生视图。完整权威字段以对象指针为准；跨链对象不在此复制。",
+        "",
+    ]
+    entries = [entry for entry in index["objects"] if entry["chain"] == chain]
+    if not entries:
+        lines.append("（本链无对象。）")
+        return "\n".join(lines) + "\n"
+    for entry in entries:
+        record = records[entry["short_id"]]
+        lines.extend(
+            [
+                f"## [{entry['short_id']}｜{entry['index']}] {entry['type_label']}｜{entry['summary']}",
+                "",
+                f"- 状态：`{entry['state']}`；完整对象：`analysis.json#{entry['full_object_pointer']}`",
+                "- 标记：" + ("、".join(_flag_label(flag) for flag in entry["flags"]) or "无"),
+                "- 来源评估：" + _assessment_label(entry),
+            ]
+        )
+        source_labels = _source_labels(entry)
+        lines.append("- 来源：" + ("；".join(source_labels) if source_labels else "通过已登记对象引用回溯"))
+        if entry["figure_refs"]:
+            labels = [f"{figure['attachment_key']} / 图注图号 {figure['figure_id']}" for figure in entry["figure_refs"]]
+            lines.append("- 图号引用：" + "；".join(labels) + "（不表示检查了图像像素）")
+        related = [relations[identifier] for identifier in entry["relation_ids"]]
+        lines.append(
+            "- 关系："
+            + (
+                "；".join(f"`{relation['relation_id']}` {_relation_label(relation)}" for relation in related)
+                if related
+                else "无已登记类型关系"
             )
-        return "；".join(f"{key}：{_brief_value(part, registry)}" for key, part in value.items()) or "见结构文件"
-    return str(value)
-
-
-def _render_record(record: dict[str, Any], prefix: str, registry: dict[str, str]) -> str:
-    identity_field = next(key for key in record if key.endswith("_id") and key not in {"target_id"})
-    index = record.get("index", "")
-    label = f"[{record[identity_field]}｜{index}]" if index else f"[{record[identity_field]}]"
-    fields = tuple((key, key) for key in record if key not in {identity_field, "record_meta", "index"})
-    details = "；".join(f"{field_label}：{_brief_value(record[field], registry)}" for field, field_label in fields)
-    return f"- **{prefix}** {label}：{details}"
+        )
+        lines.extend(["", "### 结构字段", ""])
+        identity = next(key for key in record if key.endswith("_id") and key != "target_id")
+        for field, value in record.items():
+            if field in {identity, "index", "display", "text_locations", "figure_refs"}:
+                continue
+            lines.append(f"- `{field}`：{_field_value(value)}")
+        lines.append("")
+    return "\n".join(lines)
 
 
 def render_html(document: Note2Document, *, title: str, verification: dict[str, Any] | None = None) -> str:
-    """把 Markdown 结构渲染为 Zotero 可显示的 HTML 树，含可见 ID。"""
-    markdown = render_markdown(document, verification=verification)
-    body: list[str] = []
-    for raw in markdown.splitlines():
-        line = raw.rstrip()
-        if not line:
-            continue
-        if line.startswith("#"):
-            level = len(line) - len(line.lstrip("#"))
-            body.append(f"<h{min(level, 6)}>{_esc(line[level:].strip())}</h{min(level, 6)}>")
-        elif line.startswith("- "):
-            body.append(f"<p>{_esc(line[2:])}</p>")
-        elif line.startswith("|"):
-            cells = [cell.strip() for cell in line.strip("|").split("|")]
-            if set("".join(cells)) <= {"-"}:
-                continue
-            body.append("<p>" + " ｜ ".join(_esc(cell) for cell in cells) + "</p>")
-        else:
-            body.append(f"<p>{_esc(line)}</p>")
-    return (
-        f"<h1>{_esc(title)}</h1>\n" + "\n".join(body) + "\n<p>鱼骨图见本地 tree.svg；Zotero 内按可见 ID 查找对象。</p>"
-    )
+    """生成 Zotero 可用的静态紧凑 HTML，不依赖脚本、SVG 或锚点。"""
+    data = document.to_dict()
+    index = _object_index(document, verification)
+    body = [
+        f"<h1>{_esc(title)}</h1>",
+        "<h2>运行与边界</h2>",
+        f"<p>库 {_esc(data['library_ref']['library_type'])}:{_esc(data['library_ref']['library_id'])}；"
+        f"父条目 {_esc(data['parent_item_key'])}；运行 {data['run_number']:04d}；"
+        f"运行标识 {_esc(data['parent_item_key'])}-{data['run_number']:04d}-。</p>",
+        "<p><strong>权威源：</strong>analysis.json。本 note 是可重建视图。"
+        "输入不含图像像素；结构、来源定位或模型判定都不证明科学正确。</p>",
+        f"<p>对象 {index['counts']['objects']}；类型化关系 {index['counts']['relations']}；"
+        f"模型来源评估 {index['validation_scope']['model_source_assessment']}。</p>",
+        "<h2>类型化连接</h2>",
+        "<ul>",
+    ]
+    if index["relations"]:
+        for relation in index["relations"]:
+            body.append(
+                f"<li><strong>{_esc(relation['relation_id'])}</strong>："
+                f"{_esc(_relation_label(relation))}；依据 {_esc(relation['source_object_id'])}。</li>"
+            )
+    else:
+        body.append("<li>无已登记关系；不为图形完整而补边。</li>")
+    body.append("</ul>")
+    for chain in ("thought", "evidence", "review"):
+        body.extend([f"<h2>{_esc(_CHAIN_TITLES[chain])}索引</h2>", "<ul>"])
+        entries = [entry for entry in index["objects"] if entry["chain"] == chain]
+        if not entries:
+            body.append("<li>无对象。</li>")
+        for entry in entries:
+            flags = "、".join(_flag_label(flag) for flag in entry["flags"]) or "无"
+            sources = "；".join(_source_labels(entry)) or "通过对象引用回溯"
+            body.append(
+                f"<li><strong>{_esc(entry['short_id'])}</strong> [{_esc(entry['object_type'])}]："
+                f"{_esc(entry['summary'])}。状态 {_esc(entry['state'])}；标记 {_esc(flags)}；"
+                f"来源 {_esc(sources)}；来源评估 {_esc(_assessment_label(entry))}；"
+                f"完整对象 {_esc(entry['full_object_pointer'])}。</li>"
+            )
+        body.append("</ul>")
+    body.append("<p>本地 overview.md 和 thought.md / evidence.md / review.md 提供详细视图；tree.svg 仅作辅助图。</p>")
+    return "\n".join(body)
 
 
 def render_svg(document: Note2Document) -> str:
@@ -336,7 +464,12 @@ def render_svg(document: Note2Document) -> str:
             bx = head_x + 260 + position * 320
             up = position % 2 == 0
             by = core_y - 130 if up else core_y + 130
-            style, reason = _reliability(document, branch["index"])
+            supporting_edge = next(
+                edge
+                for edge in data["thought"]["support_edges"]
+                if edge["from_node_id"] == branch["node_id"] and edge["to_node_id"] == core["node_id"]
+            )
+            style, reason = _reliability(document, supporting_edge["index"])
             dash = "" if style == "solid" else ' stroke-dasharray="8 6"'
             parts.append(
                 f'<line x1="{bx}" y1="{by}" x2="{head_x + 160}" y2="{core_y}" stroke="#2f6f4f" stroke-width="2"{dash}/>'
@@ -390,8 +523,14 @@ def write_artifacts(
     from hashlib import sha256
 
     directory.mkdir(parents=True, exist_ok=True)
+    object_index = _object_index(document, verification)
     files = {
         "analysis.json": json.dumps(document.to_dict(), ensure_ascii=False, indent=2),
+        "object-index.json": json.dumps(object_index, ensure_ascii=False, indent=2),
+        "overview.md": render_overview_markdown(document, verification=verification),
+        "thought.md": render_chain_markdown(document, "thought", verification=verification),
+        "evidence.md": render_chain_markdown(document, "evidence", verification=verification),
+        "review.md": render_chain_markdown(document, "review", verification=verification),
         "note.md": render_markdown(document, verification=verification),
         "note.html": render_html(document, title=title, verification=verification),
         "tree.svg": render_svg(document),

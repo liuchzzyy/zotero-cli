@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 SCHEMA_VERSION = "ai-note2/1.0"
+SOURCE_ASSESSMENT_STATUSES = ("支持", "部分支持", "不支持", "无法核对")
 
 
 def _object(**properties: Any) -> dict[str, Any]:

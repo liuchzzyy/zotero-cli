@@ -12,6 +12,7 @@ from typing import Any
 from zotero_cli.ai_notes.access.client import AiClient
 from zotero_cli.ai_notes2.errors import AiNote2Error
 from zotero_cli.ai_notes2.generation import budget_summary, generate_document
+from zotero_cli.ai_notes2.indexing import INDEX_SCHEMA_VERSION
 from zotero_cli.ai_notes2.inputs import InputSnapshot, collect_inputs
 from zotero_cli.ai_notes2.persistence import (
     STATUS_GENERATED,
@@ -24,7 +25,7 @@ from zotero_cli.ai_notes2.persistence import (
     update_run,
 )
 from zotero_cli.ai_notes2.rendering import render_html, validate_before_render, write_artifacts
-from zotero_cli.ai_notes2.verification import verify_document
+from zotero_cli.ai_notes2.verification import VERIFICATION_VERSION, verify_document
 from zotero_cli.config import (
     get_data_dir,
     get_prefs_js_path,
@@ -271,6 +272,9 @@ def execute_ai_note2(
         "repair_used": generated.repair_used,
         "object_count": len(document.to_dict()["object_registry"]),
         "prompt_version": "ai-note2/1",
+        "index_schema_version": INDEX_SCHEMA_VERSION,
+        "view_version": "ai-note2-view/1",
+        "verification_schema_version": VERIFICATION_VERSION,
         "verification": report.to_dict(),
     }
     title = _document_title(snapshot)

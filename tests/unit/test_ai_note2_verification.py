@@ -178,7 +178,17 @@ def test_model_verification_marks_unsupported_without_rewriting(allocated, docum
                         {
                             "object_id": entry["object_id"],
                             "status": "不支持" if entry["object_id"] == "EC-E001" else "支持",
-                            "source_block_ids": ["B001"],
+                            "source_refs": (
+                                []
+                                if entry["object_id"] == "RC-A001"
+                                else [
+                                    {
+                                        "source_set_id": "set-1",
+                                        "attachment_key": "SYNATT01",
+                                        "block_id": "B001",
+                                    }
+                                ]
+                            ),
                             "note": "方向相反" if entry["object_id"] == "EC-E001" else "已核对",
                         }
                         for entry in allocated.to_dict()["object_registry"]
@@ -213,9 +223,7 @@ def test_model_verification_rejects_missing_and_duplicate_verdicts(allocated, do
         verification.verify_document(allocated, snapshot, client=client)
     identifiers = [entry["object_id"] for entry in allocated.to_dict()["object_registry"]]
     client.response = {
-        "verdicts": [
-            {"object_id": item, "status": "支持", "source_block_ids": [], "note": "已核对"} for item in identifiers
-        ]
+        "verdicts": [{"object_id": item, "status": "支持", "source_refs": [], "note": "已核对"} for item in identifiers]
     }
     client.response["verdicts"].append({"object_id": identifiers[0], "status": "支持"})
     with pytest.raises(Exception):

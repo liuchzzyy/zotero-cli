@@ -27,7 +27,12 @@ htmlcov/
 # 三链笔记的输入、模型响应和发布账本包含私人文献内容
 ai_note2/
 .ai-note2/
+ai-note2-output/
+.ai-note2-output/
 *.ai-note2-run.json
+*.ai-note2-index.json
+*.ai-note2-index.md
+*.ai-note2-note.html
 # MinerU 原始文本调试导出可能包含个人文献内容
 *.mineru-dump.json
 # 浏览器网络诊断文件可能包含 Authorization 及文档内容

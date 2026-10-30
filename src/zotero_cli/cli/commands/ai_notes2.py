@@ -55,7 +55,9 @@ def ai_note2(
         help="不调用分析模型、不写 Zotero；预览所选笔记、附件、输入范围与预算。缓存缺失时仍可能调用 MinerU 并写解析缓存。",
     ),
     local_only: bool = typer.Option(
-        False, "--local-only", help="调用模型生成 JSON、Markdown、HTML 和 SVG，但不创建 writer、不改 Zotero。"
+        False,
+        "--local-only",
+        help="调用模型生成权威 JSON、派生索引、分链 Markdown、HTML 和 SVG，但不创建 writer、不改 Zotero。",
     ),
     output_dir: str | None = typer.Option(None, "--output-dir", help="本地输出目录；拒绝非空目录。"),
     force: bool = typer.Option(False, "--force", help="已有发布记录时新建一次运行并追加新 note；不覆盖或删除旧 note。"),

@@ -8,7 +8,12 @@ from collections import defaultdict
 from copy import deepcopy
 from typing import Any, NoReturn
 
-from zotero_cli.ai_notes2.models import RECORD_TABLES, Note2Document, note2_json_schema
+from zotero_cli.ai_notes2.models import (
+    RECORD_TABLES,
+    SOURCE_ASSESSMENT_STATUSES,
+    Note2Document,
+    note2_json_schema,
+)
 
 
 class Note2ValidationError(ValueError):
@@ -729,3 +734,106 @@ def resolve_index(document: Note2Document, reference: dict[str, Any]) -> str:
                 _fail("/reference", "只有支持链具有 bridge")
             return entry["index"] + (".bridge" if reference["target_field"] else "")
     _fail("/reference", "未知对象")
+
+
+def validate_verification_report(document: Note2Document, report: dict[str, Any] | None) -> None:
+    """校验模型来源评估与当前分析对象、来源一致。"""
+    if report is None:
+        return
+    data = validate_document(document).to_dict()
+    required = {"schema_version", "checked_objects", "model_used", "errors", "counts", "verdicts"}
+    if set(report) != required:
+        _fail("/verification", "核对报告字段不完整或包含未知字段")
+    if report["schema_version"] != "ai-note2-verification/2":
+        _fail("/verification/schema_version", "核对报告版本不受支持")
+    if type(report["checked_objects"]) is not int or report["checked_objects"] < 0:
+        _fail("/verification/checked_objects", "核对对象数必须是非负整数")
+    if type(report["model_used"]) is not bool:
+        _fail("/verification/model_used", "必须为布尔值")
+    if not isinstance(report["errors"], list) or any(not isinstance(item, str) for item in report["errors"]):
+        _fail("/verification/errors", "必须为字符串数组")
+    if report["errors"]:
+        _fail("/verification/errors", "含来源错误的报告不能生成派生视图")
+    if not isinstance(report["counts"], dict) or set(report["counts"]) != set(SOURCE_ASSESSMENT_STATUSES):
+        _fail("/verification/counts", "核对计数必须覆盖全部受控状态")
+    if not isinstance(report["verdicts"], list):
+        _fail("/verification/verdicts", "必须为数组")
+
+    records: dict[str, dict[str, Any]] = {}
+    allowed_sources: dict[str, set[tuple[str, str, str]]] = {}
+    for chain, table, identity, _prefix in RECORD_TABLES:
+        for record in data[chain][table]:
+            identifier = record[identity]
+            records[identifier] = record
+            allowed_sources[identifier] = {
+                (value["source_set_id"], value["attachment_key"], value["block_id"])
+                for _path, value in _walk(record)
+                if isinstance(value, dict)
+                and "source_set_id" in value
+                and "attachment_key" in value
+                and "block_id" in value
+                and "text_excerpt" in value
+            }
+    if report["checked_objects"] != len(records):
+        _fail("/verification/checked_objects", "核对对象数与分析不一致")
+
+    seen: set[str] = set()
+    actual_counts = {status: 0 for status in SOURCE_ASSESSMENT_STATUSES}
+    for number, verdict in enumerate(report["verdicts"]):
+        path = f"/verification/verdicts/{number}"
+        if not isinstance(verdict, dict) or set(verdict) != {"object_id", "status", "source_refs", "note"}:
+            _fail(path, "核对条目字段不完整或包含未知字段")
+        identifier = verdict["object_id"]
+        if identifier not in records or identifier in seen:
+            _fail(path + "/object_id", "核对对象不存在或重复")
+        seen.add(identifier)
+        status = verdict["status"]
+        if status not in SOURCE_ASSESSMENT_STATUSES:
+            _fail(path + "/status", "核对状态不在受控枚举中")
+        actual_counts[status] += 1
+        if not isinstance(verdict["note"], str):
+            _fail(path + "/note", "核对说明必须为字符串")
+        if not isinstance(verdict["source_refs"], list):
+            _fail(path + "/source_refs", "来源引用必须为数组")
+        source_keys: set[tuple[str, str, str]] = set()
+        for source_number, source_ref in enumerate(verdict["source_refs"]):
+            source_path = f"{path}/source_refs/{source_number}"
+            if not isinstance(source_ref, dict) or set(source_ref) != {
+                "source_set_id",
+                "attachment_key",
+                "block_id",
+            }:
+                _fail(source_path, "来源引用必须是完整三元组")
+            source_key = (
+                source_ref["source_set_id"],
+                source_ref["attachment_key"],
+                source_ref["block_id"],
+            )
+            if any(not isinstance(part, str) for part in source_key):
+                _fail(source_path, "来源引用字段必须为字符串")
+            if source_key not in allowed_sources[identifier] or source_key in source_keys:
+                _fail(source_path, "来源引用未登记于该对象或重复")
+            source_keys.add(source_key)
+        if allowed_sources[identifier] and not source_keys:
+            _fail(path + "/source_refs", "有已登记来源的对象必须列出至少一个核对来源")
+    expected_ids = set(records) if report["model_used"] else set()
+    if seen != expected_ids:
+        _fail("/verification/verdicts", "模型核对结果遗漏对象，或未运行模型却包含判定")
+    if report["counts"] != actual_counts:
+        _fail("/verification/counts", "核对计数与实际判定不一致")
+
+
+def validate_object_index(
+    document: Note2Document,
+    object_index: dict[str, Any],
+    *,
+    verification: dict[str, Any] | None = None,
+) -> None:
+    """重建并比较派生索引，拒绝过期身份、关系或核对投影。"""
+    validated = validate_document(document)
+    validate_verification_report(validated, verification)
+    from zotero_cli.ai_notes2.indexing import build_object_index
+
+    expected = build_object_index(validated, verification=verification, validate_report=False)
+    if object_index != expected:
+        _fail("/object-index", "派生索引与当前分析、运行或核对报告不一致")

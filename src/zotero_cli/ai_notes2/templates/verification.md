@@ -23,10 +23,11 @@
 只输出一个 JSON 对象：
 
 ```json
-{"verdicts": [{"object_id": "TC-N001", "status": "支持", "source_block_ids": ["B0001"], "note": "说明"}]}
+{"verdicts": [{"object_id": "TC-N001", "status": "支持", "source_refs": [{"source_set_id": "set-1", "attachment_key": "ATTACHMENT", "block_id": "B0001"}], "note": "说明"}]}
 ```
 
 `object_id` 必须来自下面列出的对象清单，不能新增、遗漏或改名。
+`source_refs` 只能使用该对象清单中已给出的完整来源三元组；清单已给来源时至少返回一项。不得只返回在多附件中可能重复的 `block_id`。
 
 ## 待核对对象
 

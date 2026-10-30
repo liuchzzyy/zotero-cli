@@ -23,11 +23,11 @@ from zotero_cli.ai_notes.evidence import model_supports_request
 from zotero_cli.ai_notes.generation import wrap_untrusted
 from zotero_cli.ai_notes2.errors import AiNote2Error
 from zotero_cli.ai_notes2.inputs import InputSnapshot
-from zotero_cli.ai_notes2.models import RECORD_TABLES
+from zotero_cli.ai_notes2.models import RECORD_TABLES, SOURCE_ASSESSMENT_STATUSES
 from zotero_cli.ai_notes2.templates import format_template, load_template
 from zotero_cli.ai_notes2.validation import Note2Document, Note2ValidationError, validate_document
 
-VERIFICATION_STATUSES = ("支持", "部分支持", "不支持", "无法核对")
+VERIFICATION_VERSION = "ai-note2-verification/2"
 
 
 @dataclass
@@ -45,11 +45,13 @@ class VerificationReport:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "schema_version": VERIFICATION_VERSION,
             "checked_objects": self.checked_objects,
             "model_used": self.model_used,
             "errors": list(self.errors),
             "counts": {
-                status: sum(1 for item in self.verdicts if item["status"] == status) for status in VERIFICATION_STATUSES
+                status: sum(1 for item in self.verdicts if item["status"] == status)
+                for status in SOURCE_ASSESSMENT_STATUSES
             },
             "verdicts": list(self.verdicts),
         }
@@ -154,12 +156,17 @@ def _object_summary(document: Note2Document) -> str:
     lines: list[str] = []
     for prefix, _table, record in _iter_records(document):
         identity = next(key for key in record if key.endswith("_id") and key != "target_id")
-        block_ids = sorted({loc["block_id"] for loc in _locations(record)})
+        source_refs = sorted(
+            {(loc["source_set_id"], loc["attachment_key"], loc["block_id"]) for loc in _locations(record)}
+        )
         summary = {
             "object_id": record[identity],
             "object_type": prefix,
             "index": record.get("index", ""),
-            "source_block_ids": block_ids,
+            "source_refs": [
+                {"source_set_id": source_set_id, "attachment_key": attachment_key, "block_id": block_id}
+                for source_set_id, attachment_key, block_id in source_refs
+            ],
         }
         for candidate in ("text", "bridge", "question", "statement", "description", "reported_result"):
             value = record.get(candidate)
@@ -172,7 +179,10 @@ def _object_summary(document: Note2Document) -> str:
     return "\n".join(lines)
 
 
-def _parse_verdicts(raw: str, allowed_ids: set[str]) -> list[dict[str, Any]]:
+def _parse_verdicts(
+    raw: str,
+    allowed_sources: dict[str, set[tuple[str, str, str]]],
+) -> list[dict[str, Any]]:
     try:
         payload = json.loads(raw.strip())
     except (json.JSONDecodeError, RecursionError) as error:
@@ -186,26 +196,57 @@ def _parse_verdicts(raw: str, allowed_ids: set[str]) -> list[dict[str, Any]]:
             raise Note2ValidationError("/verdicts", "核对条目必须是对象")
         identifier = entry.get("object_id")
         status = entry.get("status")
-        if not isinstance(identifier, str) or identifier not in allowed_ids:
+        if not isinstance(identifier, str) or identifier not in allowed_sources:
             raise Note2ValidationError("/verdicts", f"核对结果包含未知对象 {identifier}")
         if identifier in seen:
             raise Note2ValidationError("/verdicts", f"核对结果重复对象 {identifier}")
         seen.add(identifier)
-        if status not in VERIFICATION_STATUSES:
+        if status not in SOURCE_ASSESSMENT_STATUSES:
             raise Note2ValidationError("/verdicts", f"未知核对状态 {status}")
-        source_ids = entry.get("source_block_ids")
-        if not isinstance(source_ids, list) or any(not isinstance(item, str) for item in source_ids):
-            raise Note2ValidationError("/verdicts", "source_block_ids 必须是字符串数组")
+        source_refs = entry.get("source_refs")
+        if not isinstance(source_refs, list):
+            raise Note2ValidationError("/verdicts", "source_refs 必须是来源对象数组")
+        normalized_refs: list[dict[str, str]] = []
+        seen_sources: set[tuple[str, str, str]] = set()
+        for source_ref in source_refs:
+            if not isinstance(source_ref, dict) or set(source_ref) != {
+                "source_set_id",
+                "attachment_key",
+                "block_id",
+            }:
+                raise Note2ValidationError("/verdicts", "source_refs 必须完整指定来源集、附件和块")
+            source_key = (
+                source_ref["source_set_id"],
+                source_ref["attachment_key"],
+                source_ref["block_id"],
+            )
+            if any(not isinstance(part, str) for part in source_key):
+                raise Note2ValidationError("/verdicts", "source_refs 字段必须是字符串")
+            if source_key not in allowed_sources[identifier]:
+                raise Note2ValidationError("/verdicts", f"核对结果为 {identifier} 引用了未登记来源")
+            if source_key in seen_sources:
+                raise Note2ValidationError("/verdicts", "source_refs 不得重复")
+            seen_sources.add(source_key)
+            normalized_refs.append(
+                {
+                    "source_set_id": source_key[0],
+                    "attachment_key": source_key[1],
+                    "block_id": source_key[2],
+                }
+            )
+        if allowed_sources[identifier] and not normalized_refs:
+            raise Note2ValidationError("/verdicts", f"核对结果未为 {identifier} 列出已登记来源")
         if not isinstance(entry.get("note"), str):
             raise Note2ValidationError("/verdicts", "note 必须是字符串")
         verdicts.append(
             {
                 "object_id": identifier,
                 "status": status,
-                "source_block_ids": source_ids,
+                "source_refs": normalized_refs,
                 "note": entry["note"],
             }
         )
+    allowed_ids = set(allowed_sources)
     if seen != allowed_ids:
         raise Note2ValidationError("/verdicts", f"核对结果遗漏 {len(allowed_ids - seen)} 个对象")
     return verdicts
@@ -250,11 +291,14 @@ def verify_document(
     if progress:
         progress("verify", f"第二步：核对 {report.checked_objects} 个对象的原文依据")
     raw = client.chat(prompt, figures=[], allowed_models=allowed, progress=progress)
-    allowed_ids = {
-        record[next(key for key in record if key.endswith("_id") and key != "target_id")]
-        for _prefix, _table, record in _iter_records(document)
-    }
-    report.verdicts = _parse_verdicts(raw, allowed_ids)
+    allowed_sources: dict[str, set[tuple[str, str, str]]] = {}
+    for _prefix, _table, record in _iter_records(document):
+        identifier = record[next(key for key in record if key.endswith("_id") and key != "target_id")]
+        allowed_sources[identifier] = {
+            (location["source_set_id"], location["attachment_key"], location["block_id"])
+            for location in _locations(record)
+        }
+    report.verdicts = _parse_verdicts(raw, allowed_sources)
     report.model_used = True
     return report
 

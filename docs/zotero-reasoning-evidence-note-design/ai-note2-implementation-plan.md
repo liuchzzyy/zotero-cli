@@ -4,7 +4,7 @@
 
 ## 1. 目标与依据
 
-先检查父条目是否有可用的 AI 分析笔记。没有则正常跳过，不解析 PDF、不调用模型、不写 Zotero。有笔记时，一次发送同一父条目的 MinerU 文本 JSON 和 AI 笔记文本，分两步生成完整 TC/EC/RC：第一步生成三链结构，第二步核对每条内容能在冻结 PDF 文本中准确定位。生成一份“元信息＋论证树”的完整笔记，并生成鱼骨状 SVG。发布成功后为父条目添加 `ai/evidence`。TC 组织作者公开论证，EC 和 RC 放在它们实际对应的论点或支持链旁。全部 TC/EC/RC 对象，包括候选、用途和覆盖记录，具有唯一全局 index。
+先检查父条目是否有可用的 AI 分析笔记。没有则正常跳过，不解析 PDF、不调用模型、不写 Zotero。有笔记时，一次发送同一父条目的 MinerU 文本 JSON 和 AI 笔记文本，分两步生成完整 TC/EC/RC：第一步生成三链结构，第二步核对每条内容能在冻结 PDF 文本中准确定位。`analysis.json` 作为唯一完整科学内容源；可重建索引和分链视图将 TC、EC、RC 分开展示，并显式列出跨链关系。Zotero 仅发布紧凑静态 HTML 视图；发布成功后为父条目添加 `ai/evidence`。全部 TC/EC/RC 对象，包括候选、用途和覆盖记录，具有唯一运行内 index。当前实现不做跨运行自动身份对齐。
 
 当前展示以 [单篇笔记](ai-note2-single-note-display.md) 为准。科学语义参考 [思维链](thought-chain-structure-design.md)、[证据链](evidence-chain-structure-design.md)、[审查链](review-chain-structure-design.md) 和 [属性字典](three-chain-field-catalog.md)。属性字典中的旧 z3n、bundle 和分链发布段落属于历史方案，不作为本功能的生产格式。
 
@@ -128,7 +128,7 @@ JSON 无效、必要字段类型错、引用悬空、图循环或截断时不发
 
 ## 7. 单篇笔记与鱼骨图
 
-本地先生成 `analysis.json`、`note.md`、`note.html`、`tree.svg` 和 `run.json`。日志与清单不得含凭据；内容文件放受保护的 state 目录，不进入 Git。输入快照、提示词版本、实际调用信息与第二步核对结论在本地记录，不扩写用户已精简的可见元信息表。Markdown/HTML 显示可读字段，完整嵌套结构保存在 `analysis.json`，不将 JSON 代码块直接写入 Zotero 笔记。
+本地先生成 `analysis.json`、`object-index.json`、`overview.md`、`thought.md`、`evidence.md`、`review.md`、`note.md`、`note.html`、`tree.svg` 和 `run.json`。日志与清单不得含凭据；内容文件放受保护的 state 目录，不进入 Git。`object-index.json` 保存分析、输入和核对摘要，并由校验器重建全等比较；它不复制完整科学记录。Markdown/HTML 显示可读字段，完整嵌套结构保存在 `analysis.json`，不将 JSON 代码块直接写入 Zotero 笔记。
 
 Markdown/HTML 使用当前展示顺序：元信息 → 核心论点 → 分论点 → 支持链、证据、用途、审查与下级理由 → 就地评议。共享论点与证据只定义一次，其他分支引用同一 ID。无可靠来源的占位草稿不能作为正式发布对象；有来源的候选可以展示。模型不得输出 HTML/CSS，程序负责转义和渲染。
 
@@ -189,7 +189,7 @@ Zotero child note 使用 HTML 树状缩进和可见 ID；鱼骨图首先作为�
 - 无可用 AI 笔记时返回正常 skipped；不要求模型或写入凭据，不触发 MinerU、模型、Zotero 写入或生成文件。
 - 非 `journalArticle` 条目在读取笔记和 PDF 之前返回 `validation_error`，不触发 MinerU 或模型调用。
 - 第一步返回完整 TC/EC/RC，所有请求均无图片 parts；第二步程序层确认每条来源与原文片段来自冻结块，模型层给出逐条判定。
-- 最终只生成一份含元信息和交织三链的 note，以及鱼骨状 SVG；每个对象有唯一全局 index，bridge 不变成第四层。证据可靠路径用实线，存疑/尚未核实用虚线；审查挂线与排版底轨不冒充支持路径。
+- 最终保留一份权威 `analysis.json`，生成一份紧凑机器索引、三份分链详细视图、论文级总览、Zotero 紧凑 note 和鱼骨状 SVG；每个对象有唯一运行内 index，bridge 不变成第四层。证据可靠路径用实线，存疑/尚未核实用虚线；审查挂线与排版底轨不冒充支持路径。
 - 发布成功须回读确认 note 和父条目 `ai/evidence`，并保留其他标签。无 AI 笔记跳过、dry-run 和 local-only 均不写 tag；标签不代表科研可靠性认证。
 - 每个正式 TC/EC 对象均可回查冻结来源。所有候选、缺失、相反材料和未检查范围保留，不伪造“已检查”。
 - 文本、Schema 和图通过只证明结构合格；实际质量另抽查命题限定、条件、单位、用途相关性和相反材料。正文与 SI 冲突不得任意挑一方。
