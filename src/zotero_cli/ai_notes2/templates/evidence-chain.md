@@ -37,7 +37,10 @@
    `block_id`。`library_ref` 和 `parent_item_key` 使用输入给出的固定身份；附件、页码、角色和
    `section_path` 复制对应块。没有区间时 `span=null`，`text_excerpt=""`，无表格定位时
    `table_locator=null`，`applies_to=[]`。程序按块与区间填入原文，不要编造引文。
-7. 缺失字段必须显式记录为 `null` 并写入 `field_statuses`；不得补数值、补条件或补推理桥。
+7. 记录级关键字段（`primary_aspect`、方法说明、结果比较与不确定度、作者解释、参考文献信息）
+   缺失时必须写 `null` 并在 `field_statuses` 中登记该路径；条件、方法参数和结果数值数组项里
+   的可选字段（如 `unit_raw`、`normalization_basis`）留空即表示未提供，不需要逐项登记状态。
+   不得补数值、补条件或补推理桥。
 8. 临时 ID 自拟且在本文件内唯一（如 `n1`、`e1`、`q1`）；不要生成全局 index，也不要写
    `object_registry`。
 9. 候选对象不进入正式支持图；候选的 `decision` 与 `record_meta.state` 必须一致。

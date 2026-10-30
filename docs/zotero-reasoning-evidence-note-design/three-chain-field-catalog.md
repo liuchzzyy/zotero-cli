@@ -172,7 +172,7 @@ TC-C 和 EC-C 均增加 decision:S、decision_reason:M?。decision 取 pending/a
 
 object_and_conditions：`{description:M,conditions:O[]}`。每个 condition 为 `{name:S,raw_value:S?,unit_raw:S?,applies_to:S,source_refs:SourceRef[]}`；不同样品/比较方需明确 applies_to，不继承同名条件。description 不代替可提取的关键条件。
 
-field_statuses：每项 `{path:S,status:S,reason:M?,source_refs:SourceRef[]}`；path 用本对象 JSON Pointer，可定位 conditions 数组的实际字段，但数组位置只限当前版本字段状态，不能成为跨版本身份。status 仅已定位/当前输入未找到/原文明确未报告或未测量/不适用/文本损坏。关键字段 null 要有对应状态；“当前输入未找到”不声称作者未报告。
+field_statuses：每项 `{path:S,status:S,reason:M?,source_refs:SourceRef[]}`；path 用本对象 JSON Pointer，可定位 conditions 数组的实际字段，但数组位置只限当前版本字段状态，不能成为跨版本身份。status 仅已定位/当前输入未找到/原文明确未报告或未测量/不适用/文本损坏。记录级关键字段为 `primary_aspect`、`method_or_acquisition/description`、`reported_result/comparison`、`reported_result/uncertainty`、`author_interpretation`、`reference_info`；这些为 null 时必须有对应状态。conditions、parameters、values 数组项中的可选字段（如 `unit_raw`、`normalization_basis`）留空即表示未提供，不按数组位置追加状态。“当前输入未找到”不声称作者未报告。
 
 method_or_acquisition：`{description:M?,parameters:O[]}`；参数项同 condition。只写方法名无法补齐模型、参考或参数，未知保留。
 

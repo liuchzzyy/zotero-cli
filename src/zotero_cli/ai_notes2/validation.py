@@ -15,6 +15,17 @@ from zotero_cli.ai_notes2.models import (
     note2_json_schema,
 )
 
+# 记录级关键科学字段：这些位置为 null 时必须逐项登记 field_statuses。
+# 条件、方法参数与结果数值数组项的可选字段不在其中，避免按数组位置要求状态。
+KEY_STATUS_POINTERS = (
+    "/primary_aspect",
+    "/method_or_acquisition/description",
+    "/reported_result/comparison",
+    "/reported_result/uncertainty",
+    "/author_interpretation",
+    "/reference_info",
+)
+
 
 class Note2ValidationError(ValueError):
     """携带 JSON Pointer 的结构错误，可用于有界结构修复。"""
@@ -418,18 +429,11 @@ class _Validator:
                         _fail(path + f"/field_statuses/{number}/reason", "缺失或不适用状态必须说明原因")
                     if status["status"] == "已定位" and not status["source_refs"]:
                         _fail(path + f"/field_statuses/{number}", "已定位字段必须有来源")
-                # 科学字段的显式未知必须逐字段登记，状态记录自身不递归要求状态。
-                for field in (
-                    "primary_aspect",
-                    "object_and_conditions",
-                    "method_or_acquisition",
-                    "reported_result",
-                    "author_interpretation",
-                    "reference_info",
-                ):
-                    for pointer, value in _walk(record[field], "/" + field):
-                        if value is None and pointer not in statuses:
-                            _fail(path + pointer, "未知科学字段必须有对应 field_statuses")
+                # 只有记录级关键字段的 null 必须逐项登记；条件、参数和数值数组项的可选字段
+                # 留空属于正常表达，不要求为每个数组位置追加状态。
+                for pointer in KEY_STATUS_POINTERS:
+                    if _resolve_pointer(record, pointer, path + pointer) is None and pointer not in statuses:
+                        _fail(path + pointer, "未知科学字段必须有对应 field_statuses")
                 interpretation = record["author_interpretation"]
                 if interpretation is not None and interpretation["mode"] == "ref":
                     ref = interpretation["ref"]

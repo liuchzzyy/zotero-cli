@@ -604,6 +604,35 @@ def test_missing_scientific_fields_need_status_but_arbitrary_numbers_are_allowed
         allocate_indexes(document)
 
 
+def test_optional_fields_inside_condition_and_value_arrays_need_no_status(document):
+    """条件、参数与数值项的可选字段留空属于正常表达，不按数组位置要求状态。"""
+    evidence = document["evidence"]["evidence_records"][0]
+    condition = {"name": "电流密度", "raw_value": "1.0", "unit_raw": None, "applies_to": "样品 A", "source_refs": []}
+    evidence["object_and_conditions"]["conditions"] = [condition]
+    evidence["method_or_acquisition"]["parameters"] = [dict(condition, name="电压窗口")]
+    evidence["reported_result"]["values"] = [
+        {
+            "quantity": "比容量",
+            "raw_value": "187.2",
+            "unit_raw": None,
+            "normalization_basis": None,
+            "applies_to": "样品 A",
+            "source_refs": [],
+        }
+    ]
+    allocate_indexes(document)
+
+
+def test_record_level_unknown_fields_still_require_status(document):
+    """记录级关键字段的 null 仍必须逐项登记状态。"""
+    evidence = document["evidence"]["evidence_records"][0]
+    evidence["field_statuses"] = [
+        status for status in evidence["field_statuses"] if status["path"] != "/reported_result/uncertainty"
+    ]
+    with pytest.raises(Note2ValidationError, match="field_statuses"):
+        allocate_indexes(document)
+
+
 @pytest.mark.parametrize(
     "mutation", ["no_reviews", "wrong_scope", "wrong_domain", "unknown_unit", "unknown_finding", "no_inputs"]
 )
