@@ -103,6 +103,25 @@ def test_svg_does_not_mark_conditional_review_as_positive(allocated):
     assert _reliability(allocated.__class__(data), edge["index"])[0] == "dashed"
 
 
+def test_svg_accepts_review_targeting_a_source(document):
+    from zotero_cli.ai_notes2.validation import allocate_indexes
+
+    review = document["review"]["review_items"][0]
+    source = review["basis_refs"][0]["ref"]
+    review["primary_target_ref"] = source
+    document["review"]["coverage_records"][0]["target_refs"] = [source]
+    document["review"]["coverage_scope"]["units"][0]["target_refs"] = [source]
+    allocated = allocate_indexes(document)
+    from zotero_cli.ai_notes2.reading import build_reading_sections
+
+    rendered = "\n".join(text for _, text in build_reading_sections(allocated, None))
+    assert "定点审查 RC-Q001" in rendered
+    assert "SYNATT01 / B001" in rendered
+    svg = render_svg(allocated)
+    assert "RC-Q001" in svg
+    assert "B001" in svg
+
+
 def test_compact_note_and_thought_view_keep_visible_identities(allocated):
     markdown = render_markdown(allocated)
     thought = render_chain_markdown(allocated, "thought")

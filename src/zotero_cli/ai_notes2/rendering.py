@@ -89,7 +89,10 @@ def _reliability(document: Note2Document, index: str) -> tuple[str, str]:
             coverage = coverages.get(ref["target_id"])
             if coverage is None or coverage["check_status"] != "已检查":
                 continue
-            if not any(target["target_id"] == edge["edge_id"] for target in coverage["target_refs"]):
+            if not any(
+                target.get("kind") == "object" and target["target_id"] == edge["edge_id"]
+                for target in coverage["target_refs"]
+            ):
                 continue
             for question_ref in coverage["review_refs"]:
                 question_id = question_ref["target_id"]
@@ -97,7 +100,7 @@ def _reliability(document: Note2Document, index: str) -> tuple[str, str]:
                 if (
                     question_id in reviewed
                     and question is not None
-                    and question["primary_target_ref"]["target_id"] == edge["edge_id"]
+                    and (question["primary_target_ref"] or {}).get("target_id") == edge["edge_id"]
                     and question["finding_status"] == "未发现明确问题"
                 ):
                     return "solid", conclusion
@@ -423,7 +426,7 @@ def render_svg(document: Note2Document) -> str:
         # 审查与候选旁挂，使用细灰线与明确标注，不冒充支持路径。
         for record in data["review"]["review_items"]:
             target = record.get("primary_target_ref")
-            if target and target["target_id"] == core["node_id"]:
+            if target and target.get("target_id") == core["node_id"]:
                 parts.append(
                     f'<text x="{head_x - 150}" y="{core_y + 54}" font-size="9" fill="#777">'
                     f"{_esc(record['index'])} 审查旁挂</text>"
@@ -462,8 +465,15 @@ def render_svg(document: Note2Document) -> str:
         row_y += 24
     for item in review_rows:
         target = item["primary_target_ref"] or {}
+        if target.get("kind") == "source":
+            location = target["source_ref"]
+            target_label = f"{location['attachment_key']} / {location['block_id']}"
+        elif target.get("kind") == "criterion":
+            target_label = f"{target['criterion_source_id']} / {target['location_id']}"
+        else:
+            target_label = target.get("target_id", "未指定")
         parts.append(
-            f'<text x="40" y="{row_y}" font-size="11">{_esc(item["index"])} 审查 {_esc(item["review_id"])} → {_esc(target.get("target_id", "来源"))}｜{_esc(item["finding_status"] or "待核")}</text>'
+            f'<text x="40" y="{row_y}" font-size="11">{_esc(item["index"])} 审查 {_esc(item["review_id"])} → {_esc(target_label)}｜{_esc(item["finding_status"] or "待核")}</text>'
         )
         row_y += 24
     parts.append("</svg>")

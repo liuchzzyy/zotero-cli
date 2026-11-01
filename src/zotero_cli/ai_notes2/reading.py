@@ -50,9 +50,18 @@ def build_reading_sections(document: Note2Document, verification: dict[str, Any]
         item = verdicts.get(identifier)
         return f"来源评估：{item['status']}；{item['note']}" if item else "来源评估：未提供。"
 
+    displayed_reviews: set[str] = set()
+
     def put_question(question: dict[str, Any]) -> None:
+        displayed_reviews.add(question["review_id"])
         actual = question.get("primary_target_ref") or {}
-        target = actual.get("target_id", "来源对象") + (".bridge" if actual.get("target_field") == "bridge" else "")
+        if actual.get("kind") == "source":
+            location = actual["source_ref"]
+            target = f"{location['attachment_key']} / {location['block_id']}"
+        elif actual.get("kind") == "criterion":
+            target = f"{actual['criterion_source_id']} / {actual['location_id']}"
+        else:
+            target = actual.get("target_id", "未指定") + (".bridge" if actual.get("target_field") == "bridge" else "")
         sections.append(
             (
                 0,
@@ -172,6 +181,9 @@ def build_reading_sections(document: Note2Document, verification: dict[str, Any]
                     for ref in refs
                 ):
                     put_question(question)
+    for question in questions:
+        if question["review_id"] not in displayed_reviews:
+            put_question(question)
     for candidate in thought["candidate_records"] + evidence["candidate_mappings"]:
         if candidate["decision"] == "pending":
             sections.append((0, f"候选待核：{candidate['unresolved_description']}。"))
