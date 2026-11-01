@@ -126,10 +126,14 @@ context = 250000
 per_image = 4096
 [ai_notes2]
 template = "evidence-chain"
-repair_attempts = 1
+# 三链输出很长，单轮修复常常只改好第一处；给模型多轮机会以覆盖剩余结构错误。
+repair_attempts = 3
 note_title_prefix = "框架分析 - "
 evidence_tag = "ai/evidence"
 [ai_notes2.appearance]
+heading_color = "#17365D"
+accent_color = "#245A8D"
+background_color = "#EAF2FA"
 min_width = 1000
 min_height = 520
 branch_spacing = 320

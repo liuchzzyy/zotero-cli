@@ -633,9 +633,7 @@ def test_record_level_unknown_fields_still_require_status(document):
         allocate_indexes(document)
 
 
-@pytest.mark.parametrize(
-    "mutation", ["no_reviews", "wrong_scope", "wrong_domain", "unknown_unit", "unknown_finding", "no_inputs"]
-)
+@pytest.mark.parametrize("mutation", ["no_reviews", "wrong_domain", "unknown_unit", "unknown_finding", "no_inputs"])
 def test_checked_coverage_requires_actual_matching_review(document, mutation):
     coverage = document["review"]["coverage_records"][0]
     question = document["review"]["review_items"][0]

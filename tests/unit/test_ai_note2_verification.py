@@ -135,6 +135,36 @@ def test_supported_item_type_constant_is_journal_article():
     assert SUPPORTED_ITEM_TYPE == "journalArticle"
 
 
+def test_external_criterion_is_not_required_to_cite_paper_pdf(document):
+    from zotero_cli.ai_notes2.validation import allocate_indexes
+
+    document["review"]["criterion_source_set_id"] = "external-set"
+    document["review"]["criterion_sources"] = [
+        {
+            "criterion_source_id": "criterion",
+            "record_meta": {"state": "active", "replaces": [], "replaced_by": [], "note": None},
+            "source_identity": {
+                "creators": [],
+                "title": "判准来源",
+                "year": None,
+                "doi": None,
+                "standard_id": None,
+                "url": None,
+            },
+            "edition_or_version": None,
+            "source_revision": 1,
+            "content_snapshot_ref": None,
+            "retrieved_at": None,
+            "access_scope": "仅书目信息",
+            "check_status": "待核对",
+            "locations": [],
+            "purpose_note": "待查的外部判准",
+        }
+    ]
+    allocated = allocate_indexes(document)
+    assert verification.check_sources(allocated, _snapshot(document)) == []
+
+
 def test_program_level_check_rejects_excerpt_not_from_frozen_block(allocated, document):
     snapshot = _snapshot(document)
     assert verification.check_sources(allocated, snapshot) == []
@@ -155,6 +185,53 @@ def test_program_level_check_flags_unknown_figure(allocated, document):
     snapshot.source_blocks[0]["figure_ids"] = []
     errors = verification.check_sources(allocated, snapshot)
     assert any("图" in item for item in errors)
+
+
+def test_verification_accepts_single_json_fence_and_checks_contract():
+    from zotero_cli.ai_notes2.validation import Note2ValidationError
+
+    raw = '```json\n{"verdicts": [{"object_id": "X", "status": "无法核对", "source_refs": [], "note": "待核"}]}\n```'
+    assert verification._parse_verdicts(raw, {"X": set()})[0]["object_id"] == "X"
+    with pytest.raises(Note2ValidationError):
+        verification._parse_verdicts(raw, {"Y": set()})
+    with pytest.raises(Note2ValidationError):
+        verification._parse_verdicts(raw + " extra", {"X": set()})
+
+
+def test_diagnostic_artifacts_preserve_generated_document_and_raw(tmp_path):
+    from zotero_cli.ai_notes2.execution import _write_diagnostic
+
+    directory = tmp_path / "diagnostic"
+    _write_diagnostic(directory, "generated.json", '{"a":1}')
+    _write_diagnostic(directory, "verification-response.txt", "not-json")
+    assert (directory / "generated.json").read_text() == '{"a":1}'
+    assert (directory / "verification-response.txt").read_text() == "not-json"
+    assert (directory.stat().st_mode & 0o077) == 0
+    assert ((directory / "verification-response.txt").stat().st_mode & 0o077) == 0
+    with pytest.raises(FileExistsError):
+        _write_diagnostic(directory, "generated.json", "replacement")
+
+
+def test_failed_verification_retains_raw_response(allocated, document, monkeypatch):
+    snapshot = _snapshot(document)
+    monkeypatch.setattr(verification, "model_supports_request", lambda *args, **kwargs: True)
+
+    class Client:
+        config = type("Config", (), {"model": "m", "max_tokens": 0})()
+        last_model = "m"
+        last_finish_reason = "stop"
+        last_usage = None
+
+        def get_model_chain(self):
+            return ["m"]
+
+        def chat(self, prompt, **kwargs):
+            return "not-json"
+
+    captured = []
+    with pytest.raises(Exception):
+        verification.verify_document(allocated, snapshot, client=Client(), response_sink=captured.append)
+    assert captured == ["not-json"]
 
 
 def test_model_verification_marks_unsupported_without_rewriting(allocated, document, monkeypatch):

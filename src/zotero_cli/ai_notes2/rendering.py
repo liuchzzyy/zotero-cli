@@ -14,7 +14,9 @@ from typing import Any
 
 from zotero_cli.ai_notes2.indexing import build_object_index
 from zotero_cli.ai_notes2.models import RECORD_TABLES, Note2Document
+from zotero_cli.ai_notes2.reading import build_reading_sections
 from zotero_cli.ai_notes2.validation import resolve_index, validate_document, validate_object_index
+from zotero_cli.config.runtime import section
 
 _CHAIN_TITLES = {"thought": "思维链", "evidence": "证据链", "review": "审查链"}
 _FLAG_LABELS = {
@@ -64,6 +66,13 @@ def _reliability(document: Note2Document, index: str) -> tuple[str, str]:
     if edge is None:
         return "dashed", "无对应支持关系，待核"
     reviews = {row["review_id"]: row for row in data["review"]["review_items"]}
+    if any(
+        row["record_meta"]["state"] == "active"
+        and (row.get("primary_target_ref") or {}).get("target_id") == edge["edge_id"]
+        and row["finding_status"] != "未发现明确问题"
+        for row in reviews.values()
+    ):
+        return "dashed", "支持关系存在疑点或尚未判断，待核"
     coverages = {row["coverage_id"]: row for row in data["review"]["coverage_records"]}
     for assessment in data["review"]["claim_assessments"]:
         if assessment["target_ref"]["target_id"] != edge["to_node_id"] or assessment["unassessed_parts"]:
@@ -89,7 +98,7 @@ def _reliability(document: Note2Document, index: str) -> tuple[str, str]:
                     question_id in reviewed
                     and question is not None
                     and question["primary_target_ref"]["target_id"] == edge["edge_id"]
-                    and question["finding_status"] not in {None, "当前无法判断"}
+                    and question["finding_status"] == "未发现明确问题"
                 ):
                     return "solid", conclusion
     return "dashed", "支持关系尚无完整正向审查，待核"
@@ -162,72 +171,18 @@ def _metadata_lines(data: dict[str, Any], index: dict[str, Any]) -> list[str]:
 
 
 def render_markdown(document: Note2Document, *, verification: dict[str, Any] | None = None) -> str:
-    """生成适合 Zotero 的紧凑总览，不在单文件里展开全部三链字段。"""
-    data = document.to_dict()
-    index = _object_index(document, verification)
-    lines = [
-        f"# 框架分析 - {data['parent_item_key']}",
-        "",
-        "## 运行与边界",
-        "",
-        *_metadata_lines(data, index),
-        "- 权威源：`analysis.json`；本 note 与 `object-index.json` 均为可重建视图。",
-        "- 输入只包含文本、表格／公式文字、图注和脚注；未检查图像像素。",
-        "- 结构和来源定位通过不表示科学正确；模型来源评估不替代 RC 科学审查。",
-        "",
-        "## 索引摘要",
-        "",
-        f"- 对象 {index['counts']['objects']}；类型化关系 {index['counts']['relations']}。",
-    ]
-    flags = index["counts"]["flags"]
-    attention = [
-        f"{_flag_label(flag)} {count}"
-        for flag, count in flags.items()
-        if flag
-        in {
-            "unresolved_candidate",
-            "missing_context",
-            "unlinked_evidence",
-            "unassessed_claim",
-            "source_assessment_attention",
-            "source_assessment_absent",
-        }
-    ]
-    lines.append("- 需注意：" + ("；".join(attention) if attention else "无索引级警示"))
-    lines.extend(["", "## 类型化连接", ""])
-    if index["relations"]:
-        for relation in index["relations"]:
-            lines.append(
-                f"- `{relation['relation_id']}`：{_relation_label(relation)}；依据对象 "
-                f"`{relation['source_object_id']}`。"
+    """按论点组织可阅读的三链视图。"""
+    _object_index(document, verification)
+    colors = section("ai_notes2")["appearance"]
+    lines = [f"# 框架分析 - {document.to_dict()['parent_item_key']}", ""]
+    for level, text in build_reading_sections(document, verification):
+        if level:
+            color = colors["heading_color"] if level == 2 else colors["accent_color"]
+            lines.extend(
+                [f'{"#" * level} <span style="color:{html.escape(color, quote=True)}">{html.escape(text)}</span>', ""]
             )
-    else:
-        lines.append("- 无已登记关系；不为使图形完整而补边。")
-    for chain in ("thought", "evidence", "review"):
-        lines.extend(["", f"## {_CHAIN_TITLES[chain]}索引", ""])
-        entries = [entry for entry in index["objects"] if entry["chain"] == chain]
-        if not entries:
-            lines.append("- 无对象。")
-            continue
-        for entry in entries:
-            sources = "；".join(_source_labels(entry)) or "通过对象引用回溯"
-            flags_text = "、".join(_flag_label(flag) for flag in entry["flags"]) or "无"
-            lines.append(
-                f"- **{entry['short_id']}** `{entry['object_type']}`｜{_md(entry['summary'])}；"
-                f"状态 {entry['state']}；标记 {flags_text}；来源 {sources}；"
-                f"来源评估 {_assessment_label(entry)}；完整对象 `{entry['full_object_pointer']}`。"
-            )
-    lines.extend(
-        [
-            "",
-            "## 本地详细视图",
-            "",
-            "- `overview.md`：论文级概览与对象总索引。",
-            "- `thought.md` / `evidence.md` / `review.md`：分链字段和来源展开。",
-            "- `tree.svg`：辅助图；线型只表示已声明审查范围内的状态。",
-            "",
-        ]
-    )
+        else:
+            lines.extend([html.escape(text), ""])
     return "\n".join(lines)
 
 
@@ -372,47 +327,16 @@ def render_chain_markdown(
 
 
 def render_html(document: Note2Document, *, title: str, verification: dict[str, Any] | None = None) -> str:
-    """生成 Zotero 可用的静态紧凑 HTML，不依赖脚本、SVG 或锚点。"""
-    data = document.to_dict()
-    index = _object_index(document, verification)
-    body = [
-        f"<h1>{_esc(title)}</h1>",
-        "<h2>运行与边界</h2>",
-        f"<p>库 {_esc(data['library_ref']['library_type'])}:{_esc(data['library_ref']['library_id'])}；"
-        f"父条目 {_esc(data['parent_item_key'])}；运行 {data['run_number']:04d}；"
-        f"运行标识 {_esc(data['parent_item_key'])}-{data['run_number']:04d}-。</p>",
-        "<p><strong>权威源：</strong>analysis.json。本 note 是可重建视图。"
-        "输入不含图像像素；结构、来源定位或模型判定都不证明科学正确。</p>",
-        f"<p>对象 {index['counts']['objects']}；类型化关系 {index['counts']['relations']}；"
-        f"模型来源评估 {index['validation_scope']['model_source_assessment']}。</p>",
-        "<h2>类型化连接</h2>",
-        "<ul>",
-    ]
-    if index["relations"]:
-        for relation in index["relations"]:
-            body.append(
-                f"<li><strong>{_esc(relation['relation_id'])}</strong>："
-                f"{_esc(_relation_label(relation))}；依据 {_esc(relation['source_object_id'])}。</li>"
-            )
-    else:
-        body.append("<li>无已登记关系；不为图形完整而补边。</li>")
-    body.append("</ul>")
-    for chain in ("thought", "evidence", "review"):
-        body.extend([f"<h2>{_esc(_CHAIN_TITLES[chain])}索引</h2>", "<ul>"])
-        entries = [entry for entry in index["objects"] if entry["chain"] == chain]
-        if not entries:
-            body.append("<li>无对象。</li>")
-        for entry in entries:
-            flags = "、".join(_flag_label(flag) for flag in entry["flags"]) or "无"
-            sources = "；".join(_source_labels(entry)) or "通过对象引用回溯"
-            body.append(
-                f"<li><strong>{_esc(entry['short_id'])}</strong> [{_esc(entry['object_type'])}]："
-                f"{_esc(entry['summary'])}。状态 {_esc(entry['state'])}；标记 {_esc(flags)}；"
-                f"来源 {_esc(sources)}；来源评估 {_esc(_assessment_label(entry))}；"
-                f"完整对象 {_esc(entry['full_object_pointer'])}。</li>"
-            )
-        body.append("</ul>")
-    body.append("<p>本地 overview.md 和 thought.md / evidence.md / review.md 提供详细视图；tree.svg 仅作辅助图。</p>")
+    """生成与 Markdown 同内容的 Zotero 静态视图。"""
+    _object_index(document, verification)
+    colors = section("ai_notes2")["appearance"]
+    body = [f'<h1 style="color:{_esc(colors["heading_color"])}">{_esc(title)}</h1>']
+    for level, text in build_reading_sections(document, verification):
+        if level:
+            color = colors["heading_color"] if level == 2 else colors["accent_color"]
+            body.append(f'<h{level} style="color:{_esc(color)}">{_esc(text)}</h{level}>')
+        else:
+            body.append(f"<p>{_esc(text)}</p>")
     return "\n".join(body)
 
 
@@ -426,7 +350,10 @@ def render_svg(document: Note2Document) -> str:
 
     width = max(1000, 320 + 340 * max(1, len(branches)))
     unit_height = 220
-    height = max(520, 180 + unit_height * max(1, len(cores)))
+    graph_height = max(520, 180 + unit_height * max(1, len(cores)))
+    evidence_rows = [row for row in data["evidence"]["evidence_records"] if row["record_meta"]["state"] == "active"]
+    review_rows = [row for row in data["review"]["review_items"] if row["record_meta"]["state"] == "active"]
+    height = graph_height + 65 + 24 * (len(evidence_rows) + len(review_rows))
     parts: list[str] = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
         f'viewBox="0 0 {width} {height}" role="img" aria-label="三链鱼骨图">',
@@ -434,7 +361,7 @@ def render_svg(document: Note2Document) -> str:
         '<path d="M0,0 L8,4 L0,8 z" fill="#555"/></marker></defs>',
         '<rect width="100%" height="100%" fill="#ffffff"/>',
     ]
-    y_center = height // 2
+    y_center = graph_height // 2
     head_x = 200
     tail_x = width - 60
     parts.append(
@@ -483,9 +410,11 @@ def render_svg(document: Note2Document) -> str:
                 f'<text x="{bx}" y="{by + 22}" font-size="9" fill="#666">'
                 f"{'实线' if style == 'solid' else '虚线（待核）'}：{_esc(reason)}</text>"
             )
-            for reason_node in [r for r in reasons if _supports(data, r["node_id"], branch["node_id"])]:
-                rx = bx + 40
-                ry = by - 70 if up else by + 70
+            for r_idx, reason_node in enumerate(
+                [r for r in reasons if _supports(data, r["node_id"], branch["node_id"])]
+            ):
+                rx = bx + 30 + r_idx * 40
+                ry = by - 70 - r_idx * 25 if up else by + 70 + r_idx * 25
                 parts.append(
                     f'<line x1="{rx}" y1="{ry}" x2="{bx}" y2="{by}" stroke="#7a8f7f" '
                     'stroke-width="1" stroke-dasharray="4 4"/>'
@@ -501,6 +430,42 @@ def render_svg(document: Note2Document) -> str:
                 )
     if not cores:
         parts.append('<text x="60" y="60" font-size="14">原文未形成可靠核心论点；候选记录见笔记。</text>')
+    parts.append(
+        f'<text x="40" y="{graph_height + 25}" font-size="14" fill="#17365D">证据与审查索引（关系以编号标明）</text>'
+    )
+    row_y = graph_height + 50
+    groups = {g["use_group_id"]: g for g in data["evidence"]["use_groups"] if g["record_meta"]["state"] == "active"}
+    for item in evidence_rows:
+        links = [
+            m
+            for m in data["evidence"]["mappings"]
+            if m["record_meta"]["state"] == "active"
+            and (
+                m["subject_ref"]["target_id"] == item["evidence_id"]
+                or any(
+                    member["evidence_id"] == item["evidence_id"]
+                    for member in groups.get(m["subject_ref"]["target_id"], {}).get("members", [])
+                )
+            )
+        ]
+        targets = (
+            "；".join(
+                f"{m['mapping_id']}（主体 {m['subject_ref']['target_id']}） → {m['target_ref']['target_id']}"
+                + (".bridge" if m["target_ref"]["target_field"] == "bridge" else "")
+                for m in links
+            )
+            or "无已登记用途关联"
+        )
+        parts.append(
+            f'<text x="40" y="{row_y}" font-size="11">{_esc(item["index"])} 证据 {_esc(item["evidence_id"])}｜{_esc(targets)}</text>'
+        )
+        row_y += 24
+    for item in review_rows:
+        target = item["primary_target_ref"] or {}
+        parts.append(
+            f'<text x="40" y="{row_y}" font-size="11">{_esc(item["index"])} 审查 {_esc(item["review_id"])} → {_esc(target.get("target_id", "来源"))}｜{_esc(item["finding_status"] or "待核")}</text>'
+        )
+        row_y += 24
     parts.append("</svg>")
     return "\n".join(parts)
 

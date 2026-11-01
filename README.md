@@ -248,7 +248,7 @@ uv run zot ai-note ITEMKEY --idempotency-key analyze-ITEMKEY-001
 
 ## 三链框架分析笔记（ai-note2）
 
-`ai-note2` 在已有 AI 分析笔记的基础上，单阶段生成思维链、证据链与审查链，并渲染鱼骨状 SVG。没有可识别的旧 AI 分析笔记时正常跳过，不解析 PDF、不调用模型、不写 Zotero。首版只支持 `itemType=journalArticle`；综述、书籍、会议论文等其他类型返回 `validation_error`，不套用该模板。
+`ai-note2` 在已有 AI 分析笔记的基础上，单阶段生成思维链、证据链与审查链，输出采用蓝色主调，生成以论点为中枢的一体化分析视图，并在发布时将鱼骨状 SVG 作为独立文件附件上传至该论文。没有可识别的旧 AI 分析笔记时正常跳过，不解析 PDF、不调用模型、不写 Zotero。首版只支持 `itemType=journalArticle`；综述、书籍、会议论文等其他类型返回 `validation_error`，不套用该模板。生成文本遵循 ASD-STE100 清晰写作原则。
 
 ```bash
 # 预览所选旧笔记、PDF 附件、输入范围与预算；不调用分析模型、不写 Zotero
@@ -277,7 +277,7 @@ uv run zot ai-note2 ITEMKEY --force --idempotency-key RUNKEY
 - 生成后执行第二步核对：程序先确认每条来源定位、原文片段与图号都来自本次冻结块（不一致直接失败），再由模型逐条复核陈述是否被原文支持；每个核对来源必须用 `source_set_id + attachment_key + block_id` 三元组，避免多附件中重复块号混淆。核对响应缺项、重复对象或引用未登记来源会失败。模型判定为“部分支持/不支持/无法核对”的对象不会阻止发布，但会写入 `run.json` 与派生视图，标记为待人工复核。
 - `--reconcile` 在创建响应未知时查找远端同父条目的运行标识；只有唯一匹配才继续核对并补标签。没有匹配仍保留未知状态，不自动重新创建。
 - `analysis.json` 是唯一完整科学内容源。`object-index.json` 用分析摘要、运行身份和完整对象指针派生紧凑索引，明确投影支持、证据用途、处理派生、共享来源、联合使用、候选与审查关系；它可删除重建，不是第二份科学记录。
-- 本地产物另包含 `overview.md`、`thought.md`、`evidence.md`、`review.md`、紧凑 `note.md` / `note.html`、`tree.svg` 和 `run.json`。三链字段分文件展开，跨链关系在总览与索引中显式呈现；共享对象只按同一 ID 引用，未关联证据、未评议论点和未解候选不会被隐藏。Zotero HTML 仅使用静态标题、段落和列表，不依赖 JavaScript、SVG 或复杂锚点。
+- 本地产物包含 `overview.md`、`thought.md`、`evidence.md`、`review.md`、一体化 `note.md` / `note.html`、`tree.svg`、`*.tree.svg` 和 `run.json`。`note.md` 与 `note.html` 采用蓝色主调，按论点组织报告材料、作者推理与定点审查，生成语言遵循 ASD-STE100 清晰写作要求；发布时除 child note 与 `ai/evidence` 标签外，将 SVG 上传为父条目的独立文件附件并回读确认。Zotero HTML 仅使用静态标题、段落和列表，不依赖 JavaScript、SVG 或复杂锚点。
 - 索引中分开记录 schema/引用校验、冻结来源一致性、模型来源评估和 RC 科学审查。引用合法、模型判定或图注图号都不表示科学正确或已查看图像像素；缺失核对显式记为 `absent`。
 - 产物先写临时文件再原子替换。全局 index 形如 `ITEMKEY-0001-0001`，跨 TC/EC/RC 唯一；推理桥使用支持链 index 加 `.bridge`，不占新对象号。
 - 发布后必须回读 note 与父条目 `ai/evidence` 才记 `verified`。note 已创建但标签写入、回读或账本保存失败时保留 `committed=true` 与已知 note key，恢复时只补未完成步骤，不重复创建 note。

@@ -427,6 +427,28 @@ class ZoteroWriter:
         except PyZoteroError as error:
             raise _friendly_api_error(error) from error
 
+    def download_attachment(self, key: str) -> bytes:
+        """读取远端附件字节，用于确认未知上传结果。"""
+        try:
+            return self._zot.file(key)
+        except httpx2.HTTPError as error:
+            raise self._network_error(error) from error
+        except PyZoteroError as error:
+            raise _friendly_api_error(error) from error
+
+    def read_child_attachments(self, parent_key: str) -> list[dict]:
+        """读取父条目的全部远端附件，用于核对未知上传结果。"""
+        try:
+            return list(self._zot.everything(self._zot.children(parent_key, itemType="attachment", limit=100)))
+        except ResourceNotFoundError:
+            raise ZoteroWriteError(
+                f"Parent item '{parent_key}' not found", code="not_found", retryable=False, committed=False
+            )
+        except httpx2.HTTPError as error:
+            raise self._network_error(error) from error
+        except PyZoteroError as error:
+            raise _friendly_api_error(error) from error
+
     def add_tags(self, key: str, tags: list[str]) -> None:
         """为条目添加标签，并保留已有的标签名。"""
         try:

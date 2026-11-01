@@ -11,6 +11,7 @@ import json
 import sqlite3
 import sys
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -273,6 +274,7 @@ def reconcile_run(
         run_number=run_number,
         item_key=item_key,
         html_note="",
+        svg_path=Path(json.loads(latest["data"])["svg_path"]),
         reconciled_note_key=str(note_key),
     )
 
@@ -282,6 +284,8 @@ class PublishResult:
     """发布结果；committed 表示远端可能已有写入。"""
 
     note_key: str
+    attachment_key: str
+    attachment_content_verified: bool
     tagged: bool
     verified: bool
     needs_reconcile: bool
@@ -295,10 +299,25 @@ def publish_document(
     run_number: int,
     item_key: str,
     html_note: str,
+    svg_path: Path,
     reconciled_note_key: str | None = None,
 ) -> PublishResult:
     """创建 note、回读确认、追加标签并核对；失败保留明确的对账状态。"""
     note_key = reconciled_note_key
+    saved = latest_run(scope)
+    state = json.loads(saved["data"]) if saved else {}
+    if note_key is None:
+        digest = sha256(svg_path.read_bytes()).hexdigest()
+        update_run(
+            scope,
+            run_number,
+            data={
+                "svg_path": str(svg_path),
+                "svg_name": svg_path.name,
+                "svg_sha256": digest,
+                "attachment_state": "pending",
+            },
+        )
     if note_key is None:
         update_run(scope, run_number, status=STATUS_PUBLISHING, committed=True)
         try:
@@ -358,8 +377,103 @@ def publish_document(
             committed=True,
             hint_key="publish_mismatch",
         )
+    saved = latest_run(scope)
+    state = json.loads(saved["data"]) if saved else {}
+    attachment_key = state.get("attachment_key")
+    content_verified = bool(state.get("attachment_content_verified", False))
+    if not attachment_key and state.get("attachment_state") == "unknown":
+        try:
+            attachments = writer.read_child_attachments(item_key)
+        except ZoteroWriteError as exc:
+            raise AiNote2Error(
+                "附件结果未知，读取远端失败", code=exc.code, committed=True, hint_key="attachment_unknown"
+            ) from exc
+        matches = [a for a in attachments if a.get("data", {}).get("filename") == state["svg_name"]]
+        if len(matches) != 1 or not matches[0].get("key"):
+            raise AiNote2Error(
+                "附件结果未知，远端匹配数量不唯一；请核对",
+                code="conflict",
+                committed=True,
+                hint_key="attachment_unknown",
+            )
+        attachment_key = matches[0]["key"]
+        try:
+            remote_bytes = writer.download_attachment(attachment_key)
+        except ZoteroWriteError as exc:
+            raise AiNote2Error(
+                "附件元数据已存在，但无法确认远端文件内容；请核对",
+                code=exc.code,
+                committed=True,
+                hint_key="attachment_unknown",
+            ) from exc
+        if sha256(remote_bytes).hexdigest() != state.get("svg_sha256"):
+            raise AiNote2Error(
+                "远端附件内容缺失或摘要不符；请核对", code="conflict", committed=True, hint_key="attachment_unknown"
+            )
+        content_verified = True
+        update_run(
+            scope,
+            run_number,
+            status=STATUS_RECONCILE,
+            data={"attachment_key": attachment_key, "attachment_content_verified": True},
+        )
+    if not attachment_key:
+        if not svg_path.is_file() or sha256(svg_path.read_bytes()).hexdigest() != state.get("svg_sha256"):
+            raise AiNote2Error(
+                "SVG 文件缺失或摘要变化；请核对", code="validation_error", committed=True, hint_key="attachment_missing"
+            )
+        update_run(
+            scope, run_number, status=STATUS_RECONCILE, data={"note_verified": True, "attachment_state": "unknown"}
+        )
+        try:
+            attachment_key = writer.upload_attachment(item_key, svg_path)
+        except ZoteroWriteError as exc:
+            update_run(
+                scope,
+                run_number,
+                status=STATUS_RECONCILE,
+                data={"attachment_state": "unknown" if exc.committed else "rejected", "attachment_error": exc.code},
+            )
+            raise AiNote2Error(
+                "note 已创建，SVG 上传失败；请对账",
+                code=exc.code,
+                committed=True,
+                hint_key="attachment_unknown" if exc.committed else "attachment_rejected",
+            ) from exc
+        update_run(
+            scope,
+            run_number,
+            status=STATUS_RECONCILE,
+            data={"attachment_key": attachment_key, "attachment_state": "created"},
+        )
+    try:
+        remote_attachment = writer.read_item(attachment_key)
+    except ZoteroWriteError as exc:
+        raise AiNote2Error(
+            "SVG 已上传，但附件回读失败", code=exc.code, committed=True, hint_key="attachment_unknown"
+        ) from exc
+    att = remote_attachment.get("data", {})
+    if (
+        att.get("itemType") != "attachment"
+        or att.get("parentItem") != item_key
+        or att.get("filename") != state["svg_name"]
+        or att.get("contentType") != "image/svg+xml"
+    ):
+        raise AiNote2Error(
+            "SVG 附件回读不一致；请核对", code="conflict", committed=True, hint_key="attachment_mismatch"
+        )
     update_run(
-        scope, run_number, status=STATUS_TAGGING, note_key=note_key, committed=True, data={"note_verified": True}
+        scope,
+        run_number,
+        status=STATUS_TAGGING,
+        note_key=note_key,
+        committed=True,
+        data={
+            "note_verified": True,
+            "attachment_state": "verified",
+            "attachment_key": attachment_key,
+            "attachment_content_verified": content_verified,
+        },
     )
 
     try:
@@ -412,10 +526,20 @@ def publish_document(
             "item_key": item_key,
             "run_number": run_number,
             "note_key": note_key,
+            "attachment_key": attachment_key,
+            "attachment_content_verified": content_verified,
             "tag": _evidence_tag(),
             "tagged": True,
             "verified": True,
             "needs_reconcile": False,
         },
     )
-    return PublishResult(note_key=note_key, tagged=True, verified=True, needs_reconcile=False, message="")
+    return PublishResult(
+        note_key=note_key,
+        attachment_key=attachment_key,
+        attachment_content_verified=content_verified,
+        tagged=True,
+        verified=True,
+        needs_reconcile=False,
+        message="",
+    )

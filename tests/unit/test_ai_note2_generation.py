@@ -55,12 +55,65 @@ def allocated(document):
     return allocate_indexes(document)
 
 
+def test_missing_required_node_field_returns_repair_error(document):
+    from zotero_cli.ai_notes2.generation import _candidate_errors
+
+    snapshot = _snapshot(document)
+    payload = _payload(document)
+    del payload["thought"]["nodes"][0]["node_type"]
+    result, errors = _candidate_errors(json.dumps(payload, ensure_ascii=False), snapshot, 1)
+    assert result is None
+    assert any("node_type" in error for error in errors)
+
+
+def test_unlinked_evidence_keeps_its_review_and_global_ids(allocated):
+    from zotero_cli.ai_notes2.reading import build_reading_sections
+
+    data = allocated.to_dict()
+    data["evidence"]["mappings"] = []
+    evidence = data["evidence"]["evidence_records"][0]
+    review = data["review"]["review_items"][0]
+    text = "\n".join(text for _, text in build_reading_sections(allocated.__class__(data), None))
+    assert evidence["index"] in text
+    assert review["index"] in text
+    assert text.index(evidence["evidence_id"]) < text.index(review["review_id"])
+
+
+def test_svg_displays_linked_evidence_and_review(allocated):
+    data = allocated.to_dict()
+    svg = render_svg(allocated)
+    assert data["evidence"]["evidence_records"][0]["index"] in svg
+    assert data["review"]["review_items"][0]["index"] in svg
+
+
+def test_svg_does_not_mark_conditional_review_as_positive(allocated):
+    from zotero_cli.ai_notes2.rendering import _reliability
+
+    data = allocated.to_dict()
+    edge = data["thought"]["support_edges"][0]
+    review = data["review"]["review_items"][0]
+    review["primary_target_ref"] = {"kind": "object", "target_id": edge["edge_id"], "target_field": None}
+    review["finding_status"] = "存在条件性疑点"
+    coverage = data["review"]["coverage_records"][0]
+    coverage["target_refs"] = [review["primary_target_ref"]]
+    assessment = data["review"]["claim_assessments"][0]
+    assessment["unassessed_parts"] = []
+    assessment["reliability_statement"]["conclusion"] = "有支持但须限定范围"
+    assessment["supporting_basis"] = [{"ref": {"kind": "object", "target_id": "EC-E001", "target_field": None}}]
+    assert _reliability(allocated.__class__(data), edge["index"])[0] == "dashed"
+
+
 def test_compact_note_and_thought_view_keep_visible_identities(allocated):
     markdown = render_markdown(allocated)
     thought = render_chain_markdown(allocated, "thought")
-    assert "## 思维链索引" in markdown
-    assert "## 证据链索引" in markdown
-    assert "## 审查链索引" in markdown
+    assert '## <span style="color:#17365D">核心论点</span>' in markdown
+    assert "作者推理" in markdown
+    assert "报告材料" in markdown
+    assert "定点审查" in markdown
+    assert markdown.index("TC-N002") < markdown.index("EC-E001") < markdown.index("RC-Q001")
+    assert "TC-L001.bridge" in markdown
+    assert "未有针对该命题的综合评议" in markdown
+    assert "#17365D" in markdown
     assert "[TC-N001｜SYNITEM1-0001-0001]" in thought
     assert "`bridge`" in thought
     assert "argument_support:TC-L001" in thought
@@ -74,6 +127,19 @@ def test_svg_uses_solid_for_supported_and_dashed_by_default(allocated):
     assert "虚线（待核）" in svg
     assert "stroke-dasharray" in svg
     assert "<script" not in svg
+
+
+def test_svg_reasons_do_not_overlap_horizontally_or_vertically(allocated):
+    svg = render_svg(allocated)
+    import re
+
+    # 提取所有理由文本的 y 坐标
+    coords = [
+        float(y)
+        for y in re.findall(r'<text x="[0-9.]+" y="([0-9.]+)" font-size="9">SYNITEM1-0001-[0-9]+ 理由</text>', svg)
+    ]
+    if len(coords) >= 2:
+        assert len(coords) == len(set(coords))
 
 
 def test_positive_assessment_of_node_does_not_certify_unreviewed_edge(allocated):
@@ -138,8 +204,8 @@ def test_html_renders_records_as_readable_fields(allocated):
     assert "```json" not in html_text
     assert "&quot;record_meta&quot;" not in html_text
     assert "EC-E001" in html_text
-    assert "/evidence/evidence_records/0" in html_text
-    assert "思维链索引" in html_text
+    assert "报告材料" in html_text
+    assert "核心论点" in html_text
     assert "SYNITEM1-0001-" in html_text
     assert "<script" not in html_text
 
@@ -189,6 +255,24 @@ def _payload(document: dict, run: int = 1) -> dict:
     return payload
 
 
+def test_normalization_does_not_rewrite_scientific_scope_or_assign_sources(document):
+    from copy import deepcopy
+
+    from zotero_cli.ai_notes2.generation import _normalize_candidate
+
+    data = deepcopy(document)
+    item = data["review"]["review_items"][0]
+    item["review_scope"] = "作者描述的局部范围"
+    assessment = data["review"]["claim_assessments"][0]
+    assessment["reliability_statement"]["scope"] = "受限于特定条件"
+    status = data["evidence"]["evidence_records"][0]["field_statuses"][0]
+    status.update(status="已定位", source_refs=[])
+    _normalize_candidate(data)
+    assert item["review_scope"] == "作者描述的局部范围"
+    assert assessment["reliability_statement"]["scope"] == "受限于特定条件"
+    assert status["source_refs"] == []
+
+
 def test_generation_success_uses_one_text_only_call(document, monkeypatch):
     from zotero_cli.ai_notes2 import generation
 
@@ -203,19 +287,23 @@ def test_generation_success_uses_one_text_only_call(document, monkeypatch):
     assert result.document["object_registry"]
 
 
-def test_generation_repairs_at_most_once(document, monkeypatch):
+def test_generation_repairs_within_configured_attempts(document, monkeypatch):
+    """修复轮次由 repair_attempts 决定；成功即停止，耗尽则报错。"""
     from zotero_cli.ai_notes2 import generation
+    from zotero_cli.config.runtime import section
 
+    attempts = int(section("ai_notes2")["repair_attempts"])
     monkeypatch.setattr(generation, "model_supports_request", lambda *args, **kwargs: True)
     client = FakeClient(["not json", json.dumps(_payload(document), ensure_ascii=False)])
     result = generation.generate_document(client, _snapshot(document), run_number=1)
     assert len(client.calls) == 2
     assert result.repair_used is True
-    client = FakeClient(["not json", "still bad"])
+
+    client = FakeClient(["not json"] + ["still bad"] * attempts)
     with pytest.raises(AiNote2Error) as error:
         generation.generate_document(client, _snapshot(document), run_number=1)
     assert error.value.hint_key == "generation_invalid"
-    assert len(client.calls) == 2
+    assert len(client.calls) == attempts + 1
 
 
 def test_repair_keeps_failed_json_in_the_correction_request(document, monkeypatch):
@@ -232,6 +320,37 @@ def test_repair_keeps_failed_json_in_the_correction_request(document, monkeypatc
     assert result.repair_used
     assert raw in client.calls[1]["prompt"]
     assert "/thought/nodes/0/claim_kind" in client.calls[1]["prompt"]
+    # 修复请求必须明确禁止回显或拼接上一次输出，否则模型会输出两个 JSON 对象。
+    repair = client.calls[1]["prompt"]
+    assert "不得先重复原 JSON" in repair
+    assert "从 `{` 开始、到 `}` 结束" in repair
+
+
+def test_template_marks_type_dictionary_as_not_output_fields():
+    from zotero_cli.ai_notes2 import templates
+
+    template = templates.load_template()
+    assert "类型字典，不是要输出的字段" in template
+    assert "不要输出 `records`、`shared_types` 或 `$ref` 本身" in template
+
+
+def test_prompt_lists_referenceable_figure_ids_per_attachment(document):
+    """图号白名单必须按附件列出，模型才能逐字复制而不是自行推断编号。"""
+    from zotero_cli.ai_notes2 import generation
+
+    prompt = generation.build_prompt(_snapshot(document))
+    assert "可引用图号" in prompt
+    assert "source_set_id=`set-1`，attachment_key=`SYNATT01`：`1`" in prompt
+
+
+def test_prompt_states_no_figures_when_catalog_is_empty(document):
+    from zotero_cli.ai_notes2 import generation
+
+    snapshot = _snapshot(document)
+    snapshot.source_blocks[0]["figure_ids"] = []
+    prompt = generation.build_prompt(snapshot)
+    assert "没有任何可引用图号" in prompt
+    assert "所有 figure_refs 必须为空数组" in prompt
 
 
 def test_generation_rejects_truncated_or_budget_overflow(document, monkeypatch):

@@ -100,6 +100,7 @@ def build_prompt(
     source_note_key: str,
     source_note: str,
     blocks: str,
+    figure_ids: str = "",
     template_name: str | None = None,
 ) -> str:
     """构造唯一一次分析请求的提示词，所有论文内容按不可信数据包裹。"""
@@ -114,6 +115,7 @@ def build_prompt(
         doi=wrap_untrusted(doi, "doi"),
         source_note_key=source_note_key,
         schema_fields=schema_fields(),
+        figure_ids=figure_ids,
         source_note=wrap_untrusted(source_note, "existing-ai-note"),
         blocks=wrap_untrusted(blocks, "document"),
     )

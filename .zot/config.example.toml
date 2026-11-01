@@ -203,6 +203,9 @@ note_title_prefix = "框架分析 - "
 evidence_tag = "ai/evidence"
 
 [ai_notes2.appearance]
+heading_color = "#17365D"
+accent_color = "#245A8D"
+background_color = "#EAF2FA"
 min_width = 1000
 min_height = 520
 branch_spacing = 320

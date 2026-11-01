@@ -15,6 +15,8 @@
 from __future__ import annotations
 
 import json
+import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -112,6 +114,9 @@ def check_sources(document: Note2Document, snapshot: InputSnapshot) -> list[str]
 
     评议、覆盖与候选等派生记录可以没有自己的原文定位，但必须引用其他已定位
     对象；否则整条内容无法回溯到本次冻结文本。
+
+    `RC-B` 背景记录和 `RC-K` 外部判准来源不是论文 PDF 的科学陈述，
+    不要求其引用论文冻结块；外部判准的读取范围和引用仍由结构契约检查。
     """
     errors: list[str] = []
     frozen = {
@@ -121,11 +126,14 @@ def check_sources(document: Note2Document, snapshot: InputSnapshot) -> list[str]
     for block in snapshot.source_blocks:
         figures.setdefault((block["source_set_id"], block["attachment_key"]), set()).update(block["figure_ids"])
 
+    # 背景与外部判准不要求来自被分析论文。
+    metadata_prefixes = frozenset({"RC-B", "RC-K"})
+
     for prefix, _table, record in _iter_records(document):
         identity = next(key for key in record if key.endswith("_id") and key != "target_id")
         label = f"{prefix}:{record[identity]}"
         locations = _locations(record)
-        if not locations and not _has_object_ref(record):
+        if not locations and not _has_object_ref(record) and prefix not in metadata_prefixes:
             errors.append(f"{label} 既没有来源定位也没有引用其他对象")
             continue
         for location in locations:
@@ -183,8 +191,12 @@ def _parse_verdicts(
     raw: str,
     allowed_sources: dict[str, set[tuple[str, str, str]]],
 ) -> list[dict[str, Any]]:
+    text = raw.strip()
+    fenced = re.fullmatch(r"```(?:json)?[ \t]*\r?\n(.*?)\r?\n```", text, re.IGNORECASE | re.DOTALL)
+    if fenced:
+        text = fenced.group(1)
     try:
-        payload = json.loads(raw.strip())
+        payload = json.loads(text)
     except (json.JSONDecodeError, RecursionError) as error:
         raise Note2ValidationError("/", f"核对结果不是有效 JSON：{error}") from error
     if not isinstance(payload, dict) or not isinstance(payload.get("verdicts"), list):
@@ -258,6 +270,7 @@ def verify_document(
     *,
     client: AiClient | None = None,
     progress: Any = None,
+    response_sink: Callable[[str], None] | None = None,
 ) -> VerificationReport:
     """执行两步核对；程序层失败抛错，模型层结论随结果返回。"""
     errors = check_sources(document, snapshot)
@@ -291,6 +304,8 @@ def verify_document(
     if progress:
         progress("verify", f"第二步：核对 {report.checked_objects} 个对象的原文依据")
     raw = client.chat(prompt, figures=[], allowed_models=allowed, progress=progress)
+    if response_sink is not None:
+        response_sink(raw)
     allowed_sources: dict[str, set[tuple[str, str, str]]] = {}
     for _prefix, _table, record in _iter_records(document):
         identifier = record[next(key for key in record if key.endswith("_id") and key != "target_id")]

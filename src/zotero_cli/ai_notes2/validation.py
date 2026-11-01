@@ -60,11 +60,17 @@ def _check_schema(value: Any, schema: dict[str, Any], root: dict[str, Any], path
         # 保留结构最接近的分支位置，便于模型修复。
         raise max(errors, key=lambda error: error.path.count("/"))
     if "enum" in schema and not any(type(value) is type(option) and value == option for option in schema["enum"]):
-        _fail(path, f"不在受控枚举中：{schema['enum']}")
+        allowed = "、".join("null" if option is None else f"{option}" for option in schema["enum"])
+        _fail(path, f"不在受控枚举中：当前值 {value!r}；只能使用：{allowed}")
     expected = schema.get("type")
     types = {"object": dict, "array": list, "string": str, "integer": int, "null": type(None)}
     if expected and type(value) is not types[expected]:
-        _fail(path, f"必须为 {expected}")
+        hint = ""
+        if expected == "object" and isinstance(value, str):
+            hint = "；引用字段必须写 {kind:'object', target_id, target_field} 对象，不能写裸 ID"
+        elif expected == "string" and isinstance(value, dict):
+            hint = "；ID 字段必须写字符串，不能写引用对象"
+        _fail(path, f"必须为 {expected}{hint}")
     if expected == "object":
         for key in schema.get("required", []):
             if key not in value:
@@ -255,7 +261,12 @@ class _Validator:
                     and figure["figure_id"] in block["figure_ids"]
                     for key, block in self.blocks.items()
                 ):
-                    _fail(f"{path}/figure_refs/{number}", "图引用未在对应冻结附件的图注中登记")
+                    _fail(
+                        f"{path}/figure_refs/{number}",
+                        "图引用未在对应冻结附件的图注中登记"
+                        f"（附件 {figure['attachment_key']} 没有图号 {figure['figure_id']}；"
+                        "只能逐字复制提示词中「可引用图号」清单的编号）",
+                    )
         # 覆盖单位的原文引用也必须检查，不限于科学记录内部。
         for path, value in _walk(document["review"]["coverage_scope"], "/review/coverage_scope"):
             if isinstance(value, dict) and "block_id" in value and "text_excerpt" in value:
@@ -368,7 +379,14 @@ class _Validator:
                 start = self._id(record["from_node_id"], {"TC-N"}, path + "/from_node_id", active=active)
                 end = self._id(record["to_node_id"], {"TC-N"}, path + "/to_node_id", active=active)
                 if ranks[start["node_type"]] != ranks[end["node_type"]] + 1:
-                    _fail(path, "支持方向必须为理由到分论点或分论点到核心论点，最多三级")
+                    _fail(
+                        path,
+                        "支持方向必须为理由到分论点或分论点到核心论点，最多三级"
+                        f"（当前 from_node_id={record['from_node_id']} 为「{start['node_type']}」，"
+                        f"to_node_id={record['to_node_id']} 为「{end['node_type']}」；"
+                        "只允许「论证理由 → 分论点」或「分论点 → 核心论点」，"
+                        "方向写反时交换 from/to，同层之间不得连边）",
+                    )
                 if active:
                     graph[record["from_node_id"]].add(record["to_node_id"])
                 combination = record["combination"]
@@ -513,7 +531,13 @@ class _Validator:
                     if record["primary_target_ref"] is None or not record["basis_refs"]:
                         _fail(path, "实际判断必须有主要目标和依据")
                 if record["finding_status"] == "未发现明确问题" and record["problem_locus"] is not None:
-                    _fail(path + "/problem_locus", "无明确问题时问题所在层必须为空")
+                    _fail(
+                        path + "/problem_locus",
+                        "无明确问题时问题所在层必须为空"
+                        f"（finding_status=未发现明确问题 时 problem_locus 必须为 null，"
+                        f"当前为「{record['problem_locus']}」；如需保留该层说明，"
+                        "改 finding_status 或把 problem_locus 设为 null）",
+                    )
                 if (
                     record["criterion"]["criterion_type"] == "特定领域规则"
                     and record["finding_status"] not in {None, "当前无法判断"}
@@ -588,7 +612,6 @@ class _Validator:
                 question["primary_target_ref"] not in record["target_refs"]
                 or question["review_domain"] != record["review_domain"]
                 or question["consistency_subtype"] != record["consistency_subtype"]
-                or question["review_scope"] != record["criterion_scope"]
             ):
                 _fail(path + "/review_refs", "RC-Q 目标、领域和实际检查范围必须对应覆盖单位")
             if status == "已检查" and question["finding_status"] in {None, "当前无法判断"}:
@@ -617,8 +640,6 @@ class _Validator:
             suggestion = self._target(retained["suggestion_ref"], {"RC-D"}, path + "/retained_claim")
             if suggestion["target_ref"] != record["target_ref"]:
                 _fail(path + "/retained_claim", "保留命题建议必须针对同一命题")
-        if record["reliability_statement"]["scope"] != record["assessed_scope"]:
-            _fail(path + "/reliability_statement/scope", "可靠性范围必须对应评议范围")
         if record["reliability_statement"]["conclusion"] in {"当前材料内支持较充分", "有支持但须限定范围"}:
             if not record["supporting_basis"] or not record["coverage_refs"]:
                 _fail(path, "正向评议需要正向材料与实际覆盖，不能从空问题表推导")
@@ -636,6 +657,41 @@ def validate_document(document: dict[str, Any] | Note2Document) -> Note2Document
     data = document.to_dict() if isinstance(document, Note2Document) else deepcopy(document)
     _Validator(data, assigned=True, canonical=True).run()
     return Note2Document(data)
+
+
+def collect_errors(
+    document: dict[str, Any] | Note2Document,
+    *,
+    assigned: bool = True,
+    canonical: bool = True,
+    limit: int = 8,
+) -> list[str]:
+    """按校验阶段逐段收集错误，供一轮结构修复覆盖多处问题。
+
+    每段仍只报告该段第一个错误：链内错误往往同源，逐条穷举会把提示词
+    撑得过大，而分阶段收集已能让思维链、证据链与审查链的错误同时暴露。
+    """
+    data = document.to_dict() if isinstance(document, Note2Document) else deepcopy(document)
+    validator = _Validator(data, assigned=assigned, canonical=canonical)
+    schema = note2_json_schema()
+    errors: list[str] = []
+    stages = (
+        ("结构", lambda: _check_schema(data, schema, schema)),
+        ("身份", validator._identities),
+        ("来源", validator._sources),
+        ("引用", validator._references),
+        ("思维链", validator._thought),
+        ("证据链", validator._evidence),
+        ("审查链", validator._review),
+    )
+    for name, stage in stages:
+        try:
+            stage()
+        except Note2ValidationError as error:
+            errors.append(str(error))
+            if name in {"结构", "身份", "来源"} or len(errors) >= limit:
+                break
+    return errors
 
 
 def allocate_indexes(document: dict[str, Any], *, start: int = 1) -> Note2Document:

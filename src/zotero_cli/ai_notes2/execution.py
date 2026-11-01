@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from hashlib import sha256
@@ -48,6 +49,14 @@ class Execution:
     data: dict[str, Any]
     replayed: bool = False
     ledger: dict[str, Any] = field(default_factory=dict)
+
+
+def _write_diagnostic(directory: Path, name: str, content: str) -> None:
+    """保留仅当前用户可读的运行诊断，不覆盖既有文件。"""
+    directory.mkdir(parents=True, mode=0o700, exist_ok=True)
+    descriptor = os.open(directory / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(content)
 
 
 def _snapshot_digest(snapshot: InputSnapshot) -> str:
@@ -103,6 +112,8 @@ def _resume_publication(
             "status": "ok",
             "item_key": key,
             "note_key": published.note_key,
+            "attachment_key": published.attachment_key,
+            "attachment_content_verified": published.attachment_content_verified,
             "run_number": int(latest["run_number"]),
             "tag": "ai/evidence",
             "tagged": published.tagged,
@@ -230,7 +241,17 @@ def execute_ai_note2(
         generated = generate_document(client, snapshot, run_number=run_number, progress=progress)
         update_run(scope, run_number, status=STATUS_GENERATED, data={"model": generated.model})
         document = validate_before_render(generated.document)
-        report = verify_document(document, snapshot, client=client, progress=progress)
+        diagnostic_dir = state_dir() / "ai_note2" / str(library_id) / key / f"{run_number:04d}" / "diagnostic"
+        _write_diagnostic(
+            diagnostic_dir, "generated.json", json.dumps(document.to_dict(), ensure_ascii=False, indent=2)
+        )
+        report = verify_document(
+            document,
+            snapshot,
+            client=client,
+            progress=progress,
+            response_sink=lambda raw: _write_diagnostic(diagnostic_dir, "verification-response.txt", raw),
+        )
         update_run(
             scope,
             run_number,
@@ -306,12 +327,19 @@ def execute_ai_note2(
     writer = ZoteroWriter(library_id=writer_library_id, api_key=writer_api_key, library_type=library_type)
     html_note = render_html(document, title=title, verification=verification)
     try:
-        published = publish_document(writer, scope=scope, run_number=run_number, item_key=key, html_note=html_note)
+        svg_name = f"{key}-{run_number:04d}-tree.svg"
+        svg_path = target_dir / svg_name
+        svg_path.write_bytes((target_dir / "tree.svg").read_bytes())
+        published = publish_document(
+            writer, scope=scope, run_number=run_number, item_key=key, html_note=html_note, svg_path=svg_path
+        )
     except AiNote2Error:
         raise
     result.update(
         status="ok",
         note_key=published.note_key,
+        attachment_key=published.attachment_key,
+        attachment_content_verified=published.attachment_content_verified,
         tag="ai/evidence",
         tagged=published.tagged,
         verified=published.verified,
