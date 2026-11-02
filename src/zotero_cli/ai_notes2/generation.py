@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from zotero_cli.ai_notes.access.client import AiClient
+from zotero_cli.ai_notes.errors import OutputTruncatedError
 from zotero_cli.ai_notes.evidence import model_supports_request
 from zotero_cli.ai_notes2.errors import AiNote2Error
 from zotero_cli.ai_notes2.inputs import InputSnapshot
@@ -253,7 +254,27 @@ def generate_document(
     if not allowed:
         raise AiNote2Error("没有模型可容纳本次输入", code="validation_error", hint_key="input_too_large", parkable=True)
 
-    raw = client.chat(prompt, figures=[], allowed_models=allowed, progress=progress)
+    try:
+        raw = client.chat(prompt, figures=[], allowed_models=allowed, progress=progress)
+    except OutputTruncatedError:
+        if progress:
+            progress("retry", "生成输出被截断；保留原始输入，要求精简表达后重试")
+        compact_prompt = (
+            prompt + "\n\n## 输出长度要求\n上次输出因长度限制被截断。请直接输出完整的 JSON 对象，"
+            "优先覆盖论文的核心论点及其关键证据与审查，以简洁文字避免重复；"
+            "保留结果数值、样品、测试条件、归一化依据、来源和必要的限定，"
+            "不得虚构信息或把未检查的内容写成已检查。"
+        )
+        compact_allowed = {
+            candidate
+            for candidate in client.get_model_chain()
+            if model_supports_request(candidate, compact_prompt, 0, max_tokens=client.config.max_tokens)
+        }
+        if not compact_allowed:
+            raise AiNote2Error(
+                "精简重试请求超出预算", code="validation_error", hint_key="input_too_large", parkable=True
+            )
+        raw = client.chat(compact_prompt, figures=[], allowed_models=compact_allowed, progress=progress)
     document, errors = _candidate_errors(raw, snapshot, run_number)
     if document is not None:
         return GenerationResult(

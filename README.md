@@ -50,9 +50,9 @@ AI 笔记相关配置（`[ai_notes]`）：
 ```toml
 [ai_notes]
 api_key = ""
-base_url = "http://127.0.0.1:3425/v1"
-model = "antigravity/gemini-3.8-flash"
-fallback_models = ["group/deepseek"]
+base_url = "http://127.0.0.1:8317/v1"
+model = "gemini-3.8-flash-high"
+fallback_models = ["deepseek-flash"]
 reasoning_effort = "max"
 temperature = 0.7
 max_tokens = 0
@@ -270,6 +270,8 @@ uv run zot ai-note2 ITEMKEY --source-note NOTEKEY --attachment MSKEY --attachmen
 uv run zot ai-note2 ITEMKEY --force --idempotency-key RUNKEY
 ```
 
+集合批处理使用 `tool/ainote2/run-batch.zsh --collection COLLECTION` 预览条目；加 `--dry-run` 逐条预检，或加 `--apply` 执行生成与发布。可用 `--limit` 控制本轮条目数，状态与逐条结果写入 `--out-dir` 指定的目录，后续运行可续跑。
+
 行为要点：
 
 - 旧笔记识别支持 ATX（`#`）、Setext（下一行 `===` / `---`）和 HTML 标题，只检查首个标题是否带 `AI条目分析 - `；多份候选返回 `conflict` 并列出 key，不会自动选择“最新”或“最长”。本功能自己的 `框架分析 - ` 输出不会被递归当作输入。
@@ -372,6 +374,7 @@ uv build
 | 目录 | 职责与主要入口 |
 | --- | --- |
 | `tool/ainote/` | `batch_analyze.py` 批量分析，摘要分别统计新建笔记、`uncertain`、失败、跳过与需远端核对的 `blocked`；写入结果不确定时保留阻断状态，先核对远端再用 `--retry-blocked` 重试；摘要还统计 JSON 修复、截断恢复、来源规范化/丢弃与写入重试。已打 `ai/noted` 但缺 `ai/keywords` 的条目只补关键词（复用 `--short-note-only`，每条最多 2 次，超限记 `keyword_blocked`），生成失败记 `keyword_failed`，成功才记 `keyword_backfilled`；成功断点也能避免本地标签尚未同步时重复回填。`--limit` 同时限制完整分析与关键词回填的尝试数；`--no-short-note` 跳过回填，dry-run 只计 `keyword_candidates`。`scheduled_analyze.py` 按集合调度，记录失败、需核对、关键词回填与时间预算延后状态。 |
+| `tool/ainote2/` | `run-batch.zsh` 按集合预览或逐条运行 `ai-note2`，记录结果并支持续跑；具体选项见 `--help`。 |
 | `tool/paper2zotero/` | `zotero_inbox.py` 导入文献；`backfill_titles.py`、`translate_abstracts.py` 回填翻译；`zh_text.py` 规范化中文、化学式与间距。 |
 | `tool/paperrag/` | `run-rag-workspace.zsh` 编排清点与索引，`run-rag-evidence-search.zsh` 运行检索，`workspace_inventory.py` 生成清点报告。 |
 

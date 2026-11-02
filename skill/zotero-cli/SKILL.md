@@ -29,6 +29,8 @@ Supporting procedures: [AI Note verification](references/ai-note-verification.md
 
 `zot ai-note2 ITEMKEY` analyzes `journalArticle` items after finding an existing AI analysis note. A missing note returns `skipped` without parsing PDFs, calling a model or writing Zotero; ambiguous notes return `conflict` and require `--source-note NOTEKEY`. Use `--dry-run` to inspect inputs and budget (MinerU may populate its cache), `--local-only` to generate files without Zotero writes, and `--reconcile` to inspect a prior uncertain publication. The two model stages receive text, tables, formulas and captions, not image pixels. Treat claims about visual details as unverified unless checked independently. The integrated view assembles registered claims, material, reasoning and reviews; its SVG shows an argument graph plus evidence/review indexes, not fully connected evidence nodes. Publication reads back the note, attachment metadata and parent tag; metadata readback does not prove the attachment bytes were stored. See [ai-note2 verification and recovery](references/ai-note2-verification.md).
 
+For a resumable collection run, use `tool/ainote2/run-batch.zsh --collection COLLECTION` to list items, then `--dry-run` or `--apply` with an optional `--limit`. Its per-item results and state are written under `--out-dir`.
+
 ## Checkout and local configuration
 
 - Repository: the current `zotero-cli` checkout
@@ -39,7 +41,7 @@ Supporting procedures: [AI Note verification](references/ai-note-verification.md
 
 Do not print API keys or service tokens. The actual config and `.zot/state/` are Git-ignored. In a source checkout state lives under `.zot/state`; installed packages use `ZOT_STATE_DIR` or `$XDG_STATE_HOME/zotero-cli` (`%LOCALAPPDATA%/zotero-cli` on Windows). `ZOT_DEBUG` enables internal tracebacks, `ZOT_NO_UPDATE_CHECK` disables the version notice.
 
-`[ai_notes]` accepts `ZOT_AI_*` env overrides (`ZOT_AI_API_KEY`, `ZOT_AI_BASE_URL`, `ZOT_AI_MODEL`, `ZOT_AI_FALLBACK_MODELS` as a comma list, `ZOT_AI_REASONING_EFFORT`, `ZOT_AI_TEMPERATURE`, `ZOT_AI_MAX_TOKENS`, `ZOT_AI_MAX_EXTRACTED_CHARS`, `ZOT_AI_TIMEOUT`, `ZOT_AI_MAX_RETRIES`) with `env > file > defaults` precedence. `timeout_seconds`/`max_retries` bound each model request. Use the env overrides to point `ai-note` at another endpoint for one run instead of editing the local config; pass `apply_env_overrides=False` when a test needs the raw file value.
+`[ai_notes]` accepts `ZOT_AI_*` env overrides (`ZOT_AI_API_KEY`, `ZOT_AI_BASE_URL`, `ZOT_AI_MODEL`, `ZOT_AI_FALLBACK_MODELS` as a comma list, `ZOT_AI_REASONING_EFFORT`, `ZOT_AI_TEMPERATURE`, `ZOT_AI_MAX_TOKENS`, `ZOT_AI_MAX_EXTRACTED_CHARS`, `ZOT_AI_TIMEOUT`, `ZOT_AI_MAX_RETRIES`) with `env > file > defaults` precedence. The current local CPA GUI endpoint is `http://127.0.0.1:8317/v1`, with `gemini-3.8-flash-high` first and `deepseek-flash` as fallback; keep its API key in the Git-ignored config or environment. `timeout_seconds`/`max_retries` bound each model request. Use the env overrides to point `ai-note` at another endpoint for one run instead of editing the local config; pass `apply_env_overrides=False` when a test needs the raw file value.
 
 ## Route by intent
 

@@ -81,8 +81,8 @@ not_analyzed_tag = "ai/uncertain"
 keywords_tag = "ai/keywords"
 no_keywords_tag = "ai/no_keywords"
 note_title_prefix = "AI条目分析 - "
-model = "antigravity/gemini-3.8-flash"
-fallback_models = ["group/deepseek"]
+model = "gemini-3.8-flash-high"
+fallback_models = ["deepseek-flash"]
 reasoning_effort = "max"
 temperature = 0.7
 max_tokens = 0
@@ -112,10 +112,10 @@ max_image_bytes = 5242880
 max_source_bytes = 83886080
 max_pixels = 50000000
 max_dimension = 50000
-[ai_notes.routes."group/deepseek"]
+[ai_notes.routes."deepseek-flash"]
 context = 1000000
 per_image = 4096
-[ai_notes.routes."antigravity/gemini-3.8-flash"]
+[ai_notes.routes."gemini-3.8-flash-high"]
 context = 1048576
 per_image = 4096
 [ai_notes.routes."antigravity/claude-sonnet-4-6"]

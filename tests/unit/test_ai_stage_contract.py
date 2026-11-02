@@ -235,10 +235,10 @@ def test_output_cap_is_not_invented_and_route_ceiling_is_used_for_compaction():
     from zotero_cli.ai_notes.payloads import build_request
     from zotero_cli.config import AiNoteConfig
 
-    config = AiNoteConfig(api_key="k", base_url="http://x", model="group/deepseek")
-    assert "max_tokens" not in build_request("p", [], "group/deepseek", config)
-    assert output_ceiling("group/deepseek") == 128_000
-    assert output_ceiling("antigravity/gemini-3.8-flash") == 65_536
+    config = AiNoteConfig(api_key="k", base_url="http://x", model="deepseek-flash")
+    assert "max_tokens" not in build_request("p", [], "deepseek-flash", config)
+    assert output_ceiling("deepseek-flash") == 128_000
+    assert output_ceiling("gemini-3.8-flash-high") == 65_536
     assert output_ceiling("unknown/model") == 32_768
 
 
@@ -255,9 +255,9 @@ def test_truncated_output_is_typed_and_not_failed_over():
     class _Resp:
         choices = [_Choice()]
         usage = None
-        model = "group/deepseek"
+        model = "deepseek-flash"
 
-    config = AiNoteConfig(api_key="k", base_url="http://x", model="group/deepseek", fallback_models=["m2"])
+    config = AiNoteConfig(api_key="k", base_url="http://x", model="deepseek-flash", fallback_models=["m2"])
     client = AiClient(config)
     calls = []
 
@@ -268,7 +268,7 @@ def test_truncated_output_is_typed_and_not_failed_over():
     client._client.chat.completions.create = fake_create
     with pytest.raises(OutputTruncatedError):
         client.chat("p")
-    assert calls == ["group/deepseek"]
+    assert calls == ["deepseek-flash"]
     assert client.last_finish_reason == "length"
     assert client.last_response_text == '{"sections": ['
 
@@ -288,7 +288,7 @@ def test_truncated_sections_retry_with_compaction_instruction():
         return json.dumps({"sections": [{"type": "paragraph", "text": "x"} for _ in range(10)]})
 
     client.chat.side_effect = fake_chat
-    sections = _chat_with_retry(client, "base", figures=[], allowed_models={"group/deepseek"}, progress=None)
+    sections = _chat_with_retry(client, "base", figures=[], allowed_models={"deepseek-flash"}, progress=None)
     assert len(sections) == 10
     assert len(prompts) == 2
     assert "输出上限" in prompts[1] or "压缩" in prompts[1]
@@ -302,7 +302,7 @@ def test_repeated_truncation_fails_without_writing():
     client.config = MagicMock(max_tokens=32_768)
     client.chat.side_effect = OutputTruncatedError("AI truncated (finish_reason=length)", code="output_truncated")
     with pytest.raises(NoteAnalysisError, match="输出超过模型上限") as caught:
-        _chat_with_retry(client, "base", figures=[], allowed_models={"group/deepseek"}, progress=None)
+        _chat_with_retry(client, "base", figures=[], allowed_models={"deepseek-flash"}, progress=None)
     assert caught.value.code == "output_truncated"
     assert caught.value.parkable is True
 
@@ -402,7 +402,7 @@ def test_parse_retry_truncation_uses_compact_retry():
     client.config = MagicMock(max_tokens=32768)
     good = json.dumps({"sections": [{"type": "paragraph", "text": "x"} for _ in range(10)]})
     client.chat.side_effect = ['{"sections": [broken]}', OutputTruncatedError(), good]
-    sections = _chat_with_retry(client, "base", figures=[], allowed_models={"group/deepseek"}, progress=None)
+    sections = _chat_with_retry(client, "base", figures=[], allowed_models={"deepseek-flash"}, progress=None)
     assert len(sections) == 10
     assert "压缩" in client.chat.call_args.args[0] or "输出上限" in client.chat.call_args.args[0]
 

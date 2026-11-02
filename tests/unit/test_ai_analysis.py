@@ -65,7 +65,7 @@ def _make_attachment(tmp_path) -> Attachment:
 
 
 def _make_ai_config() -> AiNoteConfig:
-    return AiNoteConfig(api_key="k", base_url="http://x", model="group/deepseek", max_extracted_chars=10000)
+    return AiNoteConfig(api_key="k", base_url="http://x", model="deepseek-flash", max_extracted_chars=10000)
 
 
 def _sections_json(n: int = 12) -> str:
@@ -189,7 +189,7 @@ class TestAnalyzeItem:
 
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        ai_client.get_model_chain.return_value = ["group/deepseek", "antigravity/gemini-3.8-flash"]
+        ai_client.get_model_chain.return_value = ["deepseek-flash", "gemini-3.8-flash-high"]
         ai_client.chat.side_effect = [
             '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
             _text_packet(),
@@ -222,7 +222,7 @@ class TestAnalyzeItem:
 
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        ai_client.get_model_chain.return_value = ["group/deepseek", "antigravity/gemini-3.8-flash"]
+        ai_client.get_model_chain.return_value = ["deepseek-flash", "gemini-3.8-flash-high"]
         ai_client.chat.side_effect = [_text_packet(), _sections_json(12), _short_note_json()]
 
         with _patch_mineru(att, "Chapter 1. Introduction.", tmp_path):
@@ -241,7 +241,7 @@ class TestAnalyzeItem:
         writer = MagicMock()
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        ai_client.get_model_chain.return_value = ["group/deepseek", "antigravity/gemini-3.8-flash"]
+        ai_client.get_model_chain.return_value = ["deepseek-flash", "gemini-3.8-flash-high"]
         ai_client.chat.return_value = '{"paper_type":"uncertain","confidence":0.4,"evidence":["e"],"reason":"r"}'
 
         with _patch_mineru(att, "Some text.", tmp_path):
@@ -272,7 +272,7 @@ class TestAnalyzeItem:
         writer.add_note.return_value = "NOTE2"
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        ai_client.get_model_chain.return_value = ["group/deepseek", "antigravity/gemini-3.8-flash"]
+        ai_client.get_model_chain.return_value = ["deepseek-flash", "gemini-3.8-flash-high"]
         ai_client.chat.side_effect = [
             '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
             _text_packet(),
@@ -294,7 +294,7 @@ class TestAnalyzeItem:
         writer = MagicMock()
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        ai_client.get_model_chain.return_value = ["group/deepseek", "antigravity/gemini-3.8-flash"]
+        ai_client.get_model_chain.return_value = ["deepseek-flash", "gemini-3.8-flash-high"]
         ai_client.chat.side_effect = [
             '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
         ]
@@ -317,7 +317,7 @@ class TestAnalyzeItem:
         writer.add_note.return_value = "NOTE1"
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        ai_client.get_model_chain.return_value = ["group/deepseek"]
+        ai_client.get_model_chain.return_value = ["deepseek-flash"]
         ai_client.chat.side_effect = [
             '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
             _text_packet(),
@@ -344,7 +344,7 @@ class TestAnalyzeItem:
         writer.add_note.return_value = "NOTE1"
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        ai_client.get_model_chain.return_value = ["group/deepseek"]
+        ai_client.get_model_chain.return_value = ["deepseek-flash"]
         ai_client.chat.side_effect = [
             '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
             _text_packet(),
@@ -370,7 +370,7 @@ class TestAnalyzeItem:
         writer.add_note.return_value = "NOTE1"
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        ai_client.get_model_chain.return_value = ["group/deepseek"]
+        ai_client.get_model_chain.return_value = ["deepseek-flash"]
         ai_client.chat.side_effect = [
             _text_packet(),
             "这是一段没有 JSON 的输出",
@@ -395,7 +395,7 @@ class TestAnalyzeItem:
         writer = MagicMock()
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        ai_client.get_model_chain.return_value = ["group/deepseek"]
+        ai_client.get_model_chain.return_value = ["deepseek-flash"]
         ai_client.chat.side_effect = [_text_packet(), "无 JSON 一", "无 JSON 二"]
 
         with _patch_mineru(att, "Chapter 1. Introduction.", tmp_path):
@@ -416,7 +416,7 @@ class TestAnalyzeItem:
         writer.add_note.return_value = "NOTE1"
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        ai_client.get_model_chain.return_value = ["group/deepseek", "antigravity/gemini-3.8-flash"]
+        ai_client.get_model_chain.return_value = ["deepseek-flash", "gemini-3.8-flash-high"]
         ai_client.chat.side_effect = [
             '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
             _text_packet(),
@@ -443,7 +443,7 @@ class TestAnalyzeItem:
         writer.add_note.return_value = "NOTE1"
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        ai_client.get_model_chain.return_value = ["group/deepseek", "antigravity/gemini-3.8-flash"]
+        ai_client.get_model_chain.return_value = ["deepseek-flash", "gemini-3.8-flash-high"]
         ai_client.chat.side_effect = [
             '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
             _text_packet(),
@@ -478,7 +478,7 @@ class TestAnalyzeItem:
         ]
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        ai_client.get_model_chain.return_value = ["group/deepseek", "antigravity/gemini-3.8-flash"]
+        ai_client.get_model_chain.return_value = ["deepseek-flash", "gemini-3.8-flash-high"]
         ai_client.chat.side_effect = [
             '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
             _text_packet(),
@@ -513,7 +513,7 @@ class TestAnalyzeItem:
         writer = MagicMock()
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        ai_client.get_model_chain.return_value = ["group/deepseek", "antigravity/gemini-3.8-flash"]
+        ai_client.get_model_chain.return_value = ["deepseek-flash", "gemini-3.8-flash-high"]
         ai_client.chat.return_value = _short_note_json()
 
         result = analyze_item(reader, writer, ai_client, "ABC123", short_note_only=True)
@@ -535,7 +535,7 @@ class TestAnalyzeItem:
         writer = MagicMock()
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        ai_client.get_model_chain.return_value = ["group/deepseek", "antigravity/gemini-3.8-flash"]
+        ai_client.get_model_chain.return_value = ["deepseek-flash", "gemini-3.8-flash-high"]
         ai_client.chat.side_effect = [
             '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
             _text_packet(),
@@ -557,7 +557,7 @@ class TestAnalyzeItem:
         writer = MagicMock()
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        ai_client.get_model_chain.return_value = ["group/deepseek", "antigravity/gemini-3.8-flash"]
+        ai_client.get_model_chain.return_value = ["deepseek-flash", "gemini-3.8-flash-high"]
         # 分类输出非 JSON，应降级为 uncertain 而不是抛异常崩溃
         ai_client.chat.return_value = "非 JSON 描述"
 
@@ -585,7 +585,7 @@ class TestAnalyzeItem:
         writer.add_note.return_value = "NOTE1"
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        ai_client.get_model_chain.return_value = ["group/deepseek", "antigravity/gemini-3.8-flash"]
+        ai_client.get_model_chain.return_value = ["deepseek-flash", "gemini-3.8-flash-high"]
         ai_client.chat.side_effect = [
             '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
             _text_packet(),
@@ -739,8 +739,8 @@ class TestAiClient:
 
     def test_chat_fallback_chain(self):
         config = _make_ai_config()
-        config.model = "group/deepseek"
-        config.fallback_models = ["antigravity/gemini-3.8-flash"]
+        config.model = "deepseek-flash"
+        config.fallback_models = ["gemini-3.8-flash-high"]
         client = AiClient(config)
         # 第一次 DeepSeek 组失败，第二次 Gemini 成功
         client._client.chat.completions.create = MagicMock(
@@ -751,15 +751,15 @@ class TestAiClient:
         assert out == "fallback answer"
         assert client._client.chat.completions.create.call_count == 2
         calls = client._client.chat.completions.create.call_args_list
-        assert calls[0].kwargs["model"] == "group/deepseek"
-        assert calls[1].kwargs["model"] == "antigravity/gemini-3.8-flash"
+        assert calls[0].kwargs["model"] == "deepseek-flash"
+        assert calls[1].kwargs["model"] == "gemini-3.8-flash-high"
         assert len(progress_calls) == 1
         assert progress_calls[0][0] == "fallback"
 
     def test_chat_fallback_all_failed_raises(self):
         config = _make_ai_config()
-        config.model = "group/deepseek"
-        config.fallback_models = ["antigravity/gemini-3.8-flash"]
+        config.model = "deepseek-flash"
+        config.fallback_models = ["gemini-3.8-flash-high"]
         client = AiClient(config)
         client._client.chat.completions.create = MagicMock(side_effect=[Exception("err1"), Exception("err2")])
         with pytest.raises(Exception) as exc:
@@ -842,7 +842,7 @@ def _analysis_inputs(tmp_path):
     writer.add_note.return_value = "NOTE1"
     ai_client = MagicMock()
     ai_client.config = _make_ai_config()
-    ai_client.get_model_chain.return_value = ["group/deepseek"]
+    ai_client.get_model_chain.return_value = ["deepseek-flash"]
     ai_client.chat.side_effect = [
         '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
         _text_packet(),
@@ -864,7 +864,7 @@ class TestDuplicateDocumentFigureNumbering:
         reader.get_pdf_attachments.return_value = attachments
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        ai_client.get_model_chain.return_value = ["group/deepseek", "antigravity/gemini-3.8-flash"]
+        ai_client.get_model_chain.return_value = ["deepseek-flash", "gemini-3.8-flash-high"]
         capture = _PromptCapture()
         with (
             patch("zotero_cli.ai_notes.documents.MinerUParseCache.ensure_many", return_value=parses),
@@ -903,7 +903,7 @@ class TestDuplicateDocumentFigureNumbering:
         reader.get_pdf_attachments.return_value = attachments
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        ai_client.get_model_chain.return_value = ["group/deepseek", "antigravity/gemini-3.8-flash"]
+        ai_client.get_model_chain.return_value = ["deepseek-flash", "gemini-3.8-flash-high"]
         capture = _PromptCapture()
         with (
             patch("zotero_cli.ai_notes.documents.MinerUParseCache.ensure_many", return_value=parses),
@@ -944,7 +944,7 @@ class TestPromptInjectionHardening:
         reader.get_pdf_attachments.return_value = [att]
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        ai_client.get_model_chain.return_value = ["group/deepseek", "antigravity/gemini-3.8-flash"]
+        ai_client.get_model_chain.return_value = ["deepseek-flash", "gemini-3.8-flash-high"]
         capture = _PromptCapture()
         parsed = _parsed_result(att, "Introduction text. This is the main body.", tmp_path)
         with (
@@ -1002,7 +1002,7 @@ class TestProviderErrorClassification:
     def test_chat_maps_failures_to_typed_errors(self, exc, code, retryable):
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        ai_client.get_model_chain.return_value = ["group/deepseek", "antigravity/gemini-3.8-flash"]
+        ai_client.get_model_chain.return_value = ["deepseek-flash", "gemini-3.8-flash-high"]
         ai_client.chat.side_effect = exc
         with pytest.raises(NoteAnalysisError) as caught:
             _chat(ai_client, "prompt")
@@ -1119,7 +1119,7 @@ class TestDryRunSemantics:
         writer = MagicMock()
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        ai_client.get_model_chain.return_value = ["group/deepseek", "antigravity/gemini-3.8-flash"]
+        ai_client.get_model_chain.return_value = ["deepseek-flash", "gemini-3.8-flash-high"]
         with _patch_mineru(att, "Introduction text.", tmp_path):
             result = analyze_item(reader, writer, ai_client, "ABC123", dry_run=True)
         assert result["status"] == "dry_run"
@@ -1165,7 +1165,7 @@ class TestPromptBounds:
         reader.get_item.return_value = _make_item()
         reader.get_pdf_attachments.return_value = [att]
         ai_client = MagicMock()
-        ai_client.config = AiNoteConfig(api_key="k", base_url="http://x", model="group/deepseek", max_extracted_chars=0)
+        ai_client.config = AiNoteConfig(api_key="k", base_url="http://x", model="deepseek-flash", max_extracted_chars=0)
         with (
             _patch_mineru(att, "word " * (REQUEST_CEILING // 5 + 20_000), tmp_path),
             pytest.raises(NoteAnalysisError, match="required text") as caught,
@@ -1182,7 +1182,7 @@ class TestPromptBounds:
         reader.get_item.return_value = item
         reader.get_pdf_attachments.return_value = [att]
         ai_client = MagicMock()
-        ai_client.config = AiNoteConfig(api_key="k", base_url="http://x", model="group/deepseek", max_extracted_chars=0)
+        ai_client.config = AiNoteConfig(api_key="k", base_url="http://x", model="deepseek-flash", max_extracted_chars=0)
         with _patch_mineru(att, "word " * 40000, tmp_path):
             result = analyze_item(reader, MagicMock(), ai_client, "ABC123", dry_run=True)
         assert result["status"] == "dry_run"
@@ -1201,7 +1201,7 @@ class TestFigureCapAnnotation:
         writer.add_note.return_value = "NOTE1"
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        ai_client.get_model_chain.return_value = ["group/deepseek", "unverified-model", "antigravity/gemini-3.8-flash"]
+        ai_client.get_model_chain.return_value = ["deepseek-flash", "unverified-model", "gemini-3.8-flash-high"]
         ai_client.chat.side_effect = [
             '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
             _text_packet("[ATT-many | main | PDF p.1]"),
@@ -1211,7 +1211,7 @@ class TestFigureCapAnnotation:
             result = analyze_item(reader, writer, ai_client, "ABC123", no_short_note=True)
         assert result["status"] == "ok"
         assert len(ai_client.chat.call_args.kwargs["figures"]) == 20
-        assert ai_client.chat.call_args.kwargs["allowed_models"] == {"group/deepseek", "antigravity/gemini-3.8-flash"}
+        assert ai_client.chat.call_args.kwargs["allowed_models"] == {"deepseek-flash", "gemini-3.8-flash-high"}
 
 
 class TestPlainTextNoteTitle:
@@ -1226,7 +1226,7 @@ class TestPlainTextNoteTitle:
         writer.add_note.return_value = "NOTE1"
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        ai_client.get_model_chain.return_value = ["group/deepseek", "antigravity/gemini-3.8-flash"]
+        ai_client.get_model_chain.return_value = ["deepseek-flash", "gemini-3.8-flash-high"]
         ai_client.chat.side_effect = [
             '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
             _text_packet(),
@@ -1252,7 +1252,7 @@ class TestShortNotePostPaddingLimit:
         writer.add_note.return_value = "NOTE1"
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        ai_client.get_model_chain.return_value = ["group/deepseek", "antigravity/gemini-3.8-flash"]
+        ai_client.get_model_chain.return_value = ["deepseek-flash", "gemini-3.8-flash-high"]
         ai_client.chat.side_effect = [
             '{"paper_type":"research_article","confidence":0.9,"evidence":["e"],"reason":"r"}',
             _text_packet(),
@@ -1302,7 +1302,7 @@ class TestShortNoteBackfillSelection:
         writer = MagicMock()
         ai_client = MagicMock()
         ai_client.config = _make_ai_config()
-        ai_client.get_model_chain.return_value = ["group/deepseek", "antigravity/gemini-3.8-flash"]
+        ai_client.get_model_chain.return_value = ["deepseek-flash", "gemini-3.8-flash-high"]
         ai_client.chat.return_value = _short_note_json()
         result = analyze_item(reader, writer, ai_client, "ABC123", short_note_only=True)
         assert result["note_key"] == "NEW"

@@ -292,6 +292,27 @@ def test_normalization_does_not_rewrite_scientific_scope_or_assign_sources(docum
     assert status["source_refs"] == []
 
 
+def test_generation_retries_truncated_output_without_publishing_partial(document, monkeypatch):
+    from zotero_cli.ai_notes.errors import OutputTruncatedError
+    from zotero_cli.ai_notes2 import generation
+
+    monkeypatch.setattr(generation, "model_supports_request", lambda *args, **kwargs: True)
+
+    class TruncatedClient(FakeClient):
+        def chat(self, prompt, *, figures=None, allowed_models=None, progress=None):
+            self.calls.append({"prompt": prompt, "allowed_models": allowed_models})
+            if len(self.calls) == 1:
+                raise OutputTruncatedError(response_text='{"thought":')
+            return json.dumps(_payload(document), ensure_ascii=False)
+
+    client = TruncatedClient([])
+    result = generation.generate_document(client, _snapshot(document), run_number=1)
+    assert len(client.calls) == 2
+    assert "完整" in client.calls[1]["prompt"]
+    assert "条件" in client.calls[1]["prompt"]
+    assert result.document["object_registry"]
+
+
 def test_generation_success_uses_one_text_only_call(document, monkeypatch):
     from zotero_cli.ai_notes2 import generation
 

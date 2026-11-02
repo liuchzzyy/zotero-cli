@@ -101,6 +101,6 @@ def test_toml_budget_override_reaches_request_preflight(tmp_path, monkeypatch):
     runtime._cached_settings.cache_clear()
     try:
         assert evidence.SAFETY_RESERVE == 1
-        assert evidence.model_supports_request("group/deepseek", "x" * 10, 0, max_tokens=0)
+        assert evidence.model_supports_request("deepseek-flash", "x" * 10, 0, max_tokens=0)
     finally:
         runtime._cached_settings.cache_clear()

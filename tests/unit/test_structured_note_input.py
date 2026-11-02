@@ -86,7 +86,7 @@ def test_more_than_thirty_si_images_are_sampled_not_only_the_front(tmp_path):
         image_count=45,
     )
     evidence = build_evidence([("SI", "supplementary", si)])
-    plan = plan_request(evidence, "Prompt " + evidence.text, "group/deepseek")
+    plan = plan_request(evidence, "Prompt " + evidence.text, "deepseek-flash")
     assert len(plan.si_images) == 45
     assert plan.si_images[-1][0] == 45
     assert len(plan.images) == 45
@@ -97,10 +97,10 @@ def test_plan_never_truncates_required_text_or_main_images(tmp_path):
     main = _parse(tmp_path, "m", [{"type": "chart", "img_path": "images/0.jpg", "page_idx": 0}], image_count=1)
     evidence = build_evidence([("MAIN", "main", main)])
     with pytest.raises(ValueError, match="required text"):
-        plan_request(evidence, "X" * (REQUEST_CEILING + 1), "group/deepseek")
+        plan_request(evidence, "X" * (REQUEST_CEILING + 1), "deepseek-flash")
     (main.root / "raw" / "images" / "0.jpg").unlink()
     with pytest.raises(ValueError, match="main image"):
-        plan_request(evidence, evidence.text, "group/deepseek")
+        plan_request(evidence, evidence.text, "deepseek-flash")
 
 
 def test_unknown_route_cannot_claim_verified_500k_budget(tmp_path):
@@ -115,8 +115,8 @@ def test_supported_routes_include_gemini_3_8_flash(tmp_path):
     evidence = build_evidence(
         [("MAIN", "main", _parse(tmp_path, "m", [{"type": "text", "text": "body", "page_idx": 0}]))]
     )
-    plan = plan_request(evidence, evidence.text, "antigravity/gemini-3.8-flash")
-    assert plan.model == "antigravity/gemini-3.8-flash"
+    plan = plan_request(evidence, evidence.text, "gemini-3.8-flash-high")
+    assert plan.model == "gemini-3.8-flash-high"
 
 
 def test_missing_si_image_is_skipped_not_fatal(tmp_path):
@@ -126,7 +126,7 @@ def test_missing_si_image_is_skipped_not_fatal(tmp_path):
     (si.root / "raw" / "images" / "0.jpg").unlink()
     main = _parse(tmp_path, "main", [{"type": "text", "text": "body", "page_idx": 0}])
     evidence = build_evidence([("MAIN", "main", main), ("SI", "supplementary", si)])
-    plan = plan_request(evidence, "prompt", "group/deepseek")
+    plan = plan_request(evidence, "prompt", "deepseek-flash")
     assert 1 in plan.skipped
     assert len(plan.images) == 0
 
@@ -136,14 +136,14 @@ def test_missing_main_image_raises_error(tmp_path):
     (main.root / "raw" / "images" / "0.jpg").unlink()
     evidence = build_evidence([("MAIN", "main", main)])
     with pytest.raises(ValueError, match="required main image 1 is unavailable"):
-        plan_request(evidence, "prompt", "group/deepseek")
+        plan_request(evidence, "prompt", "deepseek-flash")
 
 
 def test_fallback_budget_accepts_exact_image_boundary_but_not_overflow():
     prompt = "x" * (REQUEST_CEILING - 50_000 - 4_096)
-    assert model_supports_request("group/deepseek", prompt, 1)
-    assert model_supports_request("antigravity/gemini-3.8-flash", prompt, 1)
-    assert not model_supports_request("group/deepseek", prompt, 2)
+    assert model_supports_request("deepseek-flash", prompt, 1)
+    assert model_supports_request("gemini-3.8-flash-high", prompt, 1)
+    assert not model_supports_request("deepseek-flash", prompt, 2)
     assert not model_supports_request("unverified-model", prompt, 1)
 
 
@@ -159,7 +159,7 @@ def test_coverage_notice_replans_when_its_own_text_removes_an_si_image(tmp_path)
     )
     evidence = build_evidence([("SI", "supplementary", si)])
     prompt = "x" * (REQUEST_CEILING - 50_000 - 4_096)
-    plan, final_prompt, omitted = plan_with_coverage(evidence, prompt, "group/deepseek")
+    plan, final_prompt, omitted = plan_with_coverage(evidence, prompt, "deepseek-flash")
     assert not plan.images
     assert omitted == [1, 2]
     assert "[图 1]" in final_prompt and "[图 2]" in final_prompt
@@ -168,7 +168,7 @@ def test_coverage_notice_replans_when_its_own_text_removes_an_si_image(tmp_path)
 def test_si_budget_drops_all_images_only_when_required_text_fits(tmp_path):
     si = _parse(tmp_path, "si", [{"type": "image", "img_path": "images/0.jpg", "page_idx": 0}], image_count=1)
     evidence = build_evidence([("SI", "supplementary", si)])
-    plan = plan_request(evidence, "x" * (REQUEST_CEILING - 50_000 - 100), "group/deepseek")
+    plan = plan_request(evidence, "x" * (REQUEST_CEILING - 50_000 - 100), "deepseek-flash")
     assert plan.images == []
     assert "[图 1]" in evidence.text
     assert "未附图像" not in evidence.text
@@ -178,7 +178,7 @@ def test_image_budget_does_not_undercount_a_large_image(tmp_path):
     main = _parse(tmp_path, "m", [{"type": "image", "img_path": "images/0.jpg", "page_idx": 0}], image_count=1)
     evidence = build_evidence([("M", "main", main)])
     with pytest.raises(ValueError, match="required main images"):
-        plan_request(evidence, "x" * (REQUEST_CEILING - 50_000 - 100), "group/deepseek")
+        plan_request(evidence, "x" * (REQUEST_CEILING - 50_000 - 100), "deepseek-flash")
 
 
 def test_image_block_without_a_path_is_rejected_at_build_time(tmp_path):
@@ -193,7 +193,7 @@ def test_oversized_main_image_fails_instead_of_being_omitted(tmp_path):
     image.write_bytes(b"\xff\xd8\xff" + b"a" * (MAX_IMAGE_BYTES - 2))
     evidence = build_evidence([("MAIN", "main", main)])
     with pytest.raises(EvidenceBudgetError, match="required main image 1"):
-        plan_request(evidence, "prompt", "group/deepseek")
+        plan_request(evidence, "prompt", "deepseek-flash")
 
 
 def test_degenerate_spacer_image_is_skipped_and_reported_not_fatal(tmp_path):
@@ -210,7 +210,7 @@ def test_degenerate_spacer_image_is_skipped_and_reported_not_fatal(tmp_path):
         {"type": "image", "img_path": "images/1.jpg", "page_idx": 0},
     ]
     evidence = build_evidence([("M", "main", parsed)])
-    plan = plan_request(evidence, "prompt", "group/deepseek")
+    plan = plan_request(evidence, "prompt", "deepseek-flash")
     assert [number for number, _ in plan.images] == [1]
     assert plan.skipped == [2]
 
@@ -228,7 +228,7 @@ def test_supplementary_images_referenced_by_main_are_prioritized(tmp_path):
     )
     evidence = build_evidence([("M", "main", main), ("SI", "supplementary", si)])
     prompt = "x" * (REQUEST_CEILING - SAFETY_RESERVE - 20 * 4096)
-    plan = plan_request(evidence, prompt, "group/deepseek")
+    plan = plan_request(evidence, prompt, "deepseek-flash")
     assert len(plan.si_images) == 20
     assert {44, 45}.issubset({n for n, _ in plan.si_images})
 
@@ -238,7 +238,7 @@ def test_real_client_rejects_truncated_output(monkeypatch):
     from zotero_cli.ai_notes.errors import OutputTruncatedError
     from zotero_cli.config import AiNoteConfig
 
-    config = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="group/deepseek")
+    config = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="deepseek-flash")
     client = AiClient(config)
     response = SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(content='{"sections": []}'), finish_reason="length")],
@@ -253,7 +253,7 @@ def test_real_client_records_usage_without_exposing_the_payload(monkeypatch):
     from zotero_cli.ai_notes.access.client import AiClient
     from zotero_cli.config import AiNoteConfig
 
-    config = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="group/deepseek")
+    config = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="deepseek-flash")
     client = AiClient(config)
     response = SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(content="OK"), finish_reason="stop")],
@@ -266,30 +266,30 @@ def test_real_client_records_usage_without_exposing_the_payload(monkeypatch):
 
 def test_budget_has_no_fixed_output_reservation():
     prompt = "x" * (REQUEST_CEILING - SAFETY_RESERVE - 1)
-    assert model_supports_request("group/deepseek", prompt, 0)
+    assert model_supports_request("deepseek-flash", prompt, 0)
 
 
 def test_configured_output_limit_still_counts_toward_budget():
     prompt = "x" * (REQUEST_CEILING - SAFETY_RESERVE - 100)
-    assert model_supports_request("group/deepseek", prompt, 0, max_tokens=99)
-    assert not model_supports_request("group/deepseek", prompt, 0, max_tokens=100)
+    assert model_supports_request("deepseek-flash", prompt, 0, max_tokens=99)
+    assert not model_supports_request("deepseek-flash", prompt, 0, max_tokens=100)
 
 
 def test_format_retry_rejects_over_budget_request_before_sending():
     prompt = "x" * (REQUEST_CEILING - SAFETY_RESERVE - 1)
-    assert model_supports_request("group/deepseek", prompt, 0)
-    assert not model_supports_request("group/deepseek", prompt + PARSE_RETRY_SUFFIX, 0)
+    assert model_supports_request("deepseek-flash", prompt, 0)
+    assert not model_supports_request("deepseek-flash", prompt + PARSE_RETRY_SUFFIX, 0)
     client = MagicMock()
     client.config = AiNoteConfig()
     client.chat.return_value = "无法解析的输出"
     with pytest.raises(NoteAnalysisError, match="重试.*预算"):
-        _chat_with_retry(client, prompt, figures=[], allowed_models={"group/deepseek"}, progress=None)
+        _chat_with_retry(client, prompt, figures=[], allowed_models={"deepseek-flash"}, progress=None)
     client.chat.assert_called_once()
 
 
 def test_format_retry_filters_model_that_no_longer_fits():
     prompt = "x" * (250_000 - SAFETY_RESERVE - 1)
-    models = {"group/deepseek", "antigravity/claude-sonnet-4-6"}
+    models = {"deepseek-flash", "antigravity/claude-sonnet-4-6"}
     assert all(model_supports_request(model, prompt, 0) for model in models)
     client = MagicMock()
     client.config = AiNoteConfig()
@@ -297,16 +297,16 @@ def test_format_retry_filters_model_that_no_longer_fits():
     sections = _chat_with_retry(client, prompt, figures=[], allowed_models=models, progress=None)
     assert len(sections) == 10
     assert client.chat.call_count == 2
-    assert client.chat.call_args.kwargs["allowed_models"] == {"group/deepseek"}
+    assert client.chat.call_args.kwargs["allowed_models"] == {"deepseek-flash"}
 
 
 def test_sparse_retry_keeps_valid_result_when_retry_exceeds_budget():
     prompt = "x" * (REQUEST_CEILING - SAFETY_RESERVE - 1)
-    assert not model_supports_request("group/deepseek", prompt + SPARSE_RETRY_SUFFIX, 0)
+    assert not model_supports_request("deepseek-flash", prompt + SPARSE_RETRY_SUFFIX, 0)
     client = MagicMock()
     client.config = AiNoteConfig()
     client.chat.return_value = '{"sections": [{"type": "paragraph", "text": "已有内容"}]}'
-    sections = _chat_with_retry(client, prompt, figures=[], allowed_models={"group/deepseek"}, progress=None)
+    sections = _chat_with_retry(client, prompt, figures=[], allowed_models={"deepseek-flash"}, progress=None)
     assert sections == [{"type": "paragraph", "text": "已有内容"}]
     client.chat.assert_called_once()
 
@@ -318,15 +318,15 @@ def test_long_note_fallback_uses_only_preflighted_routes(monkeypatch):
     config = AiNoteConfig(
         api_key="test",
         base_url="http://127.0.0.1:1/v1",
-        model="group/deepseek",
-        fallback_models=["unverified-model", "antigravity/gemini-3.8-flash"],
+        model="deepseek-flash",
+        fallback_models=["unverified-model", "gemini-3.8-flash-high"],
     )
     client = AiClient(config)
     attempted: list[str] = []
 
     def fake_create(**kwargs):
         attempted.append(kwargs["model"])
-        if kwargs["model"] == "group/deepseek":
+        if kwargs["model"] == "deepseek-flash":
             raise RuntimeError("provider temporarily unavailable")
         return SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content="OK"), finish_reason="stop")],
@@ -337,14 +337,14 @@ def test_long_note_fallback_uses_only_preflighted_routes(monkeypatch):
     prompt = "x" * 200_000
     allowed = {model for model in client.get_model_chain() if model_supports_request(model, prompt, 10)}
     assert client.chat(prompt, allowed_models=allowed) == "OK"
-    assert attempted == ["group/deepseek", "antigravity/gemini-3.8-flash"]
+    assert attempted == ["deepseek-flash", "gemini-3.8-flash-high"]
 
 
 def test_image_rejection_drops_all_images_but_keeps_the_whole_text(monkeypatch):
     from zotero_cli.ai_notes.access.client import AiClient
     from zotero_cli.config import AiNoteConfig
 
-    config = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="group/deepseek", fallback_models=[])
+    config = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="deepseek-flash", fallback_models=[])
     client = AiClient(config)
     calls: list[dict] = []
 
@@ -370,18 +370,18 @@ def test_usage_history_records_every_call(monkeypatch):
     from zotero_cli.ai_notes.access.client import AiClient
     from zotero_cli.config import AiNoteConfig
 
-    config = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="group/deepseek", fallback_models=[])
+    config = AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1", model="deepseek-flash", fallback_models=[])
     client = AiClient(config)
     responses = [
         SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content="one"), finish_reason="stop")],
             usage=SimpleNamespace(prompt_tokens=10, completion_tokens=1),
-            model="group/deepseek",
+            model="deepseek-flash",
         ),
         SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content="two"), finish_reason="stop")],
             usage=SimpleNamespace(prompt_tokens=20, completion_tokens=2),
-            model="group/deepseek",
+            model="deepseek-flash",
         ),
     ]
     monkeypatch.setattr(client._client.chat.completions, "create", lambda **kwargs: responses.pop(0))
@@ -436,7 +436,7 @@ def test_pipeline_uses_structured_blocks_and_does_not_write_on_preview(tmp_path)
     reader.get_pdf_attachments.return_value = [att]
     writer = MagicMock()
     ai_client = MagicMock()
-    ai_client.config = AiNoteConfig(api_key="k", base_url="http://x", model="group/deepseek")
+    ai_client.config = AiNoteConfig(api_key="k", base_url="http://x", model="deepseek-flash")
     with patch("zotero_cli.ai_notes.documents.MinerUParseCache.ensure_many", return_value={pdf: actual}):
         result = analyze_item(reader, writer, ai_client, "ABC123", dry_run=True)
     assert result["status"] == "dry_run"

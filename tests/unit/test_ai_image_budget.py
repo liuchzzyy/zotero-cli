@@ -38,7 +38,7 @@ def test_oversized_main_reencodes_without_changing_original(tmp_path, monkeypatc
     document = _document(tmp_path, "main", [original])
     source = document[2].root / "raw" / "images" / "0.jpg"
     digest = hashlib.sha256(source.read_bytes()).hexdigest()
-    plan = plan_request(build_evidence([document]), "prompt", "group/deepseek")
+    plan = plan_request(build_evidence([document]), "prompt", "deepseek-flash")
     assert len(plan.images) == 1
     assert len(plan.images[0][1]) < 30_000 * 4 // 3 + 100
     assert hashlib.sha256(source.read_bytes()).hexdigest() == digest
@@ -48,7 +48,7 @@ def test_uncompressible_main_fails_without_sending(tmp_path, monkeypatch):
     monkeypatch.setattr(limits, "MAX_IMAGE_BYTES", 100)
     document = _document(tmp_path, "main", [_jpeg(tmp_path) + b"x" * 80_000])
     with pytest.raises(EvidenceBudgetError, match="required main image"):
-        plan_request(build_evidence([document]), "prompt", "group/deepseek")
+        plan_request(build_evidence([document]), "prompt", "deepseek-flash")
 
 
 def test_si_byte_budget_uses_available_space_without_dropping_main(tmp_path, monkeypatch):
@@ -63,7 +63,7 @@ def test_si_byte_budget_uses_available_space_without_dropping_main(tmp_path, mon
     assert smallest is not None
     capacity = _payload_bytes(prompt, [_image_record(1, smallest), _image_record(2, smallest)]) + 100
     monkeypatch.setattr(limits, "MAX_REQUEST_BYTES", capacity)
-    plan = plan_request(build_evidence([main, si]), prompt, "group/deepseek")
+    plan = plan_request(build_evidence([main, si]), prompt, "deepseek-flash")
     assert plan.images[0][0] == 1
     assert 0 < len(plan.si_images) < 5
     assert plan.request_bytes <= limits.MAX_REQUEST_BYTES
@@ -73,4 +73,4 @@ def test_main_byte_budget_excess_fails(tmp_path, monkeypatch):
     main = _document(tmp_path, "main", [_jpeg(tmp_path)])
     monkeypatch.setattr(limits, "MAX_REQUEST_BYTES", 100)
     with pytest.raises(EvidenceBudgetError, match="request body"):
-        plan_request(build_evidence([main]), "prompt", "group/deepseek")
+        plan_request(build_evidence([main]), "prompt", "deepseek-flash")

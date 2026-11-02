@@ -78,8 +78,8 @@ not_analyzed_tag = "ai/uncertain"
 keywords_tag = "ai/keywords"
 no_keywords_tag = "ai/no_keywords"
 note_title_prefix = "AI条目分析 - "
-model = "antigravity/gemini-3.8-flash"
-fallback_models = ["group/deepseek"]
+model = "gemini-3.8-flash-high"
+fallback_models = ["deepseek-flash"]
 reasoning_effort = "max"
 temperature = 0.7
 max_tokens = 0
@@ -101,7 +101,7 @@ max_journal_chars = 1000
 max_date_chars = 100
 max_doi_chars = 500
 api_key = ""
-base_url = "http://127.0.0.1:3425/v1"
+base_url = "http://127.0.0.1:8317/v1"
 
 [ai_notes.budget]
 request_ceiling = 800000
@@ -115,11 +115,11 @@ max_pixels = 50000000
 max_dimension = 50000
 
 [ai_notes.routes]
-[ai_notes.routes."group/deepseek"]
+[ai_notes.routes."deepseek-flash"]
 context = 1000000
 per_image = 4096
 
-[ai_notes.routes."antigravity/gemini-3.8-flash"]
+[ai_notes.routes."gemini-3.8-flash-high"]
 context = 1048576
 per_image = 4096
 
