@@ -78,7 +78,7 @@ def analysis_inputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Ma
     writer.add_note.return_value = "NOTE1"
     ai_client = MagicMock()
     ai_client.config = AiNoteConfig()
-    ai_client.get_model_chain.return_value = ["group/deepseek"]
+    ai_client.get_model_chain.return_value = ["deepseek-flash"]
     return reader, writer, ai_client
 
 
@@ -215,7 +215,7 @@ def test_structured_image_paths_never_read_outside_parse_assets(
     parsed = SimpleNamespace(root=tmp_path / "parse", content_list=blocks)
     if escape == "no-symlink":
         evidence = build_evidence([("ATT", "main", parsed)])
-        plan = plan_request(evidence, "prompt", "group/deepseek")
+        plan = plan_request(evidence, "prompt", "deepseek-flash")
         assert [number for number, _ in plan.images] == [1, 2]
         assert reads.count(normal.resolve()) == 1
     else:
@@ -255,7 +255,7 @@ def test_structured_image_loader_never_opens_nonregular_file(tmp_path: Path, mon
     # is_file() 在读取任何字节之前就拒绝目录；主图缺失时
     # 整个请求失败，而不是静默丢弃。
     with pytest.raises(ValueError, match="required main image 1 is unavailable"):
-        plan_request(evidence, "prompt", "group/deepseek")
+        plan_request(evidence, "prompt", "deepseek-flash")
     assert reads == []
     assert normal_bytes is not None
 

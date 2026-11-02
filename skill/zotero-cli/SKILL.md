@@ -37,7 +37,7 @@ Supporting procedures: [AI Note verification](references/ai-note-verification.md
 
 Do not print API keys or service tokens. The actual config and `.zot/state/` are Git-ignored. In a source checkout state lives under `.zot/state`; installed packages use `ZOT_STATE_DIR` or `$XDG_STATE_HOME/zotero-cli` (`%LOCALAPPDATA%/zotero-cli` on Windows). `ZOT_DEBUG` enables internal tracebacks, `ZOT_NO_UPDATE_CHECK` disables the version notice.
 
-`[ai_notes]` accepts `ZOT_AI_*` env overrides (`ZOT_AI_API_KEY`, `ZOT_AI_BASE_URL`, `ZOT_AI_MODEL`, `ZOT_AI_FALLBACK_MODELS` as a comma list, `ZOT_AI_REASONING_EFFORT`, `ZOT_AI_TEMPERATURE`, `ZOT_AI_MAX_TOKENS`, `ZOT_AI_MAX_EXTRACTED_CHARS`, `ZOT_AI_TIMEOUT`, `ZOT_AI_MAX_RETRIES`) with `env > file > defaults` precedence. `timeout_seconds`/`max_retries` bound each model request. Use the env overrides to point `ai-note` at another endpoint for one run instead of editing the local config; pass `apply_env_overrides=False` when a test needs the raw file value.
+`[ai_notes]` accepts `ZOT_AI_*` env overrides (`ZOT_AI_API_KEY`, `ZOT_AI_BASE_URL`, `ZOT_AI_MODEL`, `ZOT_AI_FALLBACK_MODELS` as a comma list, `ZOT_AI_REASONING_EFFORT`, `ZOT_AI_TEMPERATURE`, `ZOT_AI_MAX_TOKENS`, `ZOT_AI_MAX_EXTRACTED_CHARS`, `ZOT_AI_TIMEOUT`, `ZOT_AI_MAX_RETRIES`) with `env > file > defaults` precedence. The current local CPA GUI endpoint is `http://127.0.0.1:8317/v1`, with `gemini-3.8-flash-high` first and `deepseek-flash` as fallback; keep its API key in the Git-ignored config or environment. `timeout_seconds`/`max_retries` bound each model request. Use the env overrides to point `ai-note` at another endpoint for one run instead of editing the local config; pass `apply_env_overrides=False` when a test needs the raw file value.
 
 ## Route by intent
 

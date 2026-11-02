@@ -15,6 +15,8 @@ htmlcov/
 *.credentials.json
 *.secrets.json
 *.credentials.toml
+*.private.toml
+*.secret.toml
 # 本地数据库及其临时文件可能含个人文献元数据
 *.sqlite
 *.sqlite-journal

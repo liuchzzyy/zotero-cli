@@ -142,7 +142,7 @@ def analyze_item(
 
     total_refs = evidence.main_count + evidence.si_count
     # 文字阶段只预检文字；视觉阶段另行规划原文对应的图片。
-    model = (ai_client.config.model if ai_client is not None else "") or "antigravity/gemini-3.8-flash"
+    model = ai_client.config.model if ai_client is not None else AiNoteConfig().model
     ai_config = ai_client.config if ai_client is not None else AiNoteConfig()
     metadata = f"条目：{item.title}\n类型：{item.item_type}\n日期：{item.date or '未知'}\nDOI：{item.doi or '未知'}"
     text_prompt = text_evidence_prompt(metadata + "\n\n" + cleaned)

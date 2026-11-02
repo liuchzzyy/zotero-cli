@@ -65,8 +65,8 @@ def _setup(tmp_path):
     writer = MagicMock()
     writer.add_note.return_value = "NOTE1"
     client = MagicMock()
-    client.config = AiNoteConfig(api_key="k", base_url="http://test", model="group/deepseek")
-    client.get_model_chain.return_value = ["group/deepseek"]
+    client.config = AiNoteConfig(api_key="k", base_url="http://test", model="deepseek-flash")
+    client.get_model_chain.return_value = ["deepseek-flash"]
     return reader, writer, client, att, parsed
 
 

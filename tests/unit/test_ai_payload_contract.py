@@ -13,7 +13,7 @@ from zotero_cli.config import AiNoteConfig
 
 
 def test_request_bytes_equal_sdk_http_json():
-    body = build_request('中文 "反斜线\\"', [(7, "data:image/png;base64,AAAA")], "group/deepseek", AiNoteConfig())
+    body = build_request('中文 "反斜线\\"', [(7, "data:image/png;base64,AAAA")], "deepseek-flash", AiNoteConfig())
     assert request_bytes(body) == len(httpx2.Request("POST", "http://localhost/v1/chat/completions", json=body).content)
 
 

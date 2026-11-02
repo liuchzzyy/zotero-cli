@@ -16,11 +16,11 @@ from zotero_cli.config import AiNoteConfig
 
 # 这是保守的预检，不是服务商的 tokenizer。启用其他路由前，必须先
 # 对照实际代理核实其路由限制与图片上限。
-# 当前清单中的四个路由均支持图像；上下文上限来自 Magpie /v1/models 元数据。
+# 当前清单中的四个路由均按支持图像规划；上下文上限需由实际代理核实。
 # 每图 4_096 是保守的预检估计值，不代表实际 tokenizer 或服务端图片限制。
 _ROUTE_LIMITS = {
-    "group/deepseek": (1_000_000, 4_096),
-    "antigravity/gemini-3.8-flash": (1_048_576, 4_096),
+    "deepseek-flash": (1_000_000, 4_096),
+    "gemini-3.8-flash-high": (1_048_576, 4_096),
     "antigravity/claude-sonnet-4-6": (250_000, 4_096),
     "antigravity/claude-opus-4-6-thinking": (250_000, 4_096),
 }
@@ -28,11 +28,10 @@ _ROUTE_LIMITS = {
 # 500k 的文本+图像合计上界，而按 4096/图的保守估算它们在 1M 上下文路由里仍然安全。
 # 800k 是按实测样本留出余量后的单请求上限（XIPR4NR6：91 张正文图 + 172k 字符 prompt
 # = 627,745 估算单位），仍远低于 1M 上下文路由与 20 MiB 请求体。
-# 各路由的模型输出上限（Magpie /v1/models 的 max_output_tokens）。仅用于截断后的
-# 压缩目标；不发送 max_tokens 时由服务端按同一上限约束。
+# 各路由用于截断后压缩的输出目标；代理未报告容量时按既有估计值计算。
 _ROUTE_OUTPUT_LIMITS = {
-    "group/deepseek": 128_000,
-    "antigravity/gemini-3.8-flash": 65_536,
+    "deepseek-flash": 128_000,
+    "gemini-3.8-flash-high": 65_536,
 }
 REQUEST_CEILING = 800_000
 OUTPUT_RESERVE = 32_768
@@ -164,11 +163,14 @@ def _si_figure_number(caption: str) -> int | None:
 def _payload_bytes(
     prompt: str,
     images: list[tuple[int, str]],
-    model: str = "antigravity/gemini-3.8-flash",
+    model: str | None = None,
     config: AiNoteConfig | None = None,
 ) -> int:
     """规划和发送共用同一个请求结构。"""
-    return request_bytes(build_request(prompt, images, model, config or AiNoteConfig()))
+    active_config = config or AiNoteConfig()
+    return request_bytes(
+        build_request(prompt, images, model if model is not None else active_config.model, active_config)
+    )
 
 
 def _image_record(number: int, image: EncodedImage) -> tuple[int, str]:

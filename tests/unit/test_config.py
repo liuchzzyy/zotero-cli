@@ -491,7 +491,7 @@ def test_ai_note_config_timing_defaults():
 def test_ai_note_default_model_chain_prefers_vision_route():
     """默认顺序由 Gemini 承担视觉请求，DeepSeek 作备用；链条顺序不可被集合去序。"""
     chain = AiClient(AiNoteConfig(api_key="test", base_url="http://127.0.0.1:1/v1")).get_model_chain()
-    assert chain == ["antigravity/gemini-3.8-flash", "group/deepseek"]
+    assert chain == ["gemini-3.8-flash-high", "deepseek-flash"]
 
 
 def test_load_ai_note_config_env_overrides_without_config_file(tmp_path, monkeypatch):

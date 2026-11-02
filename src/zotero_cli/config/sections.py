@@ -71,8 +71,8 @@ class PdfConfig:
 class AiNoteConfig:
     api_key: str = ""
     base_url: str = ""
-    model: str = "antigravity/gemini-3.8-flash"
-    fallback_models: list[str] = field(default_factory=lambda: ["group/deepseek"])
+    model: str = "gemini-3.8-flash-high"
+    fallback_models: list[str] = field(default_factory=lambda: ["deepseek-flash"])
     reasoning_effort: str = "max"
     temperature: float = 0.7
     # 0 表示不发送 max_tokens，由服务端按模型自身输出上限决定。

@@ -85,7 +85,7 @@ def test_two_stage_http_keeps_fulltext_out_of_visual_request(tmp_path):
                 "id": "qa",
                 "object": "chat.completion",
                 "created": 0,
-                "model": "group/deepseek",
+                "model": "deepseek-flash",
                 "choices": [
                     {"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}
                 ],
