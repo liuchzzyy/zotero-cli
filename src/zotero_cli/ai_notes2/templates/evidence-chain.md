@@ -45,6 +45,7 @@
    - `finding_status=当前无法判断`：可以保留 `problem_locus` 为 `null`，
      并在 `resolution_requirements` 说明缺少什么才能判断。
    - `criterion.criterion_type=特定领域规则` 且已给出实际判断时，`criterion_source_refs` 不能为空。
+   - 本次只提供论文正文、SI 和旧 AI 笔记，不提供外部判准原文。没有实际取得、阅读并核对外部判准的具体位置时，`criterion_sources=[]`、`criterion_source_set_id=null`，所有 `criterion_source_refs=[]`；不得按记忆或论文参考文献虚构判准记录或引用。此时用一般逻辑或方法学原则提出待核问题；若判断必须依赖特定领域规则，把 `finding_status` 设为 `当前无法判断` 并说明还需取得的判准，而不是给出正式裁决。
 5. 覆盖记录先列具体单位，再标未检查、已检查、当前不可检查或不适用。
    “已检查”必须引用在该范围实际完成判断的 `RC-Q`。
    `RC-S` 的字段必须与 `check_status` 配对：
