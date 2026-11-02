@@ -211,6 +211,35 @@ def _candidate_errors(raw: str, snapshot: InputSnapshot, run_number: int) -> tup
     # 先按未编号形态收集结构错误，避免编号失败掩盖真实原因。
     errors = collect_errors(document, assigned=False, canonical=False)
     if errors:
+        # 一阶段一错误会让相同漏填在长文档中逐轮暴露；仅补报可逐项定位的重复格式错误。
+        seen = {error.split(": ", 1)[0] for error in errors}
+        for chain in ("thought", "evidence", "review"):
+            for table, records in document[chain].items():
+                if not isinstance(records, list):
+                    continue
+                for index, record in enumerate(records):
+                    if not isinstance(record, dict):
+                        continue
+                    attribution = record.get("attribution")
+                    if (
+                        attribution in {"作者明示", "文本重构"}
+                        and record.get("extraction_status") != {"作者明示": "明确", "文本重构": "可重构"}[attribution]
+                    ):
+                        path = f"/{chain}/{table}/{index}/extraction_status"
+                        if path not in seen:
+                            errors.append(f"{path}: 归属与提取状态不匹配")
+                            seen.add(path)
+                    if chain == "evidence" and table == "evidence_records":
+                        for number, status in enumerate(record.get("field_statuses", [])):
+                            if (
+                                isinstance(status, dict)
+                                and status.get("status") not in {None, "已定位"}
+                                and not status.get("reason")
+                            ):
+                                path = f"/{chain}/{table}/{index}/field_statuses/{number}/reason"
+                                if path not in seen:
+                                    errors.append(f"{path}: 缺失或不适用状态必须说明原因")
+                                    seen.add(path)
         return None, errors
     try:
         return allocate_indexes(document, start=1).to_dict(), []
@@ -270,7 +299,11 @@ def _apply_reference_patch(raw: str, patch_raw: str, path: str) -> str:
 
 def _repair_paths(raw: str, errors: list[str]) -> list[str]:
     """仅选择可解析 JSON 中的少量、已报告的三链字段。"""
-    if not 1 < len(errors) <= 4:
+    if not errors or len(errors) > 40:
+        return []
+    if len(errors) == 1 and not (
+        errors[0].endswith("归属与提取状态不匹配") or errors[0].endswith("缺失或不适用状态必须说明原因")
+    ):
         return []
     try:
         _load_strict(raw)

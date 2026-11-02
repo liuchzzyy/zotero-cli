@@ -308,6 +308,55 @@ def test_not_applicable_reference_info_gets_reason_for_own_experiment(document):
     assert next(s for s in updated if s["path"] == "/reference_info")["reason"]
 
 
+def test_candidate_reports_all_repeated_status_and_attribution_errors(document):
+    from copy import deepcopy
+
+    from zotero_cli.ai_notes2.generation import _candidate_errors
+
+    data = deepcopy(_payload(document))
+    for node in data["thought"]["nodes"][:2]:
+        node["extraction_status"] = "可重构"
+    evidence = data["evidence"]["evidence_records"][0]
+    for status in evidence["field_statuses"][:2]:
+        status["reason"] = None
+    result, errors = _candidate_errors(json.dumps(data, ensure_ascii=False), _snapshot(document), 1)
+    assert result is None
+    assert {error.split(": ", 1)[0] for error in errors} >= {
+        "/thought/nodes/0/extraction_status",
+        "/thought/nodes/1/extraction_status",
+        "/evidence/evidence_records/0/field_statuses/0/reason",
+        "/evidence/evidence_records/0/field_statuses/1/reason",
+    }
+
+
+def test_repeated_status_errors_are_repaired_in_one_model_round(document, monkeypatch):
+    from copy import deepcopy
+
+    from zotero_cli.ai_notes2 import generation
+
+    monkeypatch.setattr(generation, "model_supports_request", lambda *args, **kwargs: True)
+    bad = deepcopy(_payload(document))
+    evidence = bad["evidence"]["evidence_records"][0]
+    for status in evidence["field_statuses"][:2]:
+        status["reason"] = None
+    for node in bad["thought"]["nodes"][:2]:
+        node["extraction_status"] = "可重构"
+    raw = json.dumps(bad, ensure_ascii=False)
+    paths = generation._repair_paths(raw, generation._candidate_errors(raw, _snapshot(document), 1)[1])
+    assert len(paths) == 4
+    fixed = deepcopy(_payload(document))
+    patches = []
+    for path in paths:
+        value = fixed
+        for token in path.strip("/").split("/"):
+            value = value[int(token)] if isinstance(value, list) else value[token]
+        patches.append({"path": path, "value": value})
+    client = FakeClient([raw, json.dumps({"patches": patches}, ensure_ascii=False)])
+    result = generation.generate_document(client, _snapshot(document), run_number=1)
+    assert result.repair_used and len(client.calls) == 2
+    assert result.document["object_registry"]
+
+
 def test_generation_retries_truncated_output_without_publishing_partial(document, monkeypatch):
     from zotero_cli.ai_notes.errors import OutputTruncatedError
     from zotero_cli.ai_notes2 import generation
