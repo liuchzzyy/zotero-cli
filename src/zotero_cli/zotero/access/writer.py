@@ -8,6 +8,7 @@ import re
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urljoin, urlparse
 
 import httpx2
 from pyzotero import zotero
@@ -428,13 +429,28 @@ class ZoteroWriter:
             raise _friendly_api_error(error) from error
 
     def download_attachment(self, key: str) -> bytes:
-        """读取远端附件字节，用于确认未知上传结果。"""
+        """从文件端点读取原始字节，跨源跳转时不转发 API 密钥。"""
+        url = f"{self._item_url(key)}/file"
+        origin = urlparse(self._zot.endpoint).netloc
         try:
-            return self._zot.file(key)
+            with httpx2.Client(
+                timeout=float(section("zotero")["api_timeout_seconds"]), follow_redirects=False
+            ) as client:
+                for _ in range(6):
+                    headers = self._write_headers() if urlparse(url).netloc == origin else {}
+                    response = client.get(url, headers=headers)
+                    if response.status_code in {301, 302, 303, 307, 308}:
+                        url = urljoin(url, response.headers["location"])
+                        if urlparse(url).scheme != "https":
+                            raise ZoteroWriteError("附件跳转不是 HTTPS", code="network_error", committed=True)
+                        continue
+                    response.raise_for_status()
+                    return response.content
+                raise ZoteroWriteError("附件跳转次数过多", code="network_error", committed=True)
+        except httpx2.HTTPStatusError as error:
+            raise self._response_error(error.response) from error
         except httpx2.HTTPError as error:
             raise self._network_error(error) from error
-        except PyZoteroError as error:
-            raise _friendly_api_error(error) from error
 
     def read_child_attachments(self, parent_key: str) -> list[dict]:
         """读取父条目的全部远端附件，用于核对未知上传结果。"""

@@ -508,7 +508,6 @@ def write_artifacts(
         "review.md": render_chain_markdown(document, "review", verification=verification),
         "note.md": render_markdown(document, verification=verification),
         "note.html": render_html(document, title=title, verification=verification),
-        "tree.svg": render_svg(document),
         "run.json": json.dumps(manifest, ensure_ascii=False, indent=2),
     }
     digests: dict[str, str] = {}

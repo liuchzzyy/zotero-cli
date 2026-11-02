@@ -197,6 +197,9 @@ rerank_top_n = 50
 preview_chars = 500
 
 [ai_notes2]
+# 第二代三链笔记单次长请求专用参数；不影响旧 ai-note。
+timeout_seconds = 1200.0
+max_retries = 0
 template = "evidence-chain"
 repair_attempts = 1
 note_title_prefix = "框架分析 - "

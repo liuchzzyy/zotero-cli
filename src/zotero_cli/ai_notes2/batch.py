@@ -94,7 +94,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--limit", type=int, help="最多处理多少条")
     parser.add_argument("--out-dir", help="输出目录，默认 ~/CodeSpace/Hermes/ainote2_<COLKEY>")
     parser.add_argument("--max-minutes", type=float, default=0.0, help="本轮总时长预算，0 表示不限")
-    parser.add_argument("--item-timeout-minutes", type=float, default=90.0, help="单条超时")
+    parser.add_argument("--item-timeout-minutes", type=float, default=120.0, help="单条超时")
     parser.add_argument("--retry-failed", action="store_true", help="重新处理上一轮失败/超时条目")
     return parser.parse_args(argv)
 

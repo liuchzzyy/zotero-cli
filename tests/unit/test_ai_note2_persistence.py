@@ -32,11 +32,11 @@ class FakeWriter:
         return "NOTE1"
 
     def upload_attachment(self, parent_key, file_path):
-        self.attachments["SVG1"] = file_path.name
-        return "SVG1"
+        self.attachments["JSON1"] = file_path.name
+        return "JSON1"
 
     def download_attachment(self, key):
-        return b"<svg/>"
+        return b"{}"
 
     def read_child_attachments(self, parent_key):
         return [{"key": key, "data": {"filename": name}} for key, name in self.attachments.items()]
@@ -48,7 +48,7 @@ class FakeWriter:
                     "itemType": "attachment",
                     "parentItem": ITEM,
                     "filename": self.attachments[key],
-                    "contentType": "image/svg+xml",
+                    "contentType": "application/json",
                 }
             }
         if self.read_error and key == "NOTE1":
@@ -73,15 +73,15 @@ class FakeWriter:
 def _run(monkeypatch, tmp_path):
     monkeypatch.setattr(persistence, "ledger_root", lambda: tmp_path / "ledger")
     reservation = persistence.reserve_run("user:1:ITEM1", input_digest="a" * 64, idempotency_key=None, force=False)
-    svg = tmp_path / "ITEM1-0001-tree.svg"
-    svg.write_text("<svg/>", encoding="utf-8")
+    payload = tmp_path / "ITEM1-0001-analysis.json"
+    payload.write_text("{}", encoding="utf-8")
     persistence.update_run(
         "user:1:ITEM1",
         reservation.run_number,
         data={
-            "svg_path": str(svg),
-            "svg_name": svg.name,
-            "svg_sha256": sha256(svg.read_bytes()).hexdigest(),
+            "attachment_path": str(payload),
+            "attachment_name": payload.name,
+            "attachment_sha256": sha256(payload.read_bytes()).hexdigest(),
             "attachment_state": "pending",
         },
     )
@@ -92,7 +92,7 @@ def test_reconcile_unknown_attachment_requires_matching_remote_bytes(monkeypatch
     reservation = _run(monkeypatch, tmp_path)
     writer = FakeWriter()
     writer.add_note(ITEM, "ITEM1-0001-0001 内容")
-    writer.attachments["SVG1"] = "ITEM1-0001-tree.svg"
+    writer.attachments["JSON1"] = "ITEM1-0001-analysis.json"
     persistence.update_run(
         "user:1:ITEM1",
         reservation.run_number,
@@ -114,7 +114,7 @@ def test_reconcile_unknown_attachment_with_matching_bytes_completes(monkeypatch,
     reservation = _run(monkeypatch, tmp_path)
     writer = FakeWriter()
     writer.add_note(ITEM, "ITEM1-0001-0001 内容")
-    writer.attachments["SVG1"] = "ITEM1-0001-tree.svg"
+    writer.attachments["JSON1"] = "ITEM1-0001-analysis.json"
     persistence.update_run(
         "user:1:ITEM1",
         reservation.run_number,
@@ -130,30 +130,30 @@ def test_reconcile_unknown_attachment_with_matching_bytes_completes(monkeypatch,
     assert len(writer.attachments) == 1
 
 
-def test_publish_uploads_and_verifies_svg_before_tag(monkeypatch, tmp_path):
+def test_publish_uploads_and_verifies_json_before_tag(monkeypatch, tmp_path):
     reservation = _run(monkeypatch, tmp_path)
-    svg = tmp_path / "ITEM1-0001-tree.svg"
-    svg.write_text("<svg/>", encoding="utf-8")
+    payload = tmp_path / "ITEM1-0001-analysis.json"
+    payload.write_text("{}", encoding="utf-8")
     writer = FakeWriter()
     writer.uploads = []
 
     def upload(parent, path):
         writer.uploads.append((parent, path.name))
-        return "SVG1"
+        return "JSON1"
 
     original_read = writer.read_item
     writer.upload_attachment = upload
     writer.read_item = lambda key: (
         {
-            "key": "SVG1",
+            "key": "JSON1",
             "data": {
                 "itemType": "attachment",
                 "parentItem": ITEM,
-                "filename": svg.name,
-                "contentType": "image/svg+xml",
+                "filename": payload.name,
+                "contentType": "application/json",
             },
         }
-        if key == "SVG1"
+        if key == "JSON1"
         else original_read(key)
     )
     result = persistence.publish_document(
@@ -162,12 +162,156 @@ def test_publish_uploads_and_verifies_svg_before_tag(monkeypatch, tmp_path):
         run_number=reservation.run_number,
         item_key=ITEM,
         html_note="ITEM1-0001-0001 内容",
-        svg_path=svg,
+        attachment_path=payload,
     )
     assert result.verified
-    assert result.attachment_key == "SVG1"
-    assert writer.uploads == [(ITEM, svg.name)]
+    assert result.attachment_key == "JSON1"
+    assert writer.uploads == [(ITEM, payload.name)]
     assert writer.tag_calls == [["ai/evidence"]]
+
+
+def test_publish_uploads_analysis_json_and_checks_remote_bytes(monkeypatch, tmp_path):
+    reservation = _run(monkeypatch, tmp_path)
+    payload = tmp_path / "ITEM1-0001-analysis.json"
+    payload.write_text('{"parent_item_key":"ITEM1"}', encoding="utf-8")
+    writer = FakeWriter()
+    writer.upload_attachment = lambda parent, file: writer.attachments.setdefault("JSON1", file.name) and "JSON1"
+    original_read = writer.read_item
+    writer.read_item = lambda key: (
+        {
+            "data": {
+                "itemType": "attachment",
+                "parentItem": ITEM,
+                "filename": payload.name,
+                "contentType": "application/json",
+            }
+        }
+        if key == "JSON1"
+        else original_read(key)
+    )
+    writer.download_attachment = lambda key: payload.read_bytes()
+    result = persistence.publish_document(
+        writer,
+        scope="user:1:ITEM1",
+        run_number=reservation.run_number,
+        item_key=ITEM,
+        html_note="ITEM1-0001-0001 内容",
+        attachment_path=payload,
+    )
+    assert result.attachment_key == "JSON1"
+    assert result.attachment_content_verified is True
+    assert writer.attachments == {"JSON1": payload.name}
+
+
+def test_publish_rejects_mismatched_analysis_json_bytes_before_tag(monkeypatch, tmp_path):
+    reservation = _run(monkeypatch, tmp_path)
+    payload = tmp_path / "ITEM1-0001-analysis.json"
+    payload.write_text('{"parent_item_key":"ITEM1"}', encoding="utf-8")
+    writer = FakeWriter()
+    writer.upload_attachment = lambda parent, file: writer.attachments.setdefault("JSON1", file.name) and "JSON1"
+    original_read = writer.read_item
+    writer.read_item = lambda key: (
+        {
+            "data": {
+                "itemType": "attachment",
+                "parentItem": ITEM,
+                "filename": payload.name,
+                "contentType": "application/json",
+            }
+        }
+        if key == "JSON1"
+        else original_read(key)
+    )
+    writer.download_attachment = lambda key: b'{"wrong":true}'
+    with pytest.raises(AiNote2Error):
+        persistence.publish_document(
+            writer,
+            scope="user:1:ITEM1",
+            run_number=reservation.run_number,
+            item_key=ITEM,
+            html_note="ITEM1-0001-0001 内容",
+            attachment_path=payload,
+        )
+    assert writer.tag_calls == []
+
+
+def test_json_download_returns_raw_bytes_not_parsed_dict(monkeypatch):
+    from zotero_cli.zotero.access import writer as writer_module
+
+    class Response:
+        status_code = 200
+        content = b'{"x": 1}\n'
+
+        def raise_for_status(self):
+            return None
+
+    class Client:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def get(self, *_args, **_kwargs):
+            return Response()
+
+    monkeypatch.setattr(writer_module.httpx2, "Client", lambda **_kwargs: Client())
+    writer = object.__new__(writer_module.ZoteroWriter)
+    writer._zot = type(
+        "Z",
+        (),
+        {
+            "endpoint": "https://api.zotero.org",
+            "library_type": "users",
+            "library_id": "1",
+            "default_headers": lambda self: {},
+        },
+    )()
+    assert writer.download_attachment("JSON1") == b'{"x": 1}\n'
+
+
+def test_download_redirect_does_not_forward_api_key(monkeypatch):
+    from zotero_cli.zotero.access import writer as writer_module
+
+    calls = []
+
+    class Response:
+        def __init__(self, status_code, headers, content=b""):
+            self.status_code = status_code
+            self.headers = headers
+            self.content = content
+
+        def raise_for_status(self):
+            return None
+
+    class Client:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def get(self, url, **kwargs):
+            calls.append((url, kwargs))
+            if len(calls) == 1:
+                return Response(302, {"location": "https://zoterofilestorage.s3.us-east-1.amazonaws.com/file"})
+            return Response(200, {}, b'{"x":1}')
+
+    monkeypatch.setattr(writer_module.httpx2, "Client", lambda **_kwargs: Client())
+    writer = object.__new__(writer_module.ZoteroWriter)
+    writer._zot = type(
+        "Z",
+        (),
+        {
+            "endpoint": "https://api.zotero.org",
+            "library_type": "users",
+            "library_id": "1",
+            "default_headers": lambda self: {"Zotero-API-Key": "secret"},
+        },
+    )()
+    assert writer.download_attachment("JSON1") == b'{"x":1}'
+    assert calls[0][1]["headers"]["Zotero-API-Key"] == "secret"
+    assert "secret" not in str(calls[1])
 
 
 def test_verified_publish_reads_back_note_and_tag(monkeypatch, tmp_path):
@@ -179,7 +323,7 @@ def test_verified_publish_reads_back_note_and_tag(monkeypatch, tmp_path):
         run_number=reservation.run_number,
         item_key=ITEM,
         html_note="ITEM1-0001-0001 内容",
-        svg_path=tmp_path / "ITEM1-0001-tree.svg",
+        attachment_path=tmp_path / "ITEM1-0001-analysis.json",
     )
     assert result.verified and result.tagged
     assert writer.tag_calls == [["ai/evidence"]]
@@ -195,7 +339,7 @@ def test_existing_tag_is_not_duplicated(monkeypatch, tmp_path):
         run_number=reservation.run_number,
         item_key=ITEM,
         html_note="ITEM1-0001-0001 内容",
-        svg_path=tmp_path / "ITEM1-0001-tree.svg",
+        attachment_path=tmp_path / "ITEM1-0001-analysis.json",
     )
     assert result.verified
     assert writer.tag_calls == []
@@ -211,7 +355,7 @@ def test_rejected_creation_releases_committed_and_allows_retry(monkeypatch, tmp_
             scope="user:1:ITEM1",
             run_number=reservation.run_number,
             item_key=ITEM,
-            svg_path=tmp_path / "ITEM1-0001-tree.svg",
+            attachment_path=tmp_path / "ITEM1-0001-analysis.json",
             html_note="x",
         )
     assert error.value.committed is False
@@ -227,7 +371,7 @@ def test_unknown_creation_requires_reconcile_and_blocks_new_run(monkeypatch, tmp
             scope="user:1:ITEM1",
             run_number=reservation.run_number,
             item_key=ITEM,
-            svg_path=tmp_path / "ITEM1-0001-tree.svg",
+            attachment_path=tmp_path / "ITEM1-0001-analysis.json",
             html_note="x",
         )
     assert error.value.committed is True
@@ -274,7 +418,7 @@ def test_failed_retry_keeps_sequence_and_allocates_new_number(monkeypatch, tmp_p
 def test_verified_replay_has_full_result(monkeypatch, tmp_path):
     monkeypatch.setattr(persistence, "ledger_root", lambda: tmp_path / "ledger")
     reservation = persistence.reserve_run("user:1:ITEM1", input_digest="a" * 64, idempotency_key="K1", force=False)
-    (tmp_path / "ITEM1-0001-tree.svg").write_text("<svg/>", encoding="utf-8")
+    (tmp_path / "ITEM1-0001-analysis.json").write_text("{}", encoding="utf-8")
     writer = FakeWriter()
     result = persistence.publish_document(
         writer,
@@ -282,7 +426,7 @@ def test_verified_replay_has_full_result(monkeypatch, tmp_path):
         run_number=reservation.run_number,
         item_key=ITEM,
         html_note="ITEM1-0001-0001 内容",
-        svg_path=tmp_path / "ITEM1-0001-tree.svg",
+        attachment_path=tmp_path / "ITEM1-0001-analysis.json",
     )
     assert result.verified
     replay = persistence.reserve_run("user:1:ITEM1", input_digest="a" * 64, idempotency_key="K1", force=False)
@@ -323,7 +467,7 @@ def test_note_created_but_tag_failure_keeps_key_and_never_recreates(monkeypatch,
             run_number=reservation.run_number,
             item_key=ITEM,
             html_note="ITEM1-0001-0001 内容",
-            svg_path=tmp_path / "ITEM1-0001-tree.svg",
+            attachment_path=tmp_path / "ITEM1-0001-analysis.json",
         )
     assert error.value.committed is True
     assert error.value.hint_key == "tag_unknown"
@@ -343,7 +487,7 @@ def test_readback_mismatch_is_not_treated_as_success(monkeypatch, tmp_path):
             run_number=reservation.run_number,
             item_key=ITEM,
             html_note="没有运行标识",
-            svg_path=tmp_path / "ITEM1-0001-tree.svg",
+            attachment_path=tmp_path / "ITEM1-0001-analysis.json",
         )
     assert error.value.committed is True
     assert error.value.hint_key == "publish_mismatch"
@@ -382,7 +526,7 @@ def test_reconcile_only_adds_missing_tag_without_creating_note(monkeypatch, tmp_
         run_number=reservation.run_number,
         item_key=ITEM,
         html_note="",
-        svg_path=tmp_path / "ITEM1-0001-tree.svg",
+        attachment_path=tmp_path / "ITEM1-0001-analysis.json",
         reconciled_note_key="NOTE1",
     )
     assert result.verified

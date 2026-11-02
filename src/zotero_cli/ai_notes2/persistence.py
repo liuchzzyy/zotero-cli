@@ -274,7 +274,7 @@ def reconcile_run(
         run_number=run_number,
         item_key=item_key,
         html_note="",
-        svg_path=Path(json.loads(latest["data"])["svg_path"]),
+        attachment_path=Path(json.loads(latest["data"])["attachment_path"]),
         reconciled_note_key=str(note_key),
     )
 
@@ -299,7 +299,7 @@ def publish_document(
     run_number: int,
     item_key: str,
     html_note: str,
-    svg_path: Path,
+    attachment_path: Path,
     reconciled_note_key: str | None = None,
 ) -> PublishResult:
     """创建 note、回读确认、追加标签并核对；失败保留明确的对账状态。"""
@@ -307,14 +307,14 @@ def publish_document(
     saved = latest_run(scope)
     state = json.loads(saved["data"]) if saved else {}
     if note_key is None:
-        digest = sha256(svg_path.read_bytes()).hexdigest()
+        digest = sha256(attachment_path.read_bytes()).hexdigest()
         update_run(
             scope,
             run_number,
             data={
-                "svg_path": str(svg_path),
-                "svg_name": svg_path.name,
-                "svg_sha256": digest,
+                "attachment_path": str(attachment_path),
+                "attachment_name": attachment_path.name,
+                "attachment_sha256": digest,
                 "attachment_state": "pending",
             },
         )
@@ -388,7 +388,7 @@ def publish_document(
             raise AiNote2Error(
                 "附件结果未知，读取远端失败", code=exc.code, committed=True, hint_key="attachment_unknown"
             ) from exc
-        matches = [a for a in attachments if a.get("data", {}).get("filename") == state["svg_name"]]
+        matches = [a for a in attachments if a.get("data", {}).get("filename") == state["attachment_name"]]
         if len(matches) != 1 or not matches[0].get("key"):
             raise AiNote2Error(
                 "附件结果未知，远端匹配数量不唯一；请核对",
@@ -406,7 +406,7 @@ def publish_document(
                 committed=True,
                 hint_key="attachment_unknown",
             ) from exc
-        if sha256(remote_bytes).hexdigest() != state.get("svg_sha256"):
+        if sha256(remote_bytes).hexdigest() != state.get("attachment_sha256"):
             raise AiNote2Error(
                 "远端附件内容缺失或摘要不符；请核对", code="conflict", committed=True, hint_key="attachment_unknown"
             )
@@ -418,15 +418,20 @@ def publish_document(
             data={"attachment_key": attachment_key, "attachment_content_verified": True},
         )
     if not attachment_key:
-        if not svg_path.is_file() or sha256(svg_path.read_bytes()).hexdigest() != state.get("svg_sha256"):
+        if not attachment_path.is_file() or sha256(attachment_path.read_bytes()).hexdigest() != state.get(
+            "attachment_sha256"
+        ):
             raise AiNote2Error(
-                "SVG 文件缺失或摘要变化；请核对", code="validation_error", committed=True, hint_key="attachment_missing"
+                "analysis.json 文件缺失或摘要变化；请核对",
+                code="validation_error",
+                committed=True,
+                hint_key="attachment_missing",
             )
         update_run(
             scope, run_number, status=STATUS_RECONCILE, data={"note_verified": True, "attachment_state": "unknown"}
         )
         try:
-            attachment_key = writer.upload_attachment(item_key, svg_path)
+            attachment_key = writer.upload_attachment(item_key, attachment_path)
         except ZoteroWriteError as exc:
             update_run(
                 scope,
@@ -435,7 +440,7 @@ def publish_document(
                 data={"attachment_state": "unknown" if exc.committed else "rejected", "attachment_error": exc.code},
             )
             raise AiNote2Error(
-                "note 已创建，SVG 上传失败；请对账",
+                "note 已创建，analysis.json 上传失败；请对账",
                 code=exc.code,
                 committed=True,
                 hint_key="attachment_unknown" if exc.committed else "attachment_rejected",
@@ -450,18 +455,36 @@ def publish_document(
         remote_attachment = writer.read_item(attachment_key)
     except ZoteroWriteError as exc:
         raise AiNote2Error(
-            "SVG 已上传，但附件回读失败", code=exc.code, committed=True, hint_key="attachment_unknown"
+            "analysis.json 已上传，但附件回读失败", code=exc.code, committed=True, hint_key="attachment_unknown"
         ) from exc
     att = remote_attachment.get("data", {})
     if (
         att.get("itemType") != "attachment"
         or att.get("parentItem") != item_key
-        or att.get("filename") != state["svg_name"]
-        or att.get("contentType") != "image/svg+xml"
+        or att.get("filename") != state["attachment_name"]
+        or att.get("contentType") not in {"application/json", "text/plain"}
     ):
         raise AiNote2Error(
-            "SVG 附件回读不一致；请核对", code="conflict", committed=True, hint_key="attachment_mismatch"
+            "analysis.json 附件回读不一致；请核对", code="conflict", committed=True, hint_key="attachment_mismatch"
         )
+    if not content_verified:
+        try:
+            remote_bytes = writer.download_attachment(attachment_key)
+        except ZoteroWriteError as exc:
+            raise AiNote2Error(
+                "analysis.json 附件无法回读内容；请对账",
+                code=exc.code,
+                committed=True,
+                hint_key="attachment_unknown",
+            ) from exc
+        if sha256(remote_bytes).hexdigest() != state.get("attachment_sha256"):
+            raise AiNote2Error(
+                "analysis.json 远端内容摘要不符；请对账",
+                code="conflict",
+                committed=True,
+                hint_key="attachment_mismatch",
+            )
+        content_verified = True
     update_run(
         scope,
         run_number,

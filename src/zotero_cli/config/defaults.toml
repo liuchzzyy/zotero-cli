@@ -126,6 +126,8 @@ context = 250000
 per_image = 4096
 [ai_notes2]
 template = "evidence-chain"
+timeout_seconds = 1200.0
+max_retries = 0
 # 三链输出很长，单轮修复常常只改好第一处；给模型多轮机会以覆盖剩余结构错误。
 repair_attempts = 3
 note_title_prefix = "框架分析 - "

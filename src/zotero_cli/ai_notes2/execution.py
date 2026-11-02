@@ -36,6 +36,7 @@ from zotero_cli.config import (
     resolve_write_credentials,
     state_dir,
 )
+from zotero_cli.config.runtime import section
 from zotero_cli.zotero.access.reader import ZoteroReader
 from zotero_cli.zotero.access.writer import ZoteroWriter
 
@@ -159,6 +160,8 @@ def execute_ai_note2(
 
     reader = ZoteroReader(db_path, library_id=library_id, prefs_js_path=get_prefs_js_path(config))
     ai_config = load_ai_note_config()
+    ai_config.timeout_seconds = float(section("ai_notes2")["timeout_seconds"])
+    ai_config.max_retries = int(section("ai_notes2")["max_retries"])
     try:
         try:
             snapshot = collect_inputs(
@@ -327,11 +330,15 @@ def execute_ai_note2(
     writer = ZoteroWriter(library_id=writer_library_id, api_key=writer_api_key, library_type=library_type)
     html_note = render_html(document, title=title, verification=verification)
     try:
-        svg_name = f"{key}-{run_number:04d}-tree.svg"
-        svg_path = target_dir / svg_name
-        svg_path.write_bytes((target_dir / "tree.svg").read_bytes())
+        attachment_path = target_dir / f"{key}-{run_number:04d}-analysis.json"
+        attachment_path.write_bytes((target_dir / "analysis.json").read_bytes())
         published = publish_document(
-            writer, scope=scope, run_number=run_number, item_key=key, html_note=html_note, svg_path=svg_path
+            writer,
+            scope=scope,
+            run_number=run_number,
+            item_key=key,
+            html_note=html_note,
+            attachment_path=attachment_path,
         )
     except AiNote2Error:
         raise

@@ -24,6 +24,8 @@
 
 只输出一个 JSON 对象：
 
+`note` 等新写的中文说明不使用 Unicode 上下标、`<sup>`/`<sub>` 或 LaTeX 上下标；写作 `MnO2`、`Zn2+`、`mAh g^-1`。中文与英文、数字（包括希腊字母）之间加一个半角空格，如 `层状 δ-MnO2 与 5 mg cm^-2 负载`。不得改动 `object_id`、`source_refs`、字段名或原文摘录来满足排版规则。
+
 ```json
 {"verdicts": [{"object_id": "TC-N001", "status": "支持", "source_refs": [{"source_set_id": "set-1", "attachment_key": "ATTACHMENT", "block_id": "B0001"}], "note": "说明"}]}
 ```

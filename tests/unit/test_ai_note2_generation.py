@@ -183,11 +183,11 @@ def test_artifacts_are_written_atomically(allocated, tmp_path: Path):
         "review.md",
         "note.md",
         "note.html",
-        "tree.svg",
         "run.json",
     }
     assert not list(tmp_path.glob(".*.tmp"))
     assert json.loads((tmp_path / "analysis.json").read_text(encoding="utf-8"))["parent_item_key"] == "SYNITEM1"
+    assert not (tmp_path / "tree.svg").exists()
     validate_document(json.loads((tmp_path / "analysis.json").read_text(encoding="utf-8")))
     object_index = json.loads((tmp_path / "object-index.json").read_text(encoding="utf-8"))
     assert object_index["source"]["parent_item_key"] == "SYNITEM1"
@@ -292,6 +292,22 @@ def test_normalization_does_not_rewrite_scientific_scope_or_assign_sources(docum
     assert status["source_refs"] == []
 
 
+def test_not_applicable_reference_info_gets_reason_for_own_experiment(document):
+    from copy import deepcopy
+
+    from zotero_cli.ai_notes2.generation import _candidate_errors
+
+    data = deepcopy(_payload(document))
+    evidence = data["evidence"]["evidence_records"][0]
+    status = next(s for s in evidence["field_statuses"] if s["path"] == "/reference_info")
+    status.update(status="不适用", reason=None)
+    result, errors = _candidate_errors(json.dumps(data, ensure_ascii=False), _snapshot(document), 1)
+    assert not errors
+    assert result is not None
+    updated = result["evidence"]["evidence_records"][0]["field_statuses"]
+    assert next(s for s in updated if s["path"] == "/reference_info")["reason"]
+
+
 def test_generation_retries_truncated_output_without_publishing_partial(document, monkeypatch):
     from zotero_cli.ai_notes.errors import OutputTruncatedError
     from zotero_cli.ai_notes2 import generation
@@ -344,6 +360,99 @@ def test_generation_repairs_within_configured_attempts(document, monkeypatch):
         generation.generate_document(client, _snapshot(document), run_number=1)
     assert error.value.hint_key == "generation_invalid"
     assert len(client.calls) == attempts + 1
+
+
+def test_generation_repairs_single_missing_reference_without_rewriting_document(document, monkeypatch):
+    from copy import deepcopy
+
+    from zotero_cli.ai_notes2 import generation
+
+    monkeypatch.setattr(generation, "model_supports_request", lambda *args, **kwargs: True)
+    bad = deepcopy(_payload(document))
+    target_ref = bad["review"]["claim_assessments"][0]["target_ref"]
+    expected_id = target_ref.pop("target_id")
+    raw = json.dumps(bad, ensure_ascii=False)
+    patch = json.dumps(
+        {"path": "/review/claim_assessments/0/target_ref/target_id", "value": expected_id},
+        ensure_ascii=False,
+    )
+    client = FakeClient([raw, patch])
+    result = generation.generate_document(client, _snapshot(document), run_number=1)
+    assert result.repair_used
+    assert len(client.calls) == 2
+    assert result.document["review"]["claim_assessments"][0]["target_ref"]["target_id"] == "TC-N001"
+    assert "只输出" in client.calls[1]["prompt"]
+
+
+def test_single_field_repair_rejects_changes_outside_reported_path(document, monkeypatch):
+    from copy import deepcopy
+
+    from zotero_cli.ai_notes2 import generation
+
+    monkeypatch.setattr(generation, "model_supports_request", lambda *args, **kwargs: True)
+    bad = deepcopy(_payload(document))
+    bad["review"]["claim_assessments"][0]["target_ref"].pop("target_id")
+    raw = json.dumps(bad, ensure_ascii=False)
+    wrong = json.dumps({"path": "/thought/nodes/0/text", "value": "伪造内容"})
+    client = FakeClient([raw, wrong, json.dumps(_payload(document), ensure_ascii=False)])
+    result = generation.generate_document(client, _snapshot(document), run_number=1)
+    assert result.repair_used
+    assert len(client.calls) == 3
+    assert result.document["thought"]["nodes"][0]["text"] == document["thought"]["nodes"][0]["text"]
+
+
+def test_multiple_structure_errors_use_bounded_field_patches(document, monkeypatch):
+    from copy import deepcopy
+
+    from zotero_cli.ai_notes2 import generation
+
+    monkeypatch.setattr(generation, "model_supports_request", lambda *args, **kwargs: True)
+    bad = deepcopy(_payload(document))
+    bad["thought"]["support_edges"][0]["combination"] = {"mode": "联合使用", "edge_ids": []}
+    bad["evidence"]["evidence_records"][0]["field_statuses"][0]["path"] = "/not_a_field"
+    raw = json.dumps(bad, ensure_ascii=False)
+    patches = json.dumps(
+        {
+            "patches": [
+                {"path": "/thought/support_edges/0/combination", "value": {"mode": "未明确", "edge_ids": []}},
+                {"path": "/evidence/evidence_records/0/field_statuses/0/path", "value": "/primary_aspect"},
+            ]
+        },
+        ensure_ascii=False,
+    )
+    client = FakeClient([raw, patches])
+    result = generation.generate_document(client, _snapshot(document), run_number=1)
+    assert result.repair_used
+    assert len(client.calls) == 2
+    assert "只输出" in client.calls[1]["prompt"]
+    assert result.document["thought"]["support_edges"][0]["combination"]["mode"] == "未明确"
+    assert result.document["evidence"]["evidence_records"][0]["field_statuses"][0]["path"] == "/primary_aspect"
+
+
+def test_field_patch_rejects_any_unreported_change(document, monkeypatch):
+    from copy import deepcopy
+
+    from zotero_cli.ai_notes2 import generation
+
+    monkeypatch.setattr(generation, "model_supports_request", lambda *args, **kwargs: True)
+    bad = deepcopy(_payload(document))
+    bad["thought"]["support_edges"][0]["combination"] = {"mode": "联合使用", "edge_ids": []}
+    bad["evidence"]["evidence_records"][0]["field_statuses"][0]["path"] = "/not_a_field"
+    wrong = json.dumps(
+        {
+            "patches": [
+                {"path": "/thought/support_edges/0/combination", "value": {"mode": "未明确", "edge_ids": []}},
+                {"path": "/thought/nodes/0/text", "value": "凭空改写"},
+            ]
+        },
+        ensure_ascii=False,
+    )
+    client = FakeClient(
+        [json.dumps(bad, ensure_ascii=False), wrong, json.dumps(_payload(document), ensure_ascii=False)]
+    )
+    result = generation.generate_document(client, _snapshot(document), run_number=1)
+    assert len(client.calls) == 3
+    assert result.document["thought"]["nodes"][0]["text"] == document["thought"]["nodes"][0]["text"]
 
 
 def test_repair_keeps_failed_json_in_the_correction_request(document, monkeypatch):

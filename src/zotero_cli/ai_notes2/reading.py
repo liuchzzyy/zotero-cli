@@ -26,7 +26,7 @@ def build_reading_sections(document: Note2Document, verification: dict[str, Any]
             f"父条目 {data['parent_item_key']}；运行 {data['run_number']:04d}；运行标识 {data['parent_item_key']}-{data['run_number']:04d}-。",
         ),
         (0, "输入包括文本、表格文字、公式与图注；未检查图像像素。来源评估不等于科学结论成立。"),
-        (0, f"图形附件：{data['parent_item_key']}-{data['run_number']:04d}-tree.svg。"),
+        (0, f"权威分析附件：{data['parent_item_key']}-{data['run_number']:04d}-analysis.json。"),
     ]
     for document_source in data["inputs"]["documents"]:
         sections.append(

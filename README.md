@@ -248,7 +248,7 @@ uv run zot ai-note ITEMKEY --idempotency-key analyze-ITEMKEY-001
 
 ## 三链框架分析笔记（ai-note2）
 
-`ai-note2` 在已有 AI 分析笔记的基础上，单阶段生成思维链、证据链与审查链，输出采用蓝色主调，生成以论点为中枢的一体化分析视图，并在发布时将鱼骨状 SVG 作为独立文件附件上传至该论文。没有可识别的旧 AI 分析笔记时正常跳过，不解析 PDF、不调用模型、不写 Zotero。首版只支持 `itemType=journalArticle`；综述、书籍、会议论文等其他类型返回 `validation_error`，不套用该模板。中文文本借鉴 ASD-STE100 清晰写作原则，不表示正式符合英文受控语言标准。
+`ai-note2` 在已有 AI 分析笔记的基础上，单阶段生成思维链、证据链与审查链，输出采用蓝色主调，生成以论点为中枢的一体化分析视图，并在发布时将权威 `analysis.json` 作为父条目的独立文件附件上传。没有可识别的旧 AI 分析笔记时正常跳过，不解析 PDF、不调用模型、不写 Zotero。首版只支持 `itemType=journalArticle`；综述、书籍、会议论文等其他类型返回 `validation_error`，不套用该模板。中文文本借鉴 ASD-STE100 清晰写作原则，不表示正式符合英文受控语言标准。
 
 ```bash
 # 预览所选旧笔记、PDF 附件、输入范围与预算；不调用分析模型、不写 Zotero
@@ -257,7 +257,7 @@ uv run zot ai-note2 ITEMKEY --dry-run
 # 只生成本地权威 analysis.json、派生索引、分链视图与 Zotero 紧凑视图，不创建 writer
 uv run zot ai-note2 ITEMKEY --local-only
 
-# 生成并向父条目发布 child note、SVG 附件和 ai/evidence 标签
+# 生成并向父条目发布 child note、analysis.json 附件和 ai/evidence 标签
 uv run zot ai-note2 ITEMKEY --source-note NOTEKEY
 
 # 对账最近一次结果未知的发布；不重新生成或创建 note
@@ -278,17 +278,17 @@ uv run zot ai-note2 ITEMKEY --force --idempotency-key RUNKEY
 - 提示词来自 `src/zotero_cli/ai_notes2/templates/evidence-chain.md`，模板与包一起分发；占位符只替换模板声明的字段，论文正文中的花括号保持原样。
 - PDF 按内容 SHA-256 去除字节相同的副本并保留附件别名；正文/支撑信息角色沿用启发式判定，并记录判定依据与“身份未明确”，不因附件唯一就宣称文献身份正确。
 - 发给模型的只有保留块类型、顺序、页码与 `block_id` 的文本 JSON 投影和旧笔记文本；图片路径、URL、base64 和像素都不进入请求。原文片段由程序从冻结块填入，区间越界或未知来源视为结构错误。
-- 分析阶段通常发送一次请求；JSON 或结构校验失败时，按 `[ai_notes2].repair_attempts` 追加结构修复，内置默认最多三轮。来源核对另有一次模型调用；各调用及路由回退的时间会累积。输入超出字符或上下文预算时明确失败，不静默截断。`max_tokens > 0` 时计入预算并传给 API；`0` 时省略该参数，实际输出额度由服务端决定。
+- 分析阶段通常发送一次请求；JSON 或结构校验失败时，按 `[ai_notes2].repair_attempts` 追加结构修复，内置默认最多三轮。单个缺失引用 ID 可仅修复该字段，再执行全量校验。ai-note2 专用请求超时默认 1200 秒，SDK 重试 0 次；旧 ai-note 保持原参数。批处理单条默认时限 120 分钟。来源核对另有一次模型调用；各调用及路由回退的时间会累积。输入超出字符或上下文预算时明确失败，不静默截断。`max_tokens > 0` 时计入预算并传给 API；`0` 时省略该参数，实际输出额度由服务端决定。
 - 生成后执行第二步核对：程序先确认已登记的论文来源定位、原文片段与图号来自本次冻结块；背景和外部判准不要求引用论文块。随后模型逐条复核；每个核对来源使用 `source_set_id + attachment_key + block_id` 三元组。核对响应缺项、重复对象或引用未登记来源会失败。模型判定为“部分支持/不支持/无法核对”的对象不会阻止发布，但会写入 `run.json` 与派生视图，须人工复核；提示词要求区分未观察图像和外部判准，但模型不保证遵守。
 - `--reconcile` 对账最近一次已提交或结果未知的运行。创建 note 的结果未知时，按父条目和运行标识查找唯一匹配；附件上传结果未知时，按文件名查找唯一附件，下载远端字节并与本地 SHA-256 核对。找不到唯一对象、下载失败或摘要不符时保持待核，不盲目重复创建。
 - `analysis.json` 是唯一完整科学内容源。`object-index.json` 用分析摘要、运行身份和完整对象指针派生紧凑索引，明确投影支持、证据用途、处理派生、共享来源、联合使用、候选与审查关系；它可删除重建，不是第二份科学记录。
-- 本地产物包含 `analysis.json`、`object-index.json`、`overview.md`、`thought.md`、`evidence.md`、`review.md`、`note.md`、`note.html`、`tree.svg` 和 `run.json`。发布时还生成 `<ITEMKEY>-<运行号>-tree.svg` 并作为父条目的独立文件附件。正文按已登记关系组织论点、报告材料、作者推理和审查；未关联材料及无法放入论点单元的审查另行呈现。SVG 以鱼骨图展示论点结构，并在图下方列出证据与审查索引；这些索引不是图中已连接的证据节点。Markdown 和 HTML 使用蓝色标题，显示效果取决于查看器对内联样式的支持。
+- 本地产物包含 `analysis.json`、`object-index.json`、`overview.md`、`thought.md`、`evidence.md`、`review.md`、`note.md`、`note.html` 和 `run.json`。发布时复制权威文件为 `<ITEMKEY>-<运行号>-analysis.json` 并作为父条目的独立文件附件。正文按已登记关系组织论点、报告材料、作者推理和审查；未关联材料及无法放入论点单元的审查另行呈现。Markdown 和 HTML 使用蓝色标题，显示效果取决于查看器对内联样式的支持。
 - 索引分别记录结构与引用校验、冻结来源一致性和模型来源评估；这些检查及图注图号都不表示科学正确或已查看图像像素。
 - 分析结构校验通过后，在状态根的 `ai_note2/<库 ID>/<条目 key>/<运行号>/diagnostic/` 保存 `generated.json`；模型核对返回后、解析前保存 `verification-response.txt`。目录与文件限制当前用户访问，包含论文及模型内容；未返回的响应不会生成文件。
 - 每个本地产物先写临时文件再替换目标文件；多文件整体不是原子事务。全局 index 形如 `ITEMKEY-0001-0001`，跨 TC/EC/RC 唯一；推理桥使用支持链 index 加 `.bridge`，不占新对象号。
-- 发布依次回读 note、SVG 附件元数据和父条目标签，三者符合预期后记 `verified`；正常成功路径不下载附件内容，`attachment_content_verified=false` 表示没有核验远端文件字节。只有未知上传结果对账时下载并核对 SHA-256 成功才设为 `true`。这不是整体事务；note 已创建后的任何失败仍保留 `committed=true` 与已知 key，先对账，不重复创建 note。
+- 发布依次回读 note、JSON 附件元数据与字节、父条目标签，确认远端 JSON SHA-256 与本地一致后才记 `verified`；`attachment_content_verified=true` 表示本次校验完成。不是整体事务；note 已创建后的任何失败仍保留 `committed=true` 与已知 key，先对账，不重复创建 note。
 - 账本位于配置状态根的 `ai_note2/`，与旧 `ai-note` 的幂等命名空间分离；进行中或结果未知时 `--force` 与新键都不能绕过对账。
-- 线型只表达该范围内的支持可靠性：有覆盖该关系的正向评议才用实线，缺少对应审查时默认虚线并标注待核；审查旁挂与排版底轨不冒充支持路径。
+- 新运行不再生成或发布 SVG；以 `analysis.json` 保存完整三链内容，并在 note 中展示可读视图。旧运行的本地历史产物保持原状。
 
 ## 写入与安全操作
 
